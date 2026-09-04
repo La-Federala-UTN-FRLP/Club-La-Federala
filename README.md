@@ -12,6 +12,7 @@ La documentación operativa y técnica se consolida en [`docs/`](docs/00-introdu
 - [Arquitectura técnica](docs/architecture/overview.md)
 - [Contrato de API (OpenAPI)](Backend/documents/documentacionApi.yaml)
 - [Guía de desarrollo](docs/development/setup-local.md)
+- [Guía de contribución](CONTRIBUTING.md)
 
 ## Miembros del Equipo
 
