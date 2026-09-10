@@ -1,5 +1,18 @@
 # Sistema de gestión de información de lotes del Club de Campo La Federala.
+
 Sistema para que centralice y gestione la información  relacionada con los lotes y propietarios del Club de Campo La Federala, con los  fines  de  ser  la  herramienta principal  del  club  y  como  servicio  de  venta  para  las  inmobiliarias asociadas.
+
+## Documentación actual
+
+La documentación operativa y técnica se consolida en [`docs/`](docs/00-introduccion.md). La carpeta histórica [`Documentacion/`](Documentacion/README.md) se conserva sin modificaciones durante la transición.
+
+- [Dominio y negocio](docs/domain/glosario.md)
+- [Requisitos](docs/requirements/requisitos-funcionales.md)
+- [Casos de uso](docs/use-cases/casos-uso-principales.md)
+- [Arquitectura técnica](docs/architecture/overview.md)
+- [Contrato de API (OpenAPI)](Backend/documents/documentacionApi.yaml)
+- [Guía de desarrollo](docs/development/setup-local.md)
+- [Guía de contribución](CONTRIBUTING.md)
 
 ## Miembros del Equipo
 
