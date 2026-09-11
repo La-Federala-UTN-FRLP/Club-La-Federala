@@ -1,77 +1,60 @@
-## Descripción
+## Qué problema resuelve
 
-<!-- Explicá brevemente qué hace este PR y por qué es necesario.
-     Una o dos oraciones es suficiente. -->
+<!-- Una o dos oraciones. Si no hay Issue, igual describí el motivo del cambio. -->
 
----
+## Qué se cambió
 
-## Tipo de cambio
+<!-- Resumen del alcance. Ejemplos de área: Lote, Reserva, Oferta, Venta, Pago, Persona, Inmobiliaria, Prioridad, Archivos, Auth, Frontend, Backend, Infra, Docs. -->
 
-<!-- Marcá con una X el tipo que corresponde -->
+-
 
-- [ ] `feat` — nueva funcionalidad
-- [ ] `fix` — corrección de bug
-- [ ] `docs` — cambio en documentación (TDD, README, etc.)
-- [ ] `chore` — tarea de configuración o mantenimiento
-- [ ] `refactor` — refactorización sin cambio de comportamiento
+## Por qué esta solución
 
----
+<!-- Completar cuando haya más de un enfoque razonable o una decisión no obvia. Si el cambio es directo, se puede omitir. -->
 
-## Entidad
+## Cómo se validó
 
-<!-- ¿A qué entidad o parte del proyecto afecta este PR?
-     Ejemplo: Payment · MedicalCertificate · Locker · Sport · Discipline · EquipmentLoan · General -->
+<!-- Qué comandos, pruebas o revisiones se ejecutaron. Distinguir fallos preexistentes de regresiones de este PR. No afirmar que el CI global está verde si el baseline sigue en rojo. -->
 
+-
 
----
+## Limitaciones
 
-## Cambios incluidos
+<!-- Deuda, alcance recortado, riesgos conocidos o seguimiento pendiente. Si no hay, indicarlo. -->
 
-<!-- Listá los archivos o secciones principales que modificaste -->
+## Documentación afectada
 
-- 
-- 
+<!-- docs/, ADR, README, CONTRIBUTING, AI-DECISIONS.md u otro. Si no aplica, indicarlo. -->
+
+## Issue relacionado
+
+<!-- Opcional: completar solo si existe un GitHub Issue. Issues no son obligatorios. -->
+<!-- Si aplica: Closes #123 -->
 
 ---
 
 ## Checklist del autor
 
-<!-- Revisá cada punto antes de pedir review. Un PR incompleto no se aprueba. -->
+- [ ] La rama parte de `main` actualizado y tiene un único propósito
+- [ ] Los commits siguen `tipo(scope): descripción`
+- [ ] No incluí secretos, `.env` ni archivos ajenos a la tarea
+- [ ] Documenté las validaciones ejecutadas y el resultado
+- [ ] Actualicé documentación o ADR si el comportamiento o una decisión cambió
+- [ ] Si usé IA de forma relevante (código, arquitectura, seguridad o decisión técnica), lo registré en `AI-DECISIONS.md`
+- [ ] Actualicé el tablero de GitHub Projects (Backlog / In Progress / Review / Done)
 
-- [ ] Mi rama parte de `main` actualizado (`git pull origin main` antes de crear la rama)
-- [ ] Los commits siguen el formato `tipo(scope): descripción` definido en `CONTRIBUTING.md`
-- [ ] No incluí archivos innecesarios (`.env`, `__pycache__`, archivos del editor, etc.)
-- [ ] El PR tiene un título descriptivo que sigue la convención de commits
-- [ ] El PR tiene un titulo trazable con Jira, key del work item/issue relacionado (TPI).
-- [ ] Pasan todos los tests locales
-- [ ] La rama tiene un nombre descriptivo
-- [ ] Se eliminaron `console.log` o comentarios innecesarios
-- [ ] Se actualizó la documentación si era necesario
+### Configuración y seguridad
 
+<!-- Marcar solo lo que aplique al cambio. -->
+
+- [ ] No expuse credenciales, tokens ni URLs con secretos
+- [ ] Revisé impacto de autorización / datos personales si el cambio toca Auth, Persona, Inmobiliaria o archivos
 
 ---
 
 ## Checklist del reviewer
 
-<!-- El reviewer completa esta sección al aprobar -->
-
-- [ ] Leí el documento o código completo, no solo el diff
-- [ ] Los commits son atómicos y descriptivos
-- [ ] No hay archivos innecesarios incluidos
-- [ ] Dejé al menos un comentario constructivo (aunque sea para aprobar sin objeciones)
-
----
-
-## Issue de Jira relacionado
-
-<!-- Si usás Jira, pegá el número de issue. Si no, borrá esta sección. -->
-
-Cierra [TEAM-XX]
-
----
-
-## Notas para el reviewer
-
-<!-- ¿Hay algo en particular que quieras que el reviewer preste atención?
-     ¿Alguna decisión de diseño que necesite contexto? Escribilo acá.
-     Si no hay nada especial, podés borrar esta sección. -->
+- [ ] El alcance coincide con lo que describe el PR
+- [ ] Revisé las validaciones o la evidencia indicada
+- [ ] No hay cambios ajenos a la tarea
+- [ ] Las conversaciones relevantes del PR están resueltas
