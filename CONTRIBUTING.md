@@ -1,43 +1,47 @@
 # Guía de contribución
 
-Esta guía describe cómo preparar cambios para el Sistema de Gestión de Información de Lotes del Club de Campo La Federala. Las decisiones y convenciones detalladas permanecen en la documentación mantenida bajo [`docs/`](docs/00-introduccion.md).
+Esta guía describe cómo preparar cambios para el Sistema de Gestión de Información de Lotes del Club de Campo La Federala. El detalle de la estrategia de ramas está en [`docs/development/git-flow.md`](docs/development/git-flow.md). El resto de decisiones y convenciones permanece en [`docs/`](docs/00-introduccion.md).
 
 ## Estrategia de ramas
 
-No se realizan cambios directamente sobre `main`. Cada aporte se desarrolla en una rama corta, con un único objetivo, creada desde una base actualizada.
+`main` es la **única rama estable**. No existe `develop`.
 
-Usar nombres descriptivos según el tipo de cambio:
+No se realizan cambios directamente sobre `main`. Cada aporte vive en una rama corta, de un único propósito, creada desde `main` actualizado. La rama identifica el cambio, no a la persona: no usar ramas personales permanentes (`nico`, `santi`, `agus`, `backend`, `frontend`).
 
-- `feature/nombre-de-la-funcionalidad` para una funcionalidad.
-- `fix/descripcion-del-error` para una corrección.
-- `docs/mejora-de-documentacion` para documentación.
-- `refactor/nombre-del-cambio` para una mejora interna sin cambio funcional.
+Prefijos:
+
+- `feature/<descripcion>`
+- `fix/<descripcion>`
+- `docs/<descripcion>`
+- `refactor/<descripcion>`
+- `test/<descripcion>`
+- `chore/<descripcion>`
+- `ci/<descripcion>`
+- `perf/<descripcion>`
+- `experiment/<descripcion>` — solo para hipótesis técnicas temporales; ver [git-flow](docs/development/git-flow.md#experimentos)
+
+Ejemplos: `fix/ventas-ownership`, `docs/repository-governance`, `feature/reportes-resumen`.
 
 ## Flujo de trabajo
 
-1. Sincronizar la rama principal antes de comenzar:
+1. Partir de `main` actualizado y crear una rama corta según el tipo de cambio.
+2. Implementar un único objetivo, siguiendo las [convenciones de código](docs/development/convenciones-codigo.md).
+3. Crear commits con Conventional Commits y scope obligatorio (ver abajo).
+4. Ejecutar las validaciones pertinentes al cambio y anotar qué se ejecutó.
+5. Abrir un Pull Request hacia `main`. Otra persona del equipo debe revisarlo.
+6. Integrar con **Squash & Merge** cuando la revisión y las validaciones pertinentes estén en orden.
 
-   ```bash
-   git checkout main
-   git pull origin main
-   ```
+El seguimiento del trabajo se hace en **GitHub Projects** (requisito del TPI Cloud 2026), con columnas Backlog / In Progress / Review / Done y un límite WIP de una tarea principal In Progress por integrante.
 
-2. Crear una rama para la tarea:
-
-   ```bash
-   git checkout -b feature/nueva-funcionalidad
-   ```
-
-3. Implementar el cambio siguiendo las [convenciones de código](docs/development/convenciones-codigo.md) y el [flujo de trabajo con Git](docs/development/git-flow.md).
-4. Ejecutar las validaciones aplicables antes de abrir un Pull Request.
-5. Crear commits descriptivos con la convención definida abajo.
-6. Abrir un Pull Request hacia `main`; otra persona del equipo debe revisarlo antes de integrarlo.
+GitHub Issues son opcionales. No hace falta asociar cada rama a un Issue ni poner el número en el nombre. Si el cambio cierra un Issue existente, usar `Closes #123` en el PR.
 
 ## Validaciones
 
-Ejecutar solo las validaciones que correspondan a los componentes modificados.
+Ejecutar solo las validaciones que correspondan a los componentes modificados. Documentar en el PR qué se corrió. Distinguir fallos preexistentes del baseline de auditoría 2026 respecto de regresiones introducidas por el cambio.
 
-Backend:
+No afirmar que el CI completo está verde: varios quality gates globales siguen en rojo. Cuando TypeScript, tests y build estén saneados, `main` pasará a exigir status checks obligatorios.
+
+Backend (si el cambio lo toca):
 
 ```bash
 cd Backend
@@ -45,7 +49,7 @@ npm run build
 npm test
 ```
 
-Frontend:
+Frontend (si el cambio lo toca):
 
 ```bash
 cd frontend
@@ -57,15 +61,15 @@ Para cambios exclusivamente documentales, revisar enlaces Markdown, coherencia c
 
 ## Convención de commits
 
-Los commits deben respetar el formato:
+Los commits deben respetar el formato exigido por `.githooks/commit-msg`:
 
 ```text
 tipo(scope): descripción
 ```
 
-Ejemplos: `feat(reservas): agrega cancelación` y `docs(api): actualiza contrato de reservas`.
+Ejemplos: `feat(reservas): agrega cancelación`, `fix(ventas): restringe acceso entre inmobiliarias`, `docs(git): documenta estrategia de ramas`.
 
-El repositorio incluye un hook `commit-msg` que valida este formato. Para activarlo localmente, ejecutar una vez desde la raíz:
+Para activar el hook localmente, ejecutar una vez desde la raíz:
 
 ```bash
 git config core.hooksPath .githooks
@@ -73,18 +77,21 @@ git config core.hooksPath .githooks
 
 Los tipos aceptados son `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `build`, `ci`, `perf` y `revert`.
 
-## Estándares de código y documentación
+## Documentación
 
-- Aplicar las [convenciones de código](docs/development/convenciones-codigo.md), que incluyen nomenclatura, imports, separación de responsabilidades y documentación de decisiones no obvias.
-- Mantener la documentación de [`docs/`](docs/00-introduccion.md) alineada con cambios en reglas, endpoints, casos de uso o decisiones de arquitectura.
-- Conservar [`Documentacion/`](Documentacion/README.md) como material histórico mientras dure la consolidación; no modificarla sin una decisión explícita.
-- Registrar decisiones de arquitectura nuevas mediante ADR, según el [flujo de trabajo con Git](docs/development/git-flow.md).
+- Aplicar las [convenciones de código](docs/development/convenciones-codigo.md).
+- Actualizar [`docs/`](docs/00-introduccion.md) cuando cambie una decisión, una regla o un comportamiento observable.
+- Registrar decisiones de arquitectura importantes mediante ADR en [`docs/architecture/adr/`](docs/architecture/adr/001-estructura-documentacion.md).
+- Registrar en [`AI-DECISIONS.md`](AI-DECISIONS.md) los usos relevantes de IA que afecten código, arquitectura, seguridad o decisiones técnicas: problema, prompt/herramienta, propuesta y validación humana.
+- Conservar [`Documentacion/`](Documentacion/README.md) como material histórico; no modificarla sin una decisión explícita.
+- El contrato OpenAPI en `Backend/documents/documentacionApi.yaml` existe, pero está pendiente de reconciliación con la API actual: no tratarlo todavía como contrato oficial validado.
 
 ## Checklist para Pull Requests
 
-- [ ] La rama tiene un propósito y nombre descriptivos.
+- [ ] La rama tiene un único propósito y un nombre descriptivo.
 - [ ] Los commits cumplen `tipo(scope): descripción`.
-- [ ] Ejecuté las validaciones aplicables o aclaré por qué no correspondían.
+- [ ] Ejecuté las validaciones aplicables y documenté el resultado, incluidos fallos preexistentes.
 - [ ] No incluí secretos, archivos generados ni cambios ajenos a la tarea.
-- [ ] Actualicé documentación, contrato de API o ADR cuando el cambio lo requiere.
-- [ ] El PR explica el alcance, la validación realizada y cualquier limitación conocida.
+- [ ] Actualicé `docs/` o un ADR cuando el cambio lo requiere.
+- [ ] Si el cambio usó IA de forma relevante, quedó registrado en [`AI-DECISIONS.md`](AI-DECISIONS.md).
+- [ ] El PR explica el problema, el cambio, la validación y las limitaciones conocidas.
