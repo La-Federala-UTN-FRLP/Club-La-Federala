@@ -54,13 +54,15 @@ export async function aplicarPromocion(
     throw err;
   }
 
+  const precioAnterior = lote.precio;
+
   // Ejecutar en transacción
   const resultado = await prisma.$transaction(async (tx) => {
     // Crear promoción
     const promocion = await tx.promocion.create({
       data: {
         loteId,
-        precioAnterior: lote.precio,
+        precioAnterior,
         precioPromocional: body.precioPromocional,
         estadoAnterior: lote.estado,
         inicio: new Date(),

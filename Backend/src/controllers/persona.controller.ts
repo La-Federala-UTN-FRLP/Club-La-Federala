@@ -92,7 +92,7 @@ async obtenerTodas(req: Request, res: Response) {
         view,
         q,
         includeInactive,
-        estado,
+        estadoOperativo: estado,
         limit,
       });
 

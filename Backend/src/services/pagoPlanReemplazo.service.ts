@@ -1,5 +1,6 @@
 // Reemplazo de plan vigente con pagos (I6): lógica aislada de pago.service.ts
 import type { Prisma } from '@prisma/client';
+import type { Decimal } from '../generated/prisma/runtime/library';
 import { z } from 'zod';
 import prisma from '../config/prisma';
 import { calcularMontoFinanciado, determinarEstadoCobro, estaCuotaVencida } from '../domain/pagoState/pagoState.rules';

@@ -19,18 +19,24 @@ const tipoLoteToPrisma = (t: TipoLoteDto | undefined): TipoLotePrisma => {
   }
   return result;
 };
-const estadoLoteToPrisma = (e: EstadoLoteDto | undefined): EstadoLotePrisma | undefined => {
+const estadoLoteDtoToPrismaMap: Record<EstadoLoteDto, EstadoLotePrisma> = {
+  'Disponible': 'DISPONIBLE',
+  'Reservado': 'RESERVADO',
+  'Vendido': 'VENDIDO',
+  'No Disponible': 'NO_DISPONIBLE',
+  'Alquilado': 'ALQUILADO',
+  'En Promoción': 'EN_PROMOCION',
+  'Con Prioridad': 'CON_PRIORIDAD',
+};
+
+function isEstadoLoteDtoLabel(value: string): value is EstadoLoteDto {
+  return Object.prototype.hasOwnProperty.call(estadoLoteDtoToPrismaMap, value);
+}
+
+const estadoLoteToPrisma = (e: string | EstadoLoteDto | undefined): EstadoLotePrisma | undefined => {
   if (!e) return undefined;
-  const map: Record<EstadoLoteDto, EstadoLotePrisma> = {
-    'Disponible': 'DISPONIBLE',
-    'Reservado': 'RESERVADO',
-    'Vendido': 'VENDIDO',
-    'No Disponible': 'NO_DISPONIBLE',
-    'Alquilado': 'ALQUILADO',
-    'En Promoción': 'EN_PROMOCION',
-    'Con Prioridad': 'CON_PRIORIDAD',
-  };
-  return map[e];
+  if (!isEstadoLoteDtoLabel(e)) return undefined;
+  return estadoLoteDtoToPrismaMap[e];
 };
 const subestadoLoteToPrisma = (s: SubestadoLoteDto | undefined): SubestadoLotePrisma | undefined => {
   if (!s) return undefined;

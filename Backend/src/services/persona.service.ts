@@ -1,5 +1,5 @@
 import prisma from '../config/prisma';
-import type { Persona as PrismaPersona, IdentificadorTipo, PersonaCategoria } from "../generated/prisma";
+import type { Persona as PrismaPersona, IdentificadorTipo, PersonaCategoria, EstadoLote } from "../generated/prisma";
 import type { Identificador, Persona, DeletePersonaResponse, GetPersonaRequest, GetPersonasResponse, PutPersonaResponse, PostPersonaRequest, PostPersonaResponse } from '../types/interfacesCCLF';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 
@@ -39,6 +39,7 @@ type PersonaWithRelations = PrismaPersona & {
   miembrosFamilia?: Array<Pick<PrismaPersona, 'id' | 'nombre' | 'apellido' | 'identificadorValor'>>;
   inmobiliaria?: { id: number; nombre: string } | null;
   lotesPropios?: Array<{ id: number; numero: number | null; mapId: string | null; fraccion: { numero: number } }>;
+  lotesAlquilados?: Array<{ id: number; numero: number | null; mapId: string | null; estado: EstadoLote; fraccion: { numero: number } }>;
   Reserva?: Array<{ id: number; numero: string; createdAt: Date; loteId: number }>;
   Venta?: Array<{ id: number; numero: string }>;
 };
@@ -446,23 +447,6 @@ export async function getPersonaById(
       lotesAlquilados: {
         select: { id: true, numero: true, mapId: true, estado: true, fraccion: { select: { numero: true } } },
         where: { estado: 'ALQUILADO' },
-        take: 10,
-      },
-      // Incluir alquileres activos para obtener los lotes alquilados actuales
-      alquileres: {
-        where: { estado: 'ACTIVO' },
-        select: {
-          id: true,
-          estado: true,
-          lote: {
-            select: {
-              id: true,
-              numero: true,
-              mapId: true,
-              fraccion: { select: { numero: true } }
-            }
-          }
-        },
         take: 10,
       },
       Reserva: {

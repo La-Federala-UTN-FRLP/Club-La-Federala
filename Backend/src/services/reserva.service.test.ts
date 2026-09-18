@@ -133,6 +133,9 @@ describe('createReserva', () => {
             clienteId: 15,
             inmobiliariaId: 2,
             sena: 10000,
+            numero: 'RES-TEST-001',
+            ofertaInicial: 100000,
+            fechaFinReserva: '2025-12-10T18:00:00.000Z',
         };
         const createdReserva = {
             id: 3,
@@ -167,6 +170,9 @@ describe('createReserva', () => {
             fechaReserva: '2025-12-01T18:00:00.000Z',
             loteId: 3,
             clienteId: 15,
+            numero: 'RES-TEST-002',
+            ofertaInicial: 100000,
+            fechaFinReserva: '2025-12-10T18:00:00.000Z',
         };
         const createdReserva = {
             id: 3,
@@ -200,6 +206,9 @@ describe('createReserva', () => {
             fechaReserva: '2025-12-01T18:00:00.000Z',
             loteId: 3,
             clienteId: 15,
+            numero: 'RES-TEST-003',
+            ofertaInicial: 100000,
+            fechaFinReserva: '2025-12-10T18:00:00.000Z',
         };
         const prismaError = new PrismaClientKnownRequestError('Unique constraint failed', {
             code: 'P2002',
@@ -218,6 +227,9 @@ describe('createReserva', () => {
             fechaReserva: '2025-12-01T18:00:00.000Z',
             loteId: 999,
             clienteId: 15,
+            numero: 'RES-TEST-004',
+            ofertaInicial: 100000,
+            fechaFinReserva: '2025-12-10T18:00:00.000Z',
         };
         const prismaError = new PrismaClientKnownRequestError('Foreign key constraint failed', {
             code: 'P2003',

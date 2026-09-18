@@ -27,8 +27,8 @@ export const deleteFileMetadataSchema = z.object({
 });
 
 export const updateAprobacionSchema = z.object({
-    target: z.enum(['COMISION', 'MUNICIPIO'], { required_error: "target es obligatorio" }),
-    estado: z.enum(['PENDIENTE', 'APROBADO', 'RECHAZADO'], { required_error: "estado es obligatorio" }),
+    target: z.enum(['COMISION', 'MUNICIPIO'], { message: 'target es obligatorio' }),
+    estado: z.enum(['PENDIENTE', 'APROBADO', 'RECHAZADO'], { message: 'estado es obligatorio' }),
     observacion: z.string().max(500).optional(),
 });
 
