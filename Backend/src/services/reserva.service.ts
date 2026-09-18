@@ -143,7 +143,6 @@ export async function getReservaByEstado(estadoR: EstadoReserva): Promise<any> {
 export async function createReserva(
   body: {
     fechaReserva: string;           // ISO (lo transformo a Date)
-    estado: EstadoReserva;         // Nuevo campo estado
     loteId: number;
     clienteId: number;
     inmobiliariaId?: number | null;

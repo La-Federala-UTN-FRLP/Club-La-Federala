@@ -11,6 +11,8 @@ export interface AuthUser {
     username: string;
     role: Role;
     createdAt: Date;
+    inmobiliariaId: number | null;
+    inmobiliariaNombre: string | null;
 }
 
 export interface LoginResponse {

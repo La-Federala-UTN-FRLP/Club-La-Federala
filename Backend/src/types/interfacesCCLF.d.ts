@@ -85,8 +85,7 @@ export interface Ubicacion {
     id: number;
     calle: Calle;
     numero: number;
-    idLote: number; // Corrected: added idLote based on schema
-} // Wait, Ubicacion interface might differ from schema structure slightly in this manual file. Sticking to minimal changes.
+}
 
 export interface Fraccion {
     idFraccion: number;
@@ -400,7 +399,7 @@ export interface PostInmobiliariaRequest{
   reservas?: Reserva[]; //Reservas asociadas (opcional)
   ventaId?: number; //Ventas asociadas (opcional)
   userId?: number; //Usuario asociado (opcional)
-  estado: EstadoInmbobiliaria; //Estado de la inmobiliaria (opcional)
+  estado?: EstadoInmbobiliaria; //Estado de la inmobiliaria (opcional; default OPERATIVO en creación)
 }
 
 // Response para crear una nueva inmobiliaria
