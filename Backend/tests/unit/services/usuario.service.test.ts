@@ -1,10 +1,10 @@
-import { getAllUsers, getUsuarioById, createUser, updateUser, deleteUser } from './usuario.service';
-import prisma from '../config/prisma';
+import { getAllUsers, getUsuarioById, createUser, updateUser, deleteUser } from '../../../src/services/usuario.service';
+import prisma from '../../../src/config/prisma';
 import bcrypt from 'bcrypt';
-import type { PostUsuarioRequest, PutUsuarioRequest, Rol } from '../types/interfacesCCLF';
+import type { PostUsuarioRequest, PutUsuarioRequest, Rol } from '../../../src/types/interfacesCCLF';
 
 // ARRANGE GLOBAL: Mockeamos Prisma y bcrypt a nivel de módulo.
-jest.mock('../config/prisma', () => ({
+jest.mock('../../../src/config/prisma', () => ({
     user: {
         findMany: jest.fn(),
         findUnique: jest.fn(),

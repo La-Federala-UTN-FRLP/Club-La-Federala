@@ -1,6 +1,6 @@
-import { createVenta, getVentaById, deleteVenta } from './venta.service';
-import prisma from '../config/prisma';
-import type { PostVentaRequest } from '../types/interfacesCCLF';
+import { createVenta, getVentaById, deleteVenta } from '../../../src/services/venta.service';
+import prisma from '../../../src/config/prisma';
+import type { PostVentaRequest } from '../../../src/types/interfacesCCLF';
 
 const mockTx = {
     venta: { create: jest.fn() },
@@ -9,7 +9,7 @@ const mockTx = {
     reserva: { update: jest.fn() },
 };
 
-jest.mock('../config/prisma', () => ({
+jest.mock('../../../src/config/prisma', () => ({
     venta: {
         findMany: jest.fn(),
         findUnique: jest.fn(),
