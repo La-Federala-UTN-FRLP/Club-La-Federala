@@ -53,6 +53,61 @@ Durante la validación humana se adoptó GitHub Flow liviano: `main` única rama
 - `.githooks/commit-msg`
 - `AI-DECISIONS.md`
 
+### AI-002 — Baseline de testing unitario del backend
+
+**Fecha:** 2026-09-18
+**Área:** Testing / Backend
+**Herramientas:** Cursor
+
+Cursor asistió en la auditoría, la migración de suites y la consolidación del harness. La decisión de alcance, deuda y siguiente trabajo la tomó validación humana (D1–D8 de la Issue #221).
+
+#### Problema
+
+La suite original del backend estaba mezclada con producción y no era un baseline usable:
+
+- 8 suites, 136 tests, 112 PASS, 24 FAIL;
+- tests dentro de `src/`;
+- Jest acoplado a `src`;
+- mocks Prisma dispersos;
+- contratos legacy que no representaban el comportamiento actual.
+
+#### Prompt / intención
+
+Estabilizar testing unitario sin expandir a integration ni CI: separar `src` (producción) de `tests`, cubrir validations/domain/security/services con contratos de negocio, y dejar un harness Prisma mantenible.
+
+#### Propuesta generada por IA
+
+Adoptar Jest + ts-jest con raíz `Backend/tests/`; `tsconfig.json` para app/build y `tsconfig.test.json` para app + tests; factory Prisma por spec (no god-mock); scripts `test:validation`, `test:domain`, `test:service`, `test:unit`; assertions Prisma detalladas solo cuando protegen negocio o seguridad. Supertest/PostgreSQL real queda para una capa futura Integration/API.
+
+#### Validación humana
+
+Se confirmó que el alcance técnico de #221 está completo. Los bugs de producto detectados (incl. inconsistencia de `expireReservas`) van a Issues separados. Usuario y Venta se congelan como suites verdes válidas, sin reescritura. Se aprobó limpieza mínima (Jest `roots` solo en `tests/`). Después de #221 se priorizan P0 y luego Integration/API. No se configura CI todavía.
+
+#### Decisión adoptada
+
+Baseline de testing unitario del backend:
+
+- Jest + ts-jest;
+- tests solo en `Backend/tests/` (`validations`, `domain`, `security`, `services`, `support`);
+- `src` = producción; `tests` = testing;
+- `tsconfig.json` para aplicación/build; `tsconfig.test.json` incluye app + tests (typecheck distinto de Jest roots);
+- factory Prisma por spec, mocks explícitos, tests orientados a comportamiento.
+
+Resultado al cerrar #221: 13 suites, 389 tests, 389 PASS, 0 FAIL, typecheck PASS, build PASS, cero tests en `src/`.
+
+Alternativas descartadas: mantener tests en `src`; migrar a Vitest; god-mock Prisma; cobertura porcentual como objetivo; mezclar integration/CI en #221.
+
+Deuda conocida: Usuario/Venta verdes con harness más legacy; no todos los services tienen suite; controllers/routes/jobs e integration DB/API quedan fuera; coverage sin threshold; bugs de producto en Issues separados.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/jest.config.js`
+- `Backend/tsconfig.json`
+- `Backend/tsconfig.test.json`
+- `Backend/package.json`
+- `Backend/tests/`
+- `AI-DECISIONS.md`
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.

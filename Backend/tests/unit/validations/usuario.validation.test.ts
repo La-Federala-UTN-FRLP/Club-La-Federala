@@ -5,7 +5,7 @@ import {
     getUsuarioSchema, 
     deleteUsuarioSchema, 
     queryUsuarioSchema 
-} from './usuario.validation';
+} from '../../../src/validations/usuario.validation';
 
 //--- Tests para createUsuarioSchema ---
 describe('createUsuarioSchema', () => {
@@ -115,10 +115,25 @@ describe('createUsuarioSchema', () => {
             expect(() => createUsuarioSchema.parse(validUsuario)).not.toThrow();
         });
     });
+
+    test('acepta contraseña con longitud mínima exacta (6 caracteres)', () => {
+        const result = createUsuarioSchema.safeParse({
+            username: 'testuser',
+            password: '123456',
+            rol: 'GESTOR',
+            email: 'test@example.com',
+        });
+        expect(result.success).toBe(true);
+    });
 });
 
 //--- Tests para updateUsuarioSchema ---
 describe('updateUsuarioSchema', () => {
+    test('acepta objeto vacío por ser esquema parcial', () => {
+        const result = updateUsuarioSchema.safeParse({});
+        expect(result.success).toBe(true);
+    });
+
     test('debe validar correctamente una actualización parcial', () => {
         // ARRANGE
         const updateData = {
@@ -283,5 +298,10 @@ describe('queryUsuarioSchema', () => {
 
         // ACT & ASSERT
         expect(() => queryUsuarioSchema.parse(invalidQuery)).toThrow();
+    });
+
+    test('rechaza password en query con menos de 6 caracteres', () => {
+        const result = queryUsuarioSchema.safeParse({ password: '12345' });
+        expect(result.success).toBe(false);
     });
 });
