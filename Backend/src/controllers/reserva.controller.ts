@@ -49,7 +49,8 @@ export async function getReservaByIdController(req: Request, res: Response, next
 export async function getAllReservasByInmobiliariaController(req: Request, res: Response, next: NextFunction) {
   try {
     const id = parseInt(req.params.id, 10);
-    const data = await getReservaByImmobiliariaId(id);
+    const user = req.user;
+    const data = await getReservaByImmobiliariaId(id, user);
     res.json({ success: true, data });
   } catch (error) {
     next(error);
@@ -59,7 +60,8 @@ export async function getAllReservasByInmobiliariaController(req: Request, res: 
 export async function getAllReservasByEstadoController(req: Request, res: Response, next: NextFunction) {
   try {
     const estadoR = req.query.estado as EstadoReserva;
-    const data = await getReservaByEstado(estadoR);
+    const user = req.user;
+    const data = await getReservaByEstado(estadoR, user);
     res.json({ success: true, data });
   } catch (error) {
     next(error);
@@ -138,7 +140,8 @@ export async function reactivarReservaController(req: Request, res: Response, ne
 export async function getOfertasController(req: Request, res: Response, next: NextFunction) {
   try {
     const id = Number(req.params.id);
-    const data = await getOfertasByReservaId(id);
+    const user = req.user;
+    const data = await getOfertasByReservaId(id, user);
     res.json({ success: true, data });
   } catch (error) {
     next(error);

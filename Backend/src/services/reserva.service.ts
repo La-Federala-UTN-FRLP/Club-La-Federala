@@ -34,6 +34,52 @@ function mapPrismaError(e: unknown) {
   return e;
 }
 
+type ReservaActor = { role: string; inmobiliariaId?: number | null };
+
+function forbidReserva(message: string): Error {
+  const err: any = new Error(message);
+  err.status = 403;
+  err.statusCode = 403;
+  return err;
+}
+
+function requireReservaActor(user: ReservaActor | undefined): ReservaActor {
+  const allowed =
+    user?.role === 'ADMINISTRADOR' ||
+    user?.role === 'GESTOR' ||
+    user?.role === 'INMOBILIARIA';
+  if (!user || !allowed) {
+    throw forbidReserva('No tienes permisos para esta acción');
+  }
+  return user;
+}
+
+// Solo exige tenant cuando el rol es INMOBILIARIA.
+// Llamadas sin user (p. ej. expireReservas → updateReserva) no entran en esta rama.
+function requireInmobiliariaContext(user?: ReservaActor): number | undefined {
+  if (user?.role !== 'INMOBILIARIA') {
+    return undefined;
+  }
+  if (user.inmobiliariaId == null) {
+    throw forbidReserva('El usuario INMOBILIARIA no tiene una inmobiliaria asociada');
+  }
+  return user.inmobiliariaId;
+}
+
+function assertReservaOwnership(
+  user: ReservaActor | undefined,
+  reserva: { inmobiliariaId?: number | null },
+  message = 'No tienes permiso para operar esta reserva',
+): void {
+  if (user?.role !== 'INMOBILIARIA') {
+    return;
+  }
+  const tenantId = requireInmobiliariaContext(user);
+  if (reserva.inmobiliariaId !== tenantId) {
+    throw forbidReserva(message);
+  }
+}
+
 // ==============================
 // Obtener todas las reservas
 // Retorna el listado junto con el total.
@@ -44,10 +90,9 @@ export async function getAllReservas(
   user?: { role: string; inmobiliariaId?: number | null }
 ): Promise<{ reservas: any[]; total: number }> {
   const whereClause: any = {};
-  
-  // Si el usuario es INMOBILIARIA, filtrar por su inmobiliariaId
-  if (user?.role === 'INMOBILIARIA' && user?.inmobiliariaId != null) {
-    whereClause.inmobiliariaId = user.inmobiliariaId;
+
+  if (user?.role === 'INMOBILIARIA') {
+    whereClause.inmobiliariaId = requireInmobiliariaContext(user);
   }
 
   // Filtro estadoOperativo: default OPERATIVO si no viene
@@ -100,11 +145,7 @@ export async function getReservaById(id: number, user?: { role: string; inmobili
   
   // Validar permisos: INMOBILIARIA solo puede ver sus propias reservas
   if (user?.role === 'INMOBILIARIA') {
-    if (row.inmobiliariaId !== user.inmobiliariaId) {
-      const err: any = new Error('No puedes ver esta reserva');
-      err.status = 403;
-      throw err;
-    }
+    assertReservaOwnership(user, row, 'No puedes ver esta reserva');
   } else if (user?.role !== 'ADMINISTRADOR' && user?.role !== 'GESTOR') {
     // Cualquier otro rol que no sea Admin/Gestor/Inmobiliaria queda bloqueado
     const err: any = new Error('No tienes permisos para ver esta reserva');
@@ -116,7 +157,14 @@ export async function getReservaById(id: number, user?: { role: string; inmobili
 }
 
 
-export async function getReservaByImmobiliariaId(id: number): Promise<any> {
+export async function getReservaByImmobiliariaId(id: number, user: ReservaActor | undefined): Promise<any> {
+  const actor = requireReservaActor(user);
+  if (actor.role === 'INMOBILIARIA') {
+    const tenantId = requireInmobiliariaContext(actor);
+    if (id !== tenantId) {
+      throw forbidReserva('No tienes permiso para ver las reservas de esta inmobiliaria');
+    }
+  }
   const row = await prisma.reserva.findMany({ where: { inmobiliariaId: id } });
   if (!row) {
     const err: any = new Error('Inmobialiaria no existe');
@@ -127,8 +175,13 @@ export async function getReservaByImmobiliariaId(id: number): Promise<any> {
 }
 
 // Buscar reservas por estado -- Nuevo
-export async function getReservaByEstado(estadoR: EstadoReserva): Promise<any> {
-  const row = await prisma.reserva.findMany({ where: { estado: estadoR } });
+export async function getReservaByEstado(estadoR: EstadoReserva, user: ReservaActor | undefined): Promise<any> {
+  const actor = requireReservaActor(user);
+  const where =
+    actor.role === 'INMOBILIARIA'
+      ? { estado: estadoR, inmobiliariaId: requireInmobiliariaContext(actor) }
+      : { estado: estadoR };
+  const row = await prisma.reserva.findMany({ where });
   if (row.length === 0) {
     const err: any = new Error('No se encontraron reservas con ese estado');
     err.status = 404;
@@ -474,12 +527,7 @@ export async function updateReserva(
 
     // Validar permisos y restricciones para INMOBILIARIA
     if (user?.role === 'INMOBILIARIA') {
-      // Validar que la reserva pertenece a la inmobiliaria del usuario
-      if (reservaActual.inmobiliariaId !== user.inmobiliariaId) {
-        const err: any = new Error('No puedes modificar esta reserva');
-        err.status = 403;
-        throw err;
-      }
+      assertReservaOwnership(user, reservaActual, 'No puedes modificar esta reserva');
 
       // Validar cambio de estado: solo puede cambiar a CANCELADA y solo si está ACTIVA
       if (body.estado !== undefined) {
@@ -663,13 +711,8 @@ export async function eliminarReserva(
       throw err;
     }
 
-    // Validar permisos: INMOBILIARIA solo puede eliminar sus propias reservas
-    if (user?.role === 'INMOBILIARIA' && user?.inmobiliariaId != null) {
-      if (reserva.inmobiliariaId !== user.inmobiliariaId) {
-        const err: any = new Error('No tienes permiso para eliminar esta reserva');
-        err.statusCode = 403;
-        throw err;
-      }
+    if (user?.role === 'INMOBILIARIA') {
+      assertReservaOwnership(user, reserva, 'No tienes permiso para eliminar esta reserva');
     }
 
     // Validar que no esté ya eliminada
@@ -762,13 +805,8 @@ export async function reactivarReserva(
       throw err;
     }
 
-    // Validar permisos: INMOBILIARIA solo puede reactivar sus propias reservas
-    if (user?.role === 'INMOBILIARIA' && user?.inmobiliariaId != null) {
-      if (reserva.inmobiliariaId !== user.inmobiliariaId) {
-        const err: any = new Error('No tienes permiso para reactivar esta reserva');
-        err.statusCode = 403;
-        throw err;
-      }
+    if (user?.role === 'INMOBILIARIA') {
+      assertReservaOwnership(user, reserva, 'No tienes permiso para reactivar esta reserva');
     }
 
     // Validar que no esté ya operativa
@@ -816,7 +854,20 @@ export async function reactivarReserva(
 // ==============================
 // Obtener historial de ofertas de una reserva
 // ==============================
-export async function getOfertasByReservaId(reservaId: number) {
+export async function getOfertasByReservaId(reservaId: number, user: ReservaActor | undefined) {
+  const actor = requireReservaActor(user);
+  const reserva = await prisma.reserva.findUnique({
+    where: { id: reservaId },
+    select: { id: true, inmobiliariaId: true },
+  });
+  if (!reserva) {
+    const err: any = new Error('La reserva no existe');
+    err.status = 404;
+    throw err;
+  }
+  if (actor.role === 'INMOBILIARIA') {
+    assertReservaOwnership(actor, reserva, 'No puedes ver esta reserva');
+  }
   return prisma.ofertaReserva.findMany({
     where: { reservaId },
     orderBy: { createdAt: 'desc' },
@@ -837,6 +888,10 @@ export async function createOfertaReserva(reservaId: number, data: any, user: an
       } 
   });
   if (!reserva) throw new Error("Reserva no encontrada");
+
+  if (user?.role === 'INMOBILIARIA') {
+    assertReservaOwnership(user, reserva, 'No tienes permiso para operar esta reserva');
+  }
 
   // Determine owner details
   let nombreEfector = "Desconocido";
