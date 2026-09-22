@@ -197,11 +197,13 @@ describe('getAllReservas', () => {
         expect(prismaMock.reserva.findMany.mock.calls[1][0].where.inmobiliariaId).toBeUndefined();
     });
 
-    test('INMOBILIARIA sin inmobiliariaId no aísla (hueco de implementación)', async () => {
+    test('INMOBILIARIA sin inmobiliariaId rechaza el listado con 403', async () => {
         prismaMock.reserva.findMany.mockResolvedValue([]);
-        await getAllReservas(undefined, buildUser('INMOBILIARIA', null));
-        expect(listWhere()).toEqual({ estadoOperativo: 'OPERATIVO' });
-        expect(listWhere().inmobiliariaId).toBeUndefined();
+        await expectStatus(
+            () => getAllReservas(undefined, buildUser('INMOBILIARIA', null)),
+            403,
+        );
+        expect(prismaMock.reserva.findMany).not.toHaveBeenCalled();
     });
 });
 
@@ -233,6 +235,11 @@ describe('getReservaById — RBAC', () => {
         await expectStatus(() => getReservaById(1, buildUser('INMOBILIARIA', 9)), 403);
     });
 
+    test('INMOBILIARIA con inmobiliariaId null no accede a reserva con inmobiliariaId null', async () => {
+        prismaMock.reserva.findUnique.mockResolvedValue(buildReservaRow({ inmobiliariaId: null }));
+        await expectStatus(() => getReservaById(1, buildUser('INMOBILIARIA', null)), 403);
+    });
+
     test('TECNICO recibe 403', async () => {
         prismaMock.reserva.findUnique.mockResolvedValue(buildReservaRow());
         await expectStatus(() => getReservaById(1, buildUser('TECNICO')), 403);
@@ -254,7 +261,7 @@ describe('getReservaByImmobiliariaId', () => {
     test('devuelve el listado filtrado por inmobiliariaId', async () => {
         const rows = [buildReservaRow()];
         prismaMock.reserva.findMany.mockResolvedValue(rows);
-        await expect(getReservaByImmobiliariaId(5)).resolves.toEqual(rows);
+        await expect(getReservaByImmobiliariaId(5, buildUser('ADMINISTRADOR'))).resolves.toEqual(rows);
         expect(prismaMock.reserva.findMany).toHaveBeenCalledWith({
             where: { inmobiliariaId: 5 },
         });
@@ -262,7 +269,40 @@ describe('getReservaByImmobiliariaId', () => {
 
     test('lista vacía [] es truthy: no dispara 404 (contrato actual)', async () => {
         prismaMock.reserva.findMany.mockResolvedValue([]);
-        await expect(getReservaByImmobiliariaId(999)).resolves.toEqual([]);
+        await expect(getReservaByImmobiliariaId(999, buildUser('ADMINISTRADOR'))).resolves.toEqual([]);
+    });
+
+    test('INMOBILIARIA consulta su propio id', async () => {
+        const rows = [buildReservaRow({ inmobiliariaId: 5 })];
+        prismaMock.reserva.findMany.mockResolvedValue(rows);
+        await expect(getReservaByImmobiliariaId(5, buildUser('INMOBILIARIA', 5))).resolves.toEqual(rows);
+        expect(prismaMock.reserva.findMany).toHaveBeenCalledWith({
+            where: { inmobiliariaId: 5 },
+        });
+    });
+
+    test('INMOBILIARIA no lee el listado de otro tenant', async () => {
+        prismaMock.reserva.findMany.mockResolvedValue([buildReservaRow({ inmobiliariaId: 9 })]);
+        await expectStatus(
+            () => getReservaByImmobiliariaId(9, buildUser('INMOBILIARIA', 5)),
+            403,
+        );
+        expect(prismaMock.reserva.findMany).not.toHaveBeenCalled();
+    });
+
+    test('INMOBILIARIA sin inmobiliariaId no lista por id', async () => {
+        prismaMock.reserva.findMany.mockResolvedValue([buildReservaRow({ inmobiliariaId: 5 })]);
+        await expectStatus(
+            () => getReservaByImmobiliariaId(5, buildUser('INMOBILIARIA', null)),
+            403,
+        );
+        expect(prismaMock.reserva.findMany).not.toHaveBeenCalled();
+    });
+
+    test('user undefined no lista por inmobiliaria', async () => {
+        prismaMock.reserva.findMany.mockResolvedValue([buildReservaRow()]);
+        await expectStatus(() => getReservaByImmobiliariaId(5, undefined), 403);
+        expect(prismaMock.reserva.findMany).not.toHaveBeenCalled();
     });
 });
 
@@ -270,13 +310,38 @@ describe('getReservaByEstado', () => {
     test('devuelve reservas del estado pedido', async () => {
         const rows = [buildReservaRow({ estado: 'ACTIVA' })];
         prismaMock.reserva.findMany.mockResolvedValue(rows);
-        await expect(getReservaByEstado('ACTIVA')).resolves.toEqual(rows);
+        await expect(getReservaByEstado('ACTIVA', buildUser('ADMINISTRADOR'))).resolves.toEqual(rows);
         expect(prismaMock.reserva.findMany).toHaveBeenCalledWith({ where: { estado: 'ACTIVA' } });
     });
 
     test('lista vacía lanza 404', async () => {
         prismaMock.reserva.findMany.mockResolvedValue([]);
-        await expectStatus(() => getReservaByEstado('EXPIRADA'), 404);
+        await expectStatus(() => getReservaByEstado('EXPIRADA', buildUser('ADMINISTRADOR')), 404);
+    });
+
+    test('INMOBILIARIA solo ve reservas de su tenant en ese estado', async () => {
+        prismaMock.reserva.findMany.mockResolvedValue([
+            buildReservaRow({ estado: 'ACTIVA', inmobiliariaId: 5 }),
+        ]);
+        await getReservaByEstado('ACTIVA', buildUser('INMOBILIARIA', 5));
+        expect(prismaMock.reserva.findMany).toHaveBeenCalledWith({
+            where: { estado: 'ACTIVA', inmobiliariaId: 5 },
+        });
+    });
+
+    test('INMOBILIARIA sin inmobiliariaId no filtra por estado', async () => {
+        prismaMock.reserva.findMany.mockResolvedValue([buildReservaRow({ estado: 'ACTIVA' })]);
+        await expectStatus(
+            () => getReservaByEstado('ACTIVA', buildUser('INMOBILIARIA', null)),
+            403,
+        );
+        expect(prismaMock.reserva.findMany).not.toHaveBeenCalled();
+    });
+
+    test('user undefined no filtra por estado', async () => {
+        prismaMock.reserva.findMany.mockResolvedValue([buildReservaRow({ estado: 'ACTIVA' })]);
+        await expectStatus(() => getReservaByEstado('ACTIVA', undefined), 403);
+        expect(prismaMock.reserva.findMany).not.toHaveBeenCalled();
     });
 });
 
@@ -657,6 +722,16 @@ describe('updateReserva', () => {
         await expectStatus(() => updateReserva(1, { sena: 1 }, buildUser('INMOBILIARIA', 9)), 403);
     });
 
+    test('INMOBILIARIA con inmobiliariaId null no modifica una reserva con inmobiliariaId null', async () => {
+        prismaMock.reserva.findUnique.mockResolvedValue(buildReservaRow({ inmobiliariaId: null }));
+        prismaMock.reserva.update.mockResolvedValue(buildReservaRow({ inmobiliariaId: null, sena: 1 }));
+        await expectStatus(
+            () => updateReserva(1, { sena: 1 }, buildUser('INMOBILIARIA', null)),
+            403,
+        );
+        expect(prismaMock.reserva.update).not.toHaveBeenCalled();
+    });
+
     test('INMOBILIARIA propia puede cancelar ACTIVA y restaura el lote', async () => {
         prismaMock.reserva.findUnique.mockResolvedValue(buildReservaRow({ estado: 'ACTIVA' }));
         prismaMock.reserva.update.mockResolvedValue(buildReservaRow({ estado: 'CANCELADA' }));
@@ -780,6 +855,21 @@ describe('eliminarReserva (soft delete — endpoint productivo)', () => {
         );
     });
 
+    test('INMOBILIARIA sin inmobiliariaId no elimina una reserva ajena', async () => {
+        prismaMock.reserva.findUnique.mockResolvedValue(
+            buildReservaRow({ estado: 'CANCELADA', inmobiliariaId: 5 }),
+        );
+        prismaMock.reserva.update.mockResolvedValue(
+            buildReservaRow({ estado: 'CANCELADA', estadoOperativo: 'ELIMINADO', inmobiliariaId: 5 }),
+        );
+        await expectStatus(
+            () => eliminarReserva(1, buildUser('INMOBILIARIA', null)),
+            403,
+            'statusCode',
+        );
+        expect(prismaMock.reserva.update).not.toHaveBeenCalled();
+    });
+
     test('ya ELIMINADA lanza 409', async () => {
         prismaMock.reserva.findUnique.mockResolvedValue(
             buildReservaRow({ estado: 'CANCELADA', estadoOperativo: 'ELIMINADO' }),
@@ -835,6 +925,21 @@ describe('reactivarReserva', () => {
         );
     });
 
+    test('INMOBILIARIA sin inmobiliariaId no reactiva una reserva ajena', async () => {
+        prismaMock.reserva.findUnique.mockResolvedValue(
+            buildReservaRow({ estadoOperativo: 'ELIMINADO', inmobiliariaId: 5 }),
+        );
+        prismaMock.reserva.update.mockResolvedValue(
+            buildReservaRow({ estadoOperativo: 'OPERATIVO', inmobiliariaId: 5 }),
+        );
+        await expectStatus(
+            () => reactivarReserva(1, buildUser('INMOBILIARIA', null)),
+            403,
+            'statusCode',
+        );
+        expect(prismaMock.reserva.update).not.toHaveBeenCalled();
+    });
+
     test('ya OPERATIVA lanza 409', async () => {
         prismaMock.reserva.findUnique.mockResolvedValue(
             buildReservaRow({ estadoOperativo: 'OPERATIVO' }),
@@ -886,13 +991,52 @@ describe('deleteReserva (hard delete — no usado por controller)', () => {
 
 describe('ofertas', () => {
     test('getOfertasByReservaId lista por reservaId', async () => {
+        prismaMock.reserva.findUnique.mockResolvedValue(buildReservaRow({ id: 7 }));
         prismaMock.ofertaReserva.findMany.mockResolvedValue([{ id: 1, monto: 100000 }]);
-        const rows = await getOfertasByReservaId(7);
+        const rows = await getOfertasByReservaId(7, buildUser('ADMINISTRADOR'));
         expect(rows).toHaveLength(1);
         expect(prismaMock.ofertaReserva.findMany).toHaveBeenCalledWith({
             where: { reservaId: 7 },
             orderBy: { createdAt: 'desc' },
         });
+    });
+
+    test('INMOBILIARIA propia lista ofertas de su reserva', async () => {
+        prismaMock.reserva.findUnique.mockResolvedValue(buildReservaRow({ id: 7, inmobiliariaId: 5 }));
+        prismaMock.ofertaReserva.findMany.mockResolvedValue([{ id: 1, monto: 100000 }]);
+        const rows = await getOfertasByReservaId(7, buildUser('INMOBILIARIA', 5));
+        expect(rows).toHaveLength(1);
+        expect(prismaMock.ofertaReserva.findMany).toHaveBeenCalledWith({
+            where: { reservaId: 7 },
+            orderBy: { createdAt: 'desc' },
+        });
+    });
+
+    test('INMOBILIARIA no lee ofertas de otro tenant', async () => {
+        prismaMock.reserva.findUnique.mockResolvedValue(buildReservaRow({ id: 7, inmobiliariaId: 5 }));
+        prismaMock.ofertaReserva.findMany.mockResolvedValue([{ id: 1, monto: 100000 }]);
+        await expectStatus(() => getOfertasByReservaId(7, buildUser('INMOBILIARIA', 9)), 403);
+        expect(prismaMock.ofertaReserva.findMany).not.toHaveBeenCalled();
+    });
+
+    test('INMOBILIARIA sin inmobiliariaId no lee ofertas', async () => {
+        prismaMock.reserva.findUnique.mockResolvedValue(buildReservaRow({ id: 7, inmobiliariaId: 5 }));
+        prismaMock.ofertaReserva.findMany.mockResolvedValue([{ id: 1, monto: 100000 }]);
+        await expectStatus(() => getOfertasByReservaId(7, buildUser('INMOBILIARIA', null)), 403);
+        expect(prismaMock.ofertaReserva.findMany).not.toHaveBeenCalled();
+    });
+
+    test('reserva inexistente no lista ofertas', async () => {
+        prismaMock.reserva.findUnique.mockResolvedValue(null);
+        prismaMock.ofertaReserva.findMany.mockResolvedValue([]);
+        await expectStatus(() => getOfertasByReservaId(7, buildUser('ADMINISTRADOR')), 404);
+        expect(prismaMock.ofertaReserva.findMany).not.toHaveBeenCalled();
+    });
+
+    test('user undefined no lista ofertas', async () => {
+        prismaMock.ofertaReserva.findMany.mockResolvedValue([{ id: 1, monto: 100000 }]);
+        await expectStatus(() => getOfertasByReservaId(7, undefined), 403);
+        expect(prismaMock.ofertaReserva.findMany).not.toHaveBeenCalled();
     });
 
     test('createOferta reserva inexistente lanza Error genérico', async () => {
@@ -972,5 +1116,46 @@ describe('ofertas', () => {
         );
         expect(updateLote).not.toHaveBeenCalled();
         expect(computeRestore).not.toHaveBeenCalled();
+    });
+
+    test('INMOBILIARIA no crea oferta sobre reserva de otro tenant', async () => {
+        prismaMock.reserva.findUnique.mockResolvedValue(
+            buildReservaRow({ inmobiliariaId: 5, inmobiliaria: { id: 5, nombre: 'Norte' } }),
+        );
+        txMock.ofertaReserva.create.mockResolvedValue({ id: 2, monto: 110000 });
+        txMock.reserva.update.mockResolvedValue(buildReservaRow({ estado: 'CONTRAOFERTA' }));
+
+        await expectStatus(
+            () => createOfertaReserva(
+                1,
+                { monto: 110000, action: 'CONTRAOFERTAR' },
+                buildUser('INMOBILIARIA', 9),
+            ),
+            403,
+        );
+        expect(prismaMock.$transaction).not.toHaveBeenCalled();
+        expect(txMock.ofertaReserva.create).not.toHaveBeenCalled();
+        expect(txMock.reserva.update).not.toHaveBeenCalled();
+        expect(prismaMock.reserva.update).not.toHaveBeenCalled();
+    });
+
+    test('INMOBILIARIA sin inmobiliariaId no crea oferta', async () => {
+        prismaMock.reserva.findUnique.mockResolvedValue(
+            buildReservaRow({ inmobiliariaId: 5, inmobiliaria: { id: 5, nombre: 'Norte' } }),
+        );
+        txMock.ofertaReserva.create.mockResolvedValue({ id: 2, monto: 110000 });
+        txMock.reserva.update.mockResolvedValue(buildReservaRow({ estado: 'CONTRAOFERTA' }));
+
+        await expectStatus(
+            () => createOfertaReserva(
+                1,
+                { monto: 110000, action: 'CONTRAOFERTAR' },
+                buildUser('INMOBILIARIA', null),
+            ),
+            403,
+        );
+        expect(prismaMock.$transaction).not.toHaveBeenCalled();
+        expect(txMock.ofertaReserva.create).not.toHaveBeenCalled();
+        expect(txMock.reserva.update).not.toHaveBeenCalled();
     });
 });
