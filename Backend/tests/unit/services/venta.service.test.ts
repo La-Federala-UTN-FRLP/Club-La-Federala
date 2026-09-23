@@ -1,4 +1,11 @@
-import { createVenta, getVentaById, deleteVenta } from '../../../src/services/venta.service';
+import {
+    createVenta,
+    getVentaById,
+    deleteVenta,
+    getVentasByInmobiliaria,
+    eliminarVenta,
+    reactivarVenta,
+} from '../../../src/services/venta.service';
 import prisma from '../../../src/config/prisma';
 import type { PostVentaRequest } from '../../../src/types/interfacesCCLF';
 
@@ -39,6 +46,44 @@ afterEach(() => {
     jest.clearAllMocks();
 });
 
+type VentaActor = { role: string; inmobiliariaId?: number | null };
+
+function buildUser(
+    role: string,
+    inmobiliariaId: number | null | undefined = undefined,
+): VentaActor {
+    return { role, inmobiliariaId };
+}
+
+async function expectStatus(
+    fn: () => Promise<unknown>,
+    status: number,
+    key: 'status' | 'statusCode' = 'statusCode',
+) {
+    let thrown: unknown;
+    try {
+        await fn();
+    } catch (error) {
+        thrown = error;
+    }
+    expect(thrown).toBeDefined();
+    expect(thrown).toEqual(expect.objectContaining({ [key]: status }));
+}
+
+function buildVentaRow(overrides: Record<string, unknown> = {}) {
+    return {
+        id: 1,
+        inmobiliariaId: 5,
+        estadoOperativo: 'OPERATIVO',
+        estado: 'CANCELADA',
+        estadoCobro: 'PENDIENTE',
+        fechaEscrituraReal: null,
+        fechaCancelacion: new Date('2026-01-01'),
+        motivoCancelacion: 'motivo test',
+        ...overrides,
+    };
+}
+
 function baseVentaRequest(overrides: Partial<PostVentaRequest> = {}): PostVentaRequest {
     return {
         id: 1,
@@ -64,6 +109,237 @@ function setupBaseMocks(loteOverrides: any = {}) {
         id: 1, loteId: 10, compradorId: 100, monto: 80000,
     });
 }
+
+describe('getVentasByInmobiliaria', () => {
+    test('INMOBILIARIA cross-tenant: rechaza 403 sin findMany (regression RED)', async () => {
+        (prisma.venta.findMany as jest.Mock).mockResolvedValue([{ id: 99, inmobiliariaId: 9 }]);
+
+        await expectStatus(
+            () => getVentasByInmobiliaria(9, {}, buildUser('INMOBILIARIA', 5)),
+            403,
+        );
+        expect(prisma.venta.findMany).not.toHaveBeenCalled();
+    });
+
+    test('INMOBILIARIA sin inmobiliariaId: rechaza 403 sin findMany (regression RED)', async () => {
+        (prisma.venta.findMany as jest.Mock).mockResolvedValue([{ id: 1, inmobiliariaId: 5 }]);
+
+        await expectStatus(
+            () => getVentasByInmobiliaria(5, {}, buildUser('INMOBILIARIA', undefined)),
+            403,
+        );
+        expect(prisma.venta.findMany).not.toHaveBeenCalled();
+    });
+
+    test('sin actor (user undefined): rechaza 403 sin findMany (regression RED)', async () => {
+        (prisma.venta.findMany as jest.Mock).mockResolvedValue([{ id: 1, inmobiliariaId: 5 }]);
+
+        await expectStatus(
+            () => getVentasByInmobiliaria(5, {}, undefined),
+            403,
+        );
+        expect(prisma.venta.findMany).not.toHaveBeenCalled();
+    });
+
+    test('INMOBILIARIA propia: consulta inmobiliariaId del path', async () => {
+        const rows = [{ id: 10, inmobiliariaId: 5 }];
+        (prisma.venta.findMany as jest.Mock).mockResolvedValue(rows);
+
+        const result = await getVentasByInmobiliaria(5, {}, buildUser('INMOBILIARIA', 5));
+
+        expect(result).toEqual(rows);
+        expect(prisma.venta.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: { inmobiliariaId: 5, estadoOperativo: 'OPERATIVO' },
+            }),
+        );
+    });
+
+    test.each(['ADMINISTRADOR', 'GESTOR'] as const)(
+        '%s puede listar cualquier inmobiliaria sin filtro de tenant',
+        async (role) => {
+            const rows = [{ id: 20, inmobiliariaId: 9 }];
+            (prisma.venta.findMany as jest.Mock).mockResolvedValue(rows);
+
+            const result = await getVentasByInmobiliaria(9, {}, buildUser(role));
+
+            expect(result).toEqual(rows);
+            expect(prisma.venta.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { inmobiliariaId: 9, estadoOperativo: 'OPERATIVO' },
+                }),
+            );
+        },
+    );
+
+    test('listado vacío autorizado: 404 mantiene contrato', async () => {
+        (prisma.venta.findMany as jest.Mock).mockResolvedValue([]);
+
+        await expectStatus(
+            () => getVentasByInmobiliaria(5, {}, buildUser('INMOBILIARIA', 5)),
+            404,
+        );
+        expect(prisma.venta.findMany).toHaveBeenCalled();
+    });
+});
+
+describe('eliminarVenta', () => {
+    test('INMOBILIARIA propia eliminable: soft delete permitido', async () => {
+        const venta = buildVentaRow({ inmobiliariaId: 5 });
+        (prisma.venta.findUnique as jest.Mock).mockResolvedValue(venta);
+        (prisma.venta.update as jest.Mock).mockResolvedValue({
+            ...venta,
+            estadoOperativo: 'ELIMINADO',
+        });
+
+        await eliminarVenta(1, buildUser('INMOBILIARIA', 5));
+
+        expect(prisma.venta.update).toHaveBeenCalledTimes(1);
+        expect(prisma.venta.update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: { id: 1 },
+                data: expect.objectContaining({ estadoOperativo: 'ELIMINADO' }),
+            }),
+        );
+    });
+
+    test('INMOBILIARIA ajena: 403 sin update', async () => {
+        (prisma.venta.findUnique as jest.Mock).mockResolvedValue(
+            buildVentaRow({ inmobiliariaId: 9 }),
+        );
+
+        await expectStatus(
+            () => eliminarVenta(1, buildUser('INMOBILIARIA', 5)),
+            403,
+        );
+        expect(prisma.venta.update).not.toHaveBeenCalled();
+    });
+
+    test('venta Federala (inmobiliariaId null) vs INMO: 403 sin update', async () => {
+        (prisma.venta.findUnique as jest.Mock).mockResolvedValue(
+            buildVentaRow({ inmobiliariaId: null }),
+        );
+
+        await expectStatus(
+            () => eliminarVenta(1, buildUser('INMOBILIARIA', 5)),
+            403,
+        );
+        expect(prisma.venta.update).not.toHaveBeenCalled();
+    });
+
+    test('INMOBILIARIA sin inmobiliariaId: 403 sin update (regression RED)', async () => {
+        (prisma.venta.findUnique as jest.Mock).mockResolvedValue(
+            buildVentaRow({ inmobiliariaId: 9 }),
+        );
+        (prisma.venta.update as jest.Mock).mockResolvedValue({});
+
+        await expectStatus(
+            () => eliminarVenta(1, buildUser('INMOBILIARIA', undefined)),
+            403,
+        );
+        expect(prisma.venta.update).not.toHaveBeenCalled();
+    });
+
+    test('sin actor (user undefined): 403 sin update (regression RED)', async () => {
+        (prisma.venta.findUnique as jest.Mock).mockResolvedValue(
+            buildVentaRow({ inmobiliariaId: 9 }),
+        );
+        (prisma.venta.update as jest.Mock).mockResolvedValue({});
+
+        await expectStatus(
+            () => eliminarVenta(1, undefined),
+            403,
+        );
+        expect(prisma.venta.update).not.toHaveBeenCalled();
+    });
+
+    test('ADMINISTRADOR no restringido por tenant', async () => {
+        const venta = buildVentaRow({ inmobiliariaId: 9 });
+        (prisma.venta.findUnique as jest.Mock).mockResolvedValue(venta);
+        (prisma.venta.update as jest.Mock).mockResolvedValue({
+            ...venta,
+            estadoOperativo: 'ELIMINADO',
+        });
+
+        await eliminarVenta(1, buildUser('ADMINISTRADOR'));
+
+        expect(prisma.venta.update).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('reactivarVenta', () => {
+    test('INMOBILIARIA propia: reactiva a OPERATIVO', async () => {
+        const venta = buildVentaRow({
+            inmobiliariaId: 5,
+            estadoOperativo: 'ELIMINADO',
+        });
+        (prisma.venta.findUnique as jest.Mock).mockResolvedValue(venta);
+        (prisma.venta.update as jest.Mock).mockResolvedValue({
+            ...venta,
+            estadoOperativo: 'OPERATIVO',
+        });
+
+        await reactivarVenta(1, buildUser('INMOBILIARIA', 5));
+
+        expect(prisma.venta.update).toHaveBeenCalledTimes(1);
+        expect(prisma.venta.update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: { id: 1 },
+                data: { estadoOperativo: 'OPERATIVO' },
+            }),
+        );
+    });
+
+    test('INMOBILIARIA ajena: 403 sin update', async () => {
+        (prisma.venta.findUnique as jest.Mock).mockResolvedValue(
+            buildVentaRow({ inmobiliariaId: 9, estadoOperativo: 'ELIMINADO' }),
+        );
+
+        await expectStatus(
+            () => reactivarVenta(1, buildUser('INMOBILIARIA', 5)),
+            403,
+        );
+        expect(prisma.venta.update).not.toHaveBeenCalled();
+    });
+
+    test('venta Federala vs INMO: 403 sin update', async () => {
+        (prisma.venta.findUnique as jest.Mock).mockResolvedValue(
+            buildVentaRow({ inmobiliariaId: null, estadoOperativo: 'ELIMINADO' }),
+        );
+
+        await expectStatus(
+            () => reactivarVenta(1, buildUser('INMOBILIARIA', 5)),
+            403,
+        );
+        expect(prisma.venta.update).not.toHaveBeenCalled();
+    });
+
+    test('INMOBILIARIA sin inmobiliariaId: 403 sin update (regression RED)', async () => {
+        (prisma.venta.findUnique as jest.Mock).mockResolvedValue(
+            buildVentaRow({ inmobiliariaId: 9, estadoOperativo: 'ELIMINADO' }),
+        );
+        (prisma.venta.update as jest.Mock).mockResolvedValue({});
+
+        await expectStatus(
+            () => reactivarVenta(1, buildUser('INMOBILIARIA', undefined)),
+            403,
+        );
+        expect(prisma.venta.update).not.toHaveBeenCalled();
+    });
+
+    test('sin actor (user undefined): 403 sin update (regression RED)', async () => {
+        (prisma.venta.findUnique as jest.Mock).mockResolvedValue(
+            buildVentaRow({ inmobiliariaId: 9, estadoOperativo: 'ELIMINADO' }),
+        );
+        (prisma.venta.update as jest.Mock).mockResolvedValue({});
+
+        await expectStatus(
+            () => reactivarVenta(1, undefined),
+            403,
+        );
+        expect(prisma.venta.update).not.toHaveBeenCalled();
+    });
+});
 
 describe('getVentaById', () => {
     test('debe retornar una venta existente', async () => {

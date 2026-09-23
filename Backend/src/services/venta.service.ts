@@ -33,6 +33,46 @@ const VENTA_INCLUDE = {
     },
 } as const;
 
+type VentaActor = {
+    role: string;
+    inmobiliariaId?: number | null;
+};
+
+function forbidVenta(message: string): never {
+    const err: any = new Error(message);
+    err.status = 403;
+    err.statusCode = 403;
+    throw err;
+}
+
+function requireVentaActor(user: VentaActor | undefined): VentaActor {
+    if (user == null) {
+        forbidVenta('No tienes permisos para esta acción');
+    }
+    return user;
+}
+
+function requireInmobiliariaContext(actor: VentaActor): number {
+    if (actor.inmobiliariaId == null) {
+        forbidVenta('El usuario INMOBILIARIA no tiene una inmobiliaria asociada');
+    }
+    return actor.inmobiliariaId;
+}
+
+function assertVentaOwnership(
+    actor: VentaActor,
+    venta: { inmobiliariaId?: number | null },
+    message = 'No tienes permiso para operar esta venta',
+): void {
+    if (actor.role !== 'INMOBILIARIA') {
+        return;
+    }
+    const tenantId = requireInmobiliariaContext(actor);
+    if (venta.inmobiliariaId !== tenantId) {
+        forbidVenta(message);
+    }
+}
+
 /** Unifica legacy compradorId y nuevo compradores[] en una lista de IDs */
 function resolveCompradorIds(data: { compradorId?: number; compradores?: { personaId: number }[] }): number[] {
     if (data.compradores && data.compradores.length > 0) {
@@ -80,8 +120,18 @@ export async function getVentaById(id: number): Promise<Venta> {
 
 export async function getVentasByInmobiliaria(
   inmobiliariaId: number,
-  query?: { estadoOperativo?: string }
+  query: { estadoOperativo?: string } | undefined,
+  user: VentaActor | undefined,
 ): Promise<Venta[]> {
+    const actor = requireVentaActor(user);
+
+    if (actor.role === 'INMOBILIARIA') {
+        const tenantId = requireInmobiliariaContext(actor);
+        if (tenantId !== inmobiliariaId) {
+            forbidVenta('No tienes permiso para ver las ventas de esta inmobiliaria');
+        }
+    }
+
     const whereClause: any = { inmobiliariaId };
     whereClause.estadoOperativo = query?.estadoOperativo || 'OPERATIVO';
 
@@ -410,7 +460,7 @@ export async function deleteVenta(id: number): Promise<DeleteVentaResponse> {
 
 export async function eliminarVenta(
   id: number,
-  user?: { role: string; inmobiliariaId?: number | null }
+  user: VentaActor | undefined,
 ): Promise<Venta> {
     const venta = await prisma.venta.findUnique({ 
       where: { id },
@@ -423,12 +473,9 @@ export async function eliminarVenta(
         throw error;
     }
 
-    if (user?.role === 'INMOBILIARIA' && user?.inmobiliariaId != null) {
-      if (venta.inmobiliariaId !== user.inmobiliariaId) {
-        const error = new Error('No tienes permiso para eliminar esta venta') as any;
-        error.statusCode = 403;
-        throw error;
-      }
+    const actor = requireVentaActor(user);
+    if (actor.role === 'INMOBILIARIA') {
+        assertVentaOwnership(actor, venta, 'No tienes permiso para eliminar esta venta');
     }
 
     if (venta.estadoOperativo === 'ELIMINADO') {
@@ -466,7 +513,7 @@ export async function eliminarVenta(
 
 export async function reactivarVenta(
   id: number,
-  user?: { role: string; inmobiliariaId?: number | null }
+  user: VentaActor | undefined,
 ): Promise<Venta> {
     const venta = await prisma.venta.findUnique({ 
       where: { id },
@@ -479,12 +526,9 @@ export async function reactivarVenta(
         throw error;
     }
 
-    if (user?.role === 'INMOBILIARIA' && user?.inmobiliariaId != null) {
-      if (venta.inmobiliariaId !== user.inmobiliariaId) {
-        const error = new Error('No tienes permiso para reactivar esta venta') as any;
-        error.statusCode = 403;
-        throw error;
-      }
+    const actor = requireVentaActor(user);
+    if (actor.role === 'INMOBILIARIA') {
+        assertVentaOwnership(actor, venta, 'No tienes permiso para reactivar esta venta');
     }
 
     if (venta.estadoOperativo === 'OPERATIVO') {

@@ -26,7 +26,7 @@ export async function obtenerVentasPorInmobiliaria(req: Request, res: Response, 
     try {
         const inmobiliariaId = parseInt(req.params.id);
         const query = req.query as { estadoOperativo?: string };
-        const result = await ventaService.getVentasByInmobiliaria(inmobiliariaId, query);
+        const result = await ventaService.getVentasByInmobiliaria(inmobiliariaId, query, req.user);
         res.json({ success: true, data: result });
     } catch (error) {
         next(error);

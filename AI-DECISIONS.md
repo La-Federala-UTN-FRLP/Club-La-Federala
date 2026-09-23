@@ -108,6 +108,72 @@ Deuda conocida: Usuario/Venta verdes con harness más legacy; no todos los servi
 - `Backend/tests/`
 - `AI-DECISIONS.md`
 
+### AI-003 — Aislamiento tenant y ownership en Ventas
+
+**Fecha:** 2026-09-23
+**Área:** Seguridad / Backend / Ventas
+**Herramientas:** ChatGPT + Cursor
+
+ChatGPT y Cursor intervinieron en la auditoría READ-ONLY del módulo Ventas, el diseño de regressions (RED primero), la implementación fail-closed en service y la auditoría final previa a commit/PR. La decisión de scope, contratos HTTP y deuda fuera de alcance correspondió a validación humana (Issue #232).
+
+#### Problema
+
+El módulo de Ventas tenía dos huecos de seguridad alcanzables por HTTP:
+
+1. `GET /api/ventas/inmobiliaria/:id` permitía a una INMOBILIARIA consultar ventas de otro tenant modificando el ID de la URL (el service filtraba solo por el path, sin comparar con el actor).
+2. `eliminarVenta` y `reactivarVenta` omitían ownership cuando una INMOBILIARIA no tenía `inmobiliariaId` (guard `role === INMOBILIARIA && inmobiliariaId != null`), provocando comportamiento fail-open en soft-delete y reactivación.
+
+#### Prompt / intención
+
+Corregir únicamente caminos cross-tenant alcanzables por HTTP; preservar ADMINISTRADOR/GESTOR; no ampliar roles en routes; no modificar lifecycle comercial de Venta; no tocar Pagos; aplicar regression-first (tests RED, luego fix); mantener routes como RBAC general y concentrar actor/tenant/ownership en service.
+
+#### Propuesta generada por IA
+
+- Transportar `req.user` desde el controller hacia `getVentasByInmobiliaria`.
+- Agregar helpers privados locales en `venta.service.ts` (`forbidVenta`, `requireVentaActor`, `requireInmobiliariaContext`, `assertVentaOwnership`).
+- Exigir actor en boundaries HTTP del service; exigir tenant si el actor es INMOBILIARIA; validar ownership por comparación estricta de `inmobiliariaId`.
+- Usar 403 para foreign tenant, missing tenant y missing actor; mantener 404 para recurso inexistente y para listado vacío autorizado (contrato existente).
+- No reescribir silenciosamente el `:id` del path; detectar mismatch y rechazar.
+- Evitar abstracción multi-tenant compartida prematura con Reservas (helpers locales al dominio Venta).
+
+#### Validación humana
+
+Se limitó el scope a:
+
+- `GET /api/ventas/inmobiliaria/:id`
+- `PATCH /api/ventas/:id/eliminar`
+- `PATCH /api/ventas/:id/reactivar`
+
+Fuera de scope explícito: `GET /api/ventas`, `GET /api/ventas/:id`, create/update, Pagos, hard delete, lifecycle comercial, CORS, PII, Files, Cloud.
+
+Fase 1: plumbing de actor + regressions RED sin implementar autorización. Fase 2: fix fail-closed. Auditoría final READ-ONLY antes de commit/PR.
+
+#### Decisión adoptada
+
+- Routes mantienen RBAC (sin cambios de roles).
+- Controller transporta actor; service concentra actor, tenant y ownership.
+- INMOBILIARIA solo opera sobre su tenant; foreign tenant → 403; missing tenant → 403; missing actor → 403.
+- Venta Federala (`inmobiliariaId = null`) es ajena a INMO externa (`null !== tenantId`).
+- ADMINISTRADOR/GESTOR conservan comportamiento previo (sin filtro tenant adicional en listado ni mutaciones).
+- No se creó abstracción compartida entre Reserva y Venta.
+
+#### Resultado
+
+- `venta.service.test.ts` — 35 PASS
+- `test:service` — 233 PASS
+- `test:unit` — 465 PASS
+- Jest global — 465 PASS
+- typecheck — PASS
+- build — PASS
+- `git diff --check` — PASS (auditoría final, working tree local)
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/controllers/venta.controller.ts`
+- `Backend/src/services/venta.service.ts`
+- `Backend/tests/unit/services/venta.service.test.ts`
+- `AI-DECISIONS.md`
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.
