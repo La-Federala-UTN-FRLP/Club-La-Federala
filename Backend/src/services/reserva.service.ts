@@ -1,11 +1,18 @@
 // src/services/reserva.service.ts
 import prisma from '../config/prisma'; 
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
-import { EstadoLote, EstadoReserva, EstadoPrioridad, OwnerPrioridad, EstadoOperativo } from '../generated/prisma';
+import { EstadoLote, EstadoReserva, EstadoPrioridad, OwnerPrioridad, EstadoOperativo, Prisma } from '../generated/prisma';
 import { updateLoteState } from './lote.service';
 import { ESTADO_LOTE_OP } from '../domain/loteState/loteState.types';
 import { assertLoteOperableFor, assertReservaUnicaVigente, computeRestoreStateFromReserva } from '../domain/loteState/loteState.rules';
 import { cancelPrioridadActivaOnReserva } from '../domain/loteState/loteState.effects';
+import {
+  canTransitionReserva,
+  getAllowedReservaTransitions,
+  getReservaStateForOfertaAction,
+  isValidReservaOfertaAction,
+  ReservaOfertaAction,
+} from '../domain/reserva/reservaLifecycle.rules';
 
 // Esto es un mapper de errores de Prisma a errores HTTP para no tenes que hacerlo en cada funcion
 // -------------------------------------
@@ -64,6 +71,17 @@ function requireInmobiliariaContext(user?: ReservaActor): number | undefined {
     throw forbidReserva('El usuario INMOBILIARIA no tiene una inmobiliaria asociada');
   }
   return user.inmobiliariaId;
+}
+
+async function restoreLoteAfterReservaEnd(
+  snapshot: { loteId: number; loteEstadoAlCrear: EstadoLote },
+  tx: Prisma.TransactionClient,
+): Promise<void> {
+  const estadoARestaurar = await computeRestoreStateFromReserva(
+    snapshot.loteEstadoAlCrear,
+    snapshot.loteId,
+  );
+  await updateLoteState(snapshot.loteId, estadoARestaurar, tx);
 }
 
 function assertReservaOwnership(
@@ -421,31 +439,25 @@ export async function updateReserva(
 
     // VALIDACIÓN DE TRANSICIONES DE ESTADO
     if (body.estado !== undefined && body.estado !== reservaActual.estado) {
-      const estadoActual = reservaActual.estado as string;
-      const nuevoEstado = body.estado as string;
-      
-      // Definir transiciones permitidas por estado
-      const transicionesPermitidas: Record<string, string[]> = {
-        'CANCELADA': ['ACTIVA'],
-        'ACEPTADA': ['RECHAZADA', 'CANCELADA'],
-        'ACTIVA': ['CANCELADA'],
-        'RECHAZADA': ['ACTIVA'],
-        'CONTRAOFERTA': [], // No se puede cambiar manualmente
-        'EXPIRADA': ['ACTIVA']
-      };
-      
-      const permitidas = transicionesPermitidas[estadoActual] || [];
-      
-      if (!permitidas.includes(nuevoEstado)) {
+      const estadoActual = reservaActual.estado;
+      const nuevoEstado = body.estado;
+
+      if (!canTransitionReserva(estadoActual, nuevoEstado)) {
+        const permitidas = getAllowedReservaTransitions(estadoActual);
         const err: any = new Error(
           `No se puede cambiar el estado de ${estadoActual} a ${nuevoEstado}. Transiciones permitidas: ${permitidas.join(', ') || 'ninguna (solo via negociaciones)'}`
         );
         err.status = 400;
         throw err;
       }
-      
+
       // Si está reactivando a ACTIVA, validar estado del lote
-      if (nuevoEstado === 'ACTIVA' && ['CANCELADA', 'RECHAZADA', 'EXPIRADA'].includes(estadoActual)) {
+      if (
+        nuevoEstado === EstadoReserva.ACTIVA &&
+        (estadoActual === EstadoReserva.CANCELADA ||
+          estadoActual === EstadoReserva.RECHAZADA ||
+          estadoActual === EstadoReserva.EXPIRADA)
+      ) {
         const lote = await prisma.lote.findUnique({
           where: { id: reservaActual.loteId },
           select: { estado: true }
@@ -465,24 +477,6 @@ export async function updateReserva(
           err.status = 400;
           throw err;
         }
-      }
-    }
-
-    // Validar expiración: solo puede aplicarse si la reserva estaba ACTIVA, ACEPTADA o CONTRAOFERTA
-    if (body.estado !== undefined && body.estado === EstadoReserva.EXPIRADA) {
-      if (reservaActual.estado !== EstadoReserva.ACTIVA && reservaActual.estado !== EstadoReserva.ACEPTADA && reservaActual.estado !== EstadoReserva.CONTRAOFERTA) {
-        const err: any = new Error('Solo se puede marcar como EXPIRADA una reserva que está ACTIVA, ACEPTADA o en CONTRAOFERTA');
-        err.status = 400;
-        throw err;
-      }
-    }
-
-    // Validar rechazo: solo puede aplicarse desde ACTIVA o ACEPTADA
-    if (body.estado !== undefined && body.estado === EstadoReserva.RECHAZADA) {
-      if (reservaActual.estado !== EstadoReserva.ACTIVA && reservaActual.estado !== EstadoReserva.ACEPTADA) {
-        const err: any = new Error('Solo se puede rechazar una reserva que está ACTIVA o ACEPTADA');
-        err.status = 400;
-        throw err;
       }
     }
 
@@ -612,33 +606,69 @@ export async function updateReserva(
       dataToUpdate.fechaFinReserva = new Date(body.fechaFinReserva);
     }
 
-    const row = await prisma.reserva.update({
-      where: { id },
-      data: dataToUpdate,
-      include: {
-        cliente: {
-          select: { id: true, nombre: true, apellido: true, razonSocial: true },
-        },
-        inmobiliaria: {
-          select: { id: true, nombre: true },
-        },
-        lote: { select: { id: true, precio: true, mapId: true, numero: true, fraccion: { select: { numero: true } } } },
+    const reservaInclude = {
+      cliente: {
+        select: { id: true, nombre: true, apellido: true, razonSocial: true },
       },
-    });
+      inmobiliaria: {
+        select: { id: true, nombre: true },
+      },
+      lote: {
+        select: {
+          id: true,
+          precio: true,
+          mapId: true,
+          numero: true,
+          fraccion: { select: { numero: true } },
+        },
+      },
+    };
 
-    // Sincronizar estado del lote con el estado de la reserva
-    if (body.estado !== undefined) {
-      if (body.estado === EstadoReserva.CANCELADA || body.estado === EstadoReserva.RECHAZADA || body.estado === EstadoReserva.EXPIRADA) {
-        // Si la reserva termina, restauramos el estado original usando regla centralizada
-        const estadoARestaurar = await computeRestoreStateFromReserva(reservaActual.loteEstadoAlCrear, row.loteId);
-        await updateLoteState(row.loteId, estadoARestaurar); 
-      } else if (body.estado === EstadoReserva.ACTIVA) {
-        // Si la reserva se establece como ACTIVA, cambiar el estado del lote a "RESERVADO"
-        await updateLoteState(row.loteId, ESTADO_LOTE_OP.RESERVADO);
-      }
-      // Si es ACEPTADA, no cambiamos automáticamente el estado del lote
-      // porque podría estar VENDIDO (la reserva aceptada puede derivar en venta)
+    const estadoCambia =
+      body.estado !== undefined && body.estado !== reservaActual.estado;
+    const requiereSyncLote =
+      estadoCambia &&
+      (body.estado === EstadoReserva.CANCELADA ||
+        body.estado === EstadoReserva.RECHAZADA ||
+        body.estado === EstadoReserva.EXPIRADA ||
+        body.estado === EstadoReserva.ACTIVA);
+
+    let row: Awaited<ReturnType<typeof prisma.reserva.update>>;
+
+    if (requiereSyncLote) {
+      row = await prisma.$transaction(async (tx) => {
+        const updated = await tx.reserva.update({
+          where: { id },
+          data: dataToUpdate,
+          include: reservaInclude,
+        });
+
+        if (
+          body.estado === EstadoReserva.CANCELADA ||
+          body.estado === EstadoReserva.RECHAZADA ||
+          body.estado === EstadoReserva.EXPIRADA
+        ) {
+          await restoreLoteAfterReservaEnd(
+            {
+              loteId: updated.loteId,
+              loteEstadoAlCrear: reservaActual.loteEstadoAlCrear,
+            },
+            tx,
+          );
+        } else if (body.estado === EstadoReserva.ACTIVA) {
+          await updateLoteState(updated.loteId, ESTADO_LOTE_OP.RESERVADO, tx);
+        }
+
+        return updated;
+      });
+    } else {
+      row = await prisma.reserva.update({
+        where: { id },
+        data: dataToUpdate,
+        include: reservaInclude,
+      });
     }
+
     return row;
   } catch (e) {
     throw mapPrismaError(e);
@@ -893,6 +923,30 @@ export async function createOfertaReserva(reservaId: number, data: any, user: an
     assertReservaOwnership(user, reserva, 'No tienes permiso para operar esta reserva');
   }
 
+  if (reserva.ventaId != null) {
+    const err: any = new Error(
+      'Esta reserva ya fue consumida por una venta y no admite nuevas negociaciones',
+    );
+    err.status = 400;
+    throw err;
+  }
+
+  if (data.action !== undefined && data.action !== null && !isValidReservaOfertaAction(data.action)) {
+    const err: any = new Error('Acción de oferta inválida');
+    err.status = 400;
+    throw err;
+  }
+
+  const action: ReservaOfertaAction = data.action ?? 'CONTRAOFERTAR';
+  const estadoDestino = getReservaStateForOfertaAction(reserva.estado, action);
+  if (estadoDestino === null) {
+    const err: any = new Error(
+      `No se puede ${action} una reserva en estado ${reserva.estado}`,
+    );
+    err.status = 400;
+    throw err;
+  }
+
   // Determine owner details
   let nombreEfector = "Desconocido";
   let efectorId = null;
@@ -939,26 +993,23 @@ export async function createOfertaReserva(reservaId: number, data: any, user: an
       }
     });
 
-    // 2. Actualizar reserva
-    const updateData: any = {
-      ofertaActual: data.monto,
-    };
-
-    if (data.action === 'ACEPTAR') {
-        updateData.estado = EstadoReserva.ACEPTADA;
-    } else if (data.action === 'RECHAZAR') {
-        updateData.estado = EstadoReserva.RECHAZADA;
-    } else {
-        // Default -> CONTRAOFERTA (se asume que si no es aceptar/rechazar es nueva oferta)
-        updateData.estado = EstadoReserva.CONTRAOFERTA;
-    }
-
-
-
     const reservaUpdated = await tx.reserva.update({
         where: { id: reservaId },
-        data: updateData
+        data: {
+          ofertaActual: data.monto,
+          estado: estadoDestino,
+        },
     });
+
+    if (action === 'RECHAZAR') {
+      await restoreLoteAfterReservaEnd(
+        {
+          loteId: reserva.loteId,
+          loteEstadoAlCrear: reserva.loteEstadoAlCrear,
+        },
+        tx,
+      );
+    }
 
     return { oferta, reserva: reservaUpdated };
   });

@@ -713,8 +713,13 @@ export async function deleteLote(id: number, role?: string): Promise<DeleteLoteR
   return { message: 'Lote eliminado correctamente' };
 }
 
-export async function updateLoteState(id: number, newState: EstadoLoteDto): Promise<Lote> {
-  return prisma.lote.update({
+export async function updateLoteState(
+  id: number,
+  newState: EstadoLoteDto,
+  tx?: Prisma.TransactionClient,
+): Promise<Lote> {
+  const client = tx ?? prisma;
+  return client.lote.update({
     where: { id },
     data: { estado: estadoLoteToPrisma(newState) },
   });

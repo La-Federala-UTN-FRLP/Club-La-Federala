@@ -113,9 +113,19 @@ export const reservaTxMock = {
     ofertaReserva: {
         create: jest.fn(),
     },
+    lote: {
+        update: jest.fn(),
+    },
 };
 
 export const reservaPrismaMock = {
     ...createPrismaMock(reservaPrismaSpec),
     $transaction: jest.fn(async (cb: (tx: typeof reservaTxMock) => unknown) => cb(reservaTxMock)),
 };
+
+/** Spec mínimo para job expireReservas. */
+export const expireReservasPrismaSpec = {
+    reserva: ['findMany'],
+} as const;
+
+export const expireReservasPrismaMock = createPrismaMock(expireReservasPrismaSpec);

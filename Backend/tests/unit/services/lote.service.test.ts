@@ -758,4 +758,17 @@ describe('updateLoteState', () => {
             data: { estado: 'RESERVADO' },
         });
     });
+
+    test('con transaction client usa tx.lote.update y no el prisma global', async () => {
+        const tx = { lote: { update: jest.fn().mockResolvedValue(buildPrismaLote({ estado: 'DISPONIBLE' })) } };
+        prismaMock.lote.update.mockResolvedValue(buildPrismaLote({ estado: 'RESERVADO' }));
+
+        await updateLoteState(10, 'Disponible', tx as never);
+
+        expect(tx.lote.update).toHaveBeenCalledWith({
+            where: { id: 10 },
+            data: { estado: 'DISPONIBLE' },
+        });
+        expect(prismaMock.lote.update).not.toHaveBeenCalled();
+    });
 });

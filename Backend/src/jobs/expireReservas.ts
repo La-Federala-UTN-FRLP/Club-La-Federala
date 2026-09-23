@@ -1,7 +1,7 @@
 // src/jobs/expireReservas.ts
 // Job para expirar reservas vencidas automáticamente
 import prisma from '../config/prisma';
-import { EstadoReserva } from '../generated/prisma';
+import { EstadoOperativo, EstadoReserva } from '../generated/prisma';
 import { updateReserva } from '../services/reserva.service';
 
 /**
@@ -24,6 +24,7 @@ export async function expireReservas(): Promise<number> {
         lte: now,
       },
       ventaId: null, // Asegurar que no esté consumida
+      estadoOperativo: EstadoOperativo.OPERATIVO,
     },
     select: { id: true, loteId: true, estado: true }
   });
