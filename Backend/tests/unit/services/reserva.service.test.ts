@@ -145,6 +145,12 @@ async function expectStatus(
     expect(thrown).toEqual(expect.objectContaining({ [key]: status }));
 }
 
+function stubReservaUpdateWithLoteSync(row: Record<string, unknown> = {}) {
+    const resolved = buildReservaRow(row);
+    txMock.reserva.update.mockResolvedValue(resolved);
+    return resolved;
+}
+
 function stubCreateHappyPath(created: Record<string, unknown> = {}) {
     prismaMock.lote.findUnique.mockResolvedValue(buildLote());
     prismaMock.persona.findUnique.mockResolvedValue(buildCliente());
@@ -734,11 +740,12 @@ describe('updateReserva', () => {
 
     test('INMOBILIARIA propia puede cancelar ACTIVA y restaura el lote', async () => {
         prismaMock.reserva.findUnique.mockResolvedValue(buildReservaRow({ estado: 'ACTIVA' }));
-        prismaMock.reserva.update.mockResolvedValue(buildReservaRow({ estado: 'CANCELADA' }));
+        stubReservaUpdateWithLoteSync({ estado: 'CANCELADA' });
         computeRestore.mockResolvedValue('Disponible');
         await updateReserva(1, { estado: 'CANCELADA' }, buildUser('INMOBILIARIA', 5));
-        expect(prismaMock.reserva.update.mock.calls[0][0].data.estado).toBe('CANCELADA');
-        expect(updateLote).toHaveBeenCalledWith(3, 'Disponible');
+        expect(prismaMock.$transaction).toHaveBeenCalled();
+        expect(txMock.reserva.update.mock.calls[0][0].data.estado).toBe('CANCELADA');
+        expect(updateLote).toHaveBeenCalledWith(3, 'Disponible', expect.anything());
     });
 
     test('INMOBILIARIA no puede cancelar una ACEPTADA (403) aunque la matriz lo permita a ADMIN', async () => {
@@ -763,30 +770,49 @@ describe('updateReserva', () => {
 
     test('ACTIVA → CANCELADA restaura el lote', async () => {
         prismaMock.reserva.findUnique.mockResolvedValue(buildReservaRow({ estado: 'ACTIVA' }));
-        prismaMock.reserva.update.mockResolvedValue(buildReservaRow({ estado: 'CANCELADA' }));
+        stubReservaUpdateWithLoteSync({ estado: 'CANCELADA' });
         computeRestore.mockResolvedValue('Disponible');
 
         await updateReserva(1, { estado: 'CANCELADA' }, buildUser('ADMINISTRADOR'));
+        expect(prismaMock.$transaction).toHaveBeenCalled();
         expect(computeRestore).toHaveBeenCalledWith('DISPONIBLE', 3);
-        expect(updateLote).toHaveBeenCalledWith(3, 'Disponible');
+        expect(updateLote).toHaveBeenCalledWith(3, 'Disponible', expect.anything());
     });
 
     test('ACEPTADA → RECHAZADA restaura el lote', async () => {
         prismaMock.reserva.findUnique.mockResolvedValue(buildReservaRow({ estado: 'ACEPTADA' }));
-        prismaMock.reserva.update.mockResolvedValue(buildReservaRow({ estado: 'RECHAZADA' }));
+        stubReservaUpdateWithLoteSync({ estado: 'RECHAZADA' });
         computeRestore.mockResolvedValue('En Promoción');
 
         await updateReserva(1, { estado: 'RECHAZADA' }, buildUser('ADMINISTRADOR'));
-        expect(updateLote).toHaveBeenCalledWith(3, 'En Promoción');
+        expect(prismaMock.$transaction).toHaveBeenCalled();
+        expect(updateLote).toHaveBeenCalledWith(3, 'En Promoción', expect.anything());
     });
 
-    test('ACTIVA → EXPIRADA está bloqueada por la matriz de transiciones', async () => {
-        prismaMock.reserva.findUnique.mockResolvedValue(buildReservaRow({ estado: 'ACTIVA' }));
-        await expectStatus(
-            () => updateReserva(1, { estado: 'EXPIRADA' }, buildUser('ADMINISTRADOR')),
-            400,
-        );
-    });
+    test.each(['ACTIVA', 'ACEPTADA', 'CONTRAOFERTA'] as const)(
+        '%s → EXPIRADA actualiza reserva y restaura el lote',
+        async (estadoOrigen) => {
+            prismaMock.reserva.findUnique.mockResolvedValue(
+                buildReservaRow({
+                    estado: estadoOrigen,
+                    ventaId: null,
+                    loteEstadoAlCrear: 'DISPONIBLE',
+                }),
+            );
+            stubReservaUpdateWithLoteSync({
+                estado: 'EXPIRADA',
+                loteEstadoAlCrear: 'DISPONIBLE',
+            });
+            computeRestore.mockResolvedValue('Disponible');
+
+            await updateReserva(1, { estado: 'EXPIRADA' }, buildUser('ADMINISTRADOR'));
+
+            expect(prismaMock.$transaction).toHaveBeenCalled();
+            expect(txMock.reserva.update.mock.calls[0][0].data.estado).toBe('EXPIRADA');
+            expect(computeRestore).toHaveBeenCalledWith('DISPONIBLE', 3);
+            expect(updateLote).toHaveBeenCalledWith(3, 'Disponible', expect.anything());
+        },
+    );
 
     test('CONTRAOFERTA no admite cambio manual de estado', async () => {
         prismaMock.reserva.findUnique.mockResolvedValue(buildReservaRow({ estado: 'CONTRAOFERTA' }));
@@ -801,10 +827,11 @@ describe('updateReserva', () => {
         prismaMock.lote.findUnique.mockResolvedValue({ estado: 'DISPONIBLE' });
         prismaMock.reserva.findFirst.mockResolvedValue(null);
         prismaMock.prioridad.findFirst.mockResolvedValue(null);
-        prismaMock.reserva.update.mockResolvedValue(buildReservaRow({ estado: 'ACTIVA' }));
+        stubReservaUpdateWithLoteSync({ estado: 'ACTIVA' });
 
         await updateReserva(1, { estado: 'ACTIVA' }, buildUser('ADMINISTRADOR'));
-        expect(updateLote).toHaveBeenCalledWith(3, ESTADO_LOTE_OP.RESERVADO);
+        expect(prismaMock.$transaction).toHaveBeenCalled();
+        expect(updateLote).toHaveBeenCalledWith(3, ESTADO_LOTE_OP.RESERVADO, expect.anything());
     });
 
     test('no se reactiva si hay otra reserva vigente (409)', async () => {
@@ -1071,6 +1098,50 @@ describe('ofertas', () => {
             ofertaActual: 110000,
             estado: 'ACEPTADA',
         });
+        expect(updateLote).not.toHaveBeenCalled();
+        expect(computeRestore).not.toHaveBeenCalled();
+    });
+
+    test('ACEPTAR desde CONTRAOFERTA pasa a ACEPTADA sin restaurar el lote', async () => {
+        prismaMock.reserva.findUnique.mockResolvedValue(
+            buildReservaRow({
+                estado: 'CONTRAOFERTA',
+                inmobiliaria: { id: 5, nombre: 'Norte' },
+            }),
+        );
+        txMock.ofertaReserva.create.mockResolvedValue({ id: 5, monto: 110000 });
+        txMock.reserva.update.mockResolvedValue(buildReservaRow({ estado: 'ACEPTADA' }));
+
+        await createOfertaReserva(
+            1,
+            { monto: 110000, motivo: 'ok', action: 'ACEPTAR' },
+            buildUser('ADMINISTRADOR'),
+        );
+
+        expect(txMock.reserva.update.mock.calls[0][0].data.estado).toBe('ACEPTADA');
+        expect(updateLote).not.toHaveBeenCalled();
+        expect(computeRestore).not.toHaveBeenCalled();
+    });
+
+    test('CONTRAOFERTAR desde ACTIVA no restaura el lote', async () => {
+        prismaMock.reserva.findUnique.mockResolvedValue(
+            buildReservaRow({
+                estado: 'ACTIVA',
+                inmobiliaria: { id: 5, nombre: 'Norte' },
+            }),
+        );
+        txMock.ofertaReserva.create.mockResolvedValue({ id: 6 });
+        txMock.reserva.update.mockResolvedValue(buildReservaRow({ estado: 'CONTRAOFERTA' }));
+
+        await createOfertaReserva(
+            1,
+            { monto: 95000, motivo: 'contra', action: 'CONTRAOFERTAR' },
+            buildUser('INMOBILIARIA', 5),
+        );
+
+        expect(txMock.reserva.update.mock.calls[0][0].data.estado).toBe('CONTRAOFERTA');
+        expect(updateLote).not.toHaveBeenCalled();
+        expect(computeRestore).not.toHaveBeenCalled();
     });
 
     test('RECHAZAR marca RECHAZADA; otro action es CONTRAOFERTA', async () => {
@@ -1102,20 +1173,102 @@ describe('ofertas', () => {
         );
     });
 
-    test('RECHAZAR no restaura el lote (side effect ausente vs updateReserva)', async () => {
+    test.each(['ACTIVA', 'CONTRAOFERTA'] as const)(
+        'RECHAZAR desde %s marca RECHAZADA y restaura el lote',
+        async (estadoOrigen) => {
+            prismaMock.reserva.findUnique.mockResolvedValue(
+                buildReservaRow({
+                    estado: estadoOrigen,
+                    loteEstadoAlCrear: 'DISPONIBLE',
+                    inmobiliaria: { id: 5, nombre: 'Norte' },
+                }),
+            );
+            txMock.ofertaReserva.create.mockResolvedValue({ id: 4 });
+            txMock.reserva.update.mockResolvedValue(
+                buildReservaRow({ estado: 'RECHAZADA', loteEstadoAlCrear: 'DISPONIBLE' }),
+            );
+            computeRestore.mockResolvedValue('Disponible');
+
+            await createOfertaReserva(
+                1,
+                { monto: 100000, motivo: 'no', action: 'RECHAZAR' },
+                buildUser('ADMINISTRADOR'),
+            );
+
+            expect(prismaMock.$transaction).toHaveBeenCalled();
+            expect(txMock.ofertaReserva.create).toHaveBeenCalled();
+            expect(txMock.reserva.update.mock.calls[0][0].data.estado).toBe('RECHAZADA');
+            expect(computeRestore).toHaveBeenCalledWith('DISPONIBLE', 3);
+            expect(updateLote).toHaveBeenCalledWith(3, 'Disponible', expect.anything());
+        },
+    );
+
+    test('ACEPTADA + RECHAZAR crea oferta, marca RECHAZADA y restaura el lote en la misma tx', async () => {
         prismaMock.reserva.findUnique.mockResolvedValue(
-            buildReservaRow({ inmobiliaria: { id: 5, nombre: 'Norte' } }),
+            buildReservaRow({
+                estado: 'ACEPTADA',
+                ventaId: null,
+                loteEstadoAlCrear: 'EN_PROMOCION',
+                inmobiliaria: { id: 5, nombre: 'Norte' },
+            }),
         );
-        txMock.ofertaReserva.create.mockResolvedValue({ id: 4 });
-        txMock.reserva.update.mockResolvedValue(buildReservaRow({ estado: 'RECHAZADA' }));
+        txMock.ofertaReserva.create.mockResolvedValue({ id: 5 });
+        txMock.reserva.update.mockResolvedValue(
+            buildReservaRow({ estado: 'RECHAZADA', loteEstadoAlCrear: 'EN_PROMOCION' }),
+        );
+        computeRestore.mockResolvedValue('En Promoción');
 
         await createOfertaReserva(
             1,
             { monto: 100000, motivo: 'no', action: 'RECHAZAR' },
-            buildUser('ADMINISTRADOR'),
+            buildUser('GESTOR'),
         );
-        expect(updateLote).not.toHaveBeenCalled();
-        expect(computeRestore).not.toHaveBeenCalled();
+
+        expect(prismaMock.$transaction).toHaveBeenCalled();
+        expect(txMock.reserva.update.mock.calls[0][0].data.estado).toBe('RECHAZADA');
+        expect(computeRestore).toHaveBeenCalledWith('EN_PROMOCION', 3);
+        expect(updateLote).toHaveBeenCalledWith(3, 'En Promoción', expect.anything());
+    });
+
+    test.each(['CANCELADA', 'RECHAZADA', 'EXPIRADA'] as const)(
+        'no crea oferta sobre reserva %s',
+        async (estadoTerminal) => {
+            prismaMock.reserva.findUnique.mockResolvedValue(
+                buildReservaRow({ estado: estadoTerminal, ventaId: null }),
+            );
+
+            await expectStatus(
+                () => createOfertaReserva(
+                    1,
+                    { monto: 100000, motivo: 'x', action: 'CONTRAOFERTAR' },
+                    buildUser('ADMINISTRADOR'),
+                ),
+                400,
+            );
+
+            expect(prismaMock.$transaction).not.toHaveBeenCalled();
+            expect(txMock.ofertaReserva.create).not.toHaveBeenCalled();
+            expect(txMock.reserva.update).not.toHaveBeenCalled();
+        },
+    );
+
+    test('no crea oferta si la reserva fue consumida por una venta', async () => {
+        prismaMock.reserva.findUnique.mockResolvedValue(
+            buildReservaRow({ estado: 'ACEPTADA', ventaId: 44 }),
+        );
+
+        await expectStatus(
+            () => createOfertaReserva(
+                1,
+                { monto: 100000, action: 'CONTRAOFERTAR' },
+                buildUser('ADMINISTRADOR'),
+            ),
+            400,
+        );
+
+        expect(prismaMock.$transaction).not.toHaveBeenCalled();
+        expect(txMock.ofertaReserva.create).not.toHaveBeenCalled();
+        expect(txMock.reserva.update).not.toHaveBeenCalled();
     });
 
     test('INMOBILIARIA no crea oferta sobre reserva de otro tenant', async () => {
