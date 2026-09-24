@@ -174,6 +174,77 @@ Fase 1: plumbing de actor + regressions RED sin implementar autorización. Fase 
 - `Backend/tests/unit/services/venta.service.test.ts`
 - `AI-DECISIONS.md`
 
+### AI-004 — Política CORS fail-closed y allowlist exacta
+
+**Fecha:** 2026-09-23
+**Área:** Seguridad / Backend / Configuración
+**Herramientas:** ChatGPT + Cursor
+
+ChatGPT y Cursor intervinieron en la auditoría READ-ONLY de CORS, la extracción testeable de la allowlist, las regressions RED y el endurecimiento fail-closed. Las decisiones de contrato (`FRONTEND_URL` singular, localhost, deny limpio, scope) correspondieron a validación humana.
+
+#### Problema
+
+La política CORS en `app.ts` era fail-open:
+
+- cualquier `Origin` terminaba en `callback(null, true)` (rama `else` permisiva);
+- `FRONTEND_URL` era un string y se validaba con `String#indexOf` (matching de substring, no de lista);
+- `http://localhost:5173` quedaba autorizado incondicionalmente;
+- `credentials: true` estaba activo.
+
+El backend autentica con JWT Bearer en `Authorization` y no usa cookies de sesión, así que no se clasificó como robo automático de sesión. Igual la allowlist estaba incorrectamente abierta y debía cerrarse antes de producción.
+
+#### Prompt / intención
+
+Endurecer CORS sin mezclar auth, frontend ni Cloud: fail-closed, matching exacto, preservar requests sin `Origin` y el DX local, extraer una función pura testeable, trabajar regression-first y evitar un framework de configuración.
+
+#### Propuesta generada por IA
+
+- Extraer `resolveCorsOrigin` pura (sin `process.env` interno).
+- `FRONTEND_URL` singular; `trim` solo de la config; igualdad exacta (`===`).
+- Localhost `http://localhost:5173` automático solo si `NODE_ENV !== 'production'`.
+- Origin desconocido → `false`; `callback(null, false)` como deny limpio (no 500).
+- Production sin `FRONTEND_URL`: el proceso arranca; allowlist browser vacía; sin Origin sigue permitido.
+- Mantener `credentials: true` en este cambio.
+- Dejar multi-origin y la validación global/fail-fast de env para un requisito futuro / #225.
+- Tests unitarios de la función; sin capa HTTP Integration/API.
+
+#### Validación humana
+
+1. `FRONTEND_URL` es un origin, no CSV.
+2. Sin Origin → permitido (curl, Postman, server-to-server, tooling).
+3. Origin desconocido → deny sin `Error`/500.
+4. Localhost automático solo fuera de `production`.
+5. Production sin `FRONTEND_URL` no impide el boot y no autoriza browsers.
+6. Puerto local oficial: `5173`.
+7. Sin tests HTTP todavía; se testea la función pura.
+8. Auth, frontend y Cloud fuera de scope.
+
+Estrategia: auditoría READ-ONLY → extracción behavior-preserving → regressions RED → implementación GREEN → documentación.
+
+#### Decisión adoptada
+
+Política CORS fail-closed: un origin exacto, sin substring, sin CSV y sin regex. Localhost condicionado por entorno. Requests sin Origin permitidas. `credentials: true` se preserva. Inventario global de env pendiente de #225.
+
+#### Resultado
+
+- `cors.origins.test.ts` — 11 PASS
+- `test:unit` — 476 PASS
+- Jest global — 476 PASS
+- typecheck — PASS
+- build — PASS
+- `git diff --check` — PASS
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/app.ts`
+- `Backend/src/config/cors.origins.ts`
+- `Backend/tests/unit/security/cors.origins.test.ts`
+- `Backend/.env.example`
+- `docs/architecture/backend.md`
+- `docs/architecture/overview.md`
+- `docs/development/setup-local.md`
+- `AI-DECISIONS.md`
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.
