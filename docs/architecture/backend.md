@@ -20,3 +20,9 @@ Las rutas privadas usan `authenticate` y `authorize`. Los roles son `ADMINISTRAD
 ## Variables relevantes
 
 `PORT`, `FRONTEND_URL`, `DATABASE_URL`, `DIRECT_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `ENABLE_CRON`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` y `SUPABASE_BUCKET`. Nunca publicar valores reales.
+
+## CORS / `FRONTEND_URL`
+
+`FRONTEND_URL` es **un único origin** autorizado para browsers (sin path, sin CSV, matching exacto). Ejemplos: `http://localhost:5173` o `https://frontend.example.com`. Se recortan espacios externos de la variable; no se normaliza el header `Origin`.
+
+Fuera de `production`, `http://localhost:5173` se admite automáticamente. En `production` no: hay que configurarlo de forma explícita si hace falta. Si `FRONTEND_URL` falta en `production`, la allowlist de browsers queda vacía (el proceso arranca igual). Las requests sin `Origin` (curl, Postman, server-to-server) no dependen de esta lista.

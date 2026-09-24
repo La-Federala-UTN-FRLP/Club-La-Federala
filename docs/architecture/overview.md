@@ -28,6 +28,6 @@ flowchart LR
 
 ## Riesgos y pendientes
 
-- La configuración CORS actual es permisiva; endurecerla antes de producción.
+- CORS es fail-closed: allowlist de un origin (`FRONTEND_URL`) con matching exacto; ver `docs/architecture/backend.md`.
 - `Documentacion/` sigue siendo la fuente histórica; decisiones no inferibles del código requieren validación del equipo.
 - Mientras la especificación OpenAPI permanezca sin reconciliar, el comportamiento vigente debe verificarse contra rutas, validaciones Zod, implementación y pruebas. El objetivo es reconciliar la especificación y mantenerla alineada como contrato formal de la API. `Backend/documents/documentacionApi.yaml` todavía no está validado como contrato oficial.

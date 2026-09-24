@@ -17,6 +17,8 @@ cd ../frontend && npm install
 
 El backend necesita `DATABASE_URL`, `DIRECT_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `FRONTEND_URL` y, para archivos, `SUPABASE_*`. El frontend usa `VITE_*`, incluida la URL base de API. Usar valores locales no versionados.
 
+`FRONTEND_URL` es un único origin CORS (no CSV). En local: `http://localhost:5173`. El contrato completo está en `docs/architecture/backend.md`.
+
 ## Ejecución
 
 ```bash
