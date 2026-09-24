@@ -34,7 +34,7 @@ Arranque compilado del backend (el mismo contrato productivo):
 cd Backend && npm run build && npm start
 ```
 
-`npm start` ejecuta `node dist/server.js`. Alternativa desde la raíz: `docker compose up --build` (entorno de desarrollo; no es la imagen productiva).
+`npm start` ejecuta `node dist/server.js` y **no** corre el job de expiraciones. Alternativa desde la raíz: `docker compose up --build` (entorno de desarrollo; no es la imagen productiva).
 
 Comprobar liveness (sin autenticación):
 
@@ -43,6 +43,22 @@ curl -i http://localhost:3000/health
 ```
 
 Esperado: `200` y `{"status":"ok"}`. Eso no garantiza PostgreSQL ni Supabase.
+
+## Job de expiraciones (manual)
+
+El web no programa expiraciones. Para correrlas a mano contra la DB configurada en el entorno:
+
+```bash
+cd Backend && npm run jobs:expirations
+```
+
+Para validar el artefacto compilado:
+
+```bash
+cd Backend && npm run build && npm run jobs:expirations:prod
+```
+
+El job escribe en la base apuntada por `DATABASE_URL`. No usarlo contra producción para pruebas.
 
 ## Build y pruebas
 
@@ -57,4 +73,4 @@ cd frontend && npm run build && npm run lint
 
 - Revisar URLs de PostgreSQL si Prisma no conecta.
 - Revisar `VITE_API_BASE_URL`, `FRONTEND_URL` y puertos 5173/3000 si falla la API.
-- Si hay expiraciones duplicadas en producción, usar un único job externo y `ENABLE_CRON=false`.
+- El proceso web ya no dispara expiraciones; si hace falta correrlas, usar el job one-shot (no contra producción para pruebas).

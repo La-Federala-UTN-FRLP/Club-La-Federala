@@ -1,6 +1,6 @@
 # Arquitectura general
 
-El sistema es una aplicación web con frontend React/Vite, API HTTP Express en TypeScript y PostgreSQL administrado mediante Prisma. El backend concentra autenticación, validaciones, autorización, reglas de negocio, expiraciones e integración de archivos.
+El sistema es una aplicación web con frontend React/Vite, API HTTP Express en TypeScript y PostgreSQL administrado mediante Prisma. El backend concentra autenticación, validaciones, autorización, reglas de negocio e integración de archivos. Las expiraciones de reservas y promociones corren en un proceso job aparte, no en el servidor HTTP.
 
 ## Módulos principales
 
@@ -16,13 +16,15 @@ flowchart LR
   API --> ORM[Prisma]
   ORM --> DB[(PostgreSQL)]
   API --> FS[Supabase Storage]
-  API --> JOB[Jobs de expiración]
+  SCH[Scheduler externo futuro] -.-> JOB[Job de expiración]
+  JOB --> ORM
 ```
 
 ## Decisiones relevantes
 
-- Arranque productivo del backend: `npm run build` && `npm start` (`dist/server.js`). Desarrollo local: `npm run dev`.
-- Liveness: `GET /health` → `200 {"status":"ok"}`. Cierre ordenado ante `SIGTERM`/`SIGINT` (cron local, drain HTTP, Prisma).
+- Arranque productivo del backend: `npm run build` && `npm start` (`dist/server.js`). Desarrollo local: `npm run dev`. El proceso web no ejecuta expiraciones.
+- Job de expiración one-shot: `npm run jobs:expirations:prod` (`dist/jobs/runExpirations.js`). El scheduler que lo dispare es infraestructura futura, no un recurso desplegado hoy.
+- Liveness: `GET /health` → `200 {"status":"ok"}`. Cierre ordenado ante `SIGTERM`/`SIGINT` (drain HTTP, Prisma).
 - Backend separado en rutas, controladores, servicios, validaciones y middleware.
 - Frontend separado en páginas, componentes, `lib/api`, hooks y utilidades.
 - JWT y autorización por rol reforzada por UI.

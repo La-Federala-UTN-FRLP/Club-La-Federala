@@ -81,7 +81,7 @@ Esquemas de validación (generalmente con **Zod** o librerías similares) para g
 Compone y exporta la aplicación Express: middleware, CORS, rutas y manejo de errores. Expone `GET /health` (liveness). No ejecuta `listen`.
 
 ### `server.ts`
-Lifecycle del proceso: importa `app`, resuelve `PORT`, ejecuta `listen` y registra `SIGTERM`/`SIGINT`. El scheduler de expiraciones sigue en este entrypoint hasta su desacople (#224). El cierre ordenado está en `serverLifecycle.ts`.
+Lifecycle del proceso HTTP: importa `app`, resuelve `PORT`, ejecuta `listen` y registra `SIGTERM`/`SIGINT`. No programa tareas. El cierre ordenado está en `serverLifecycle.ts`. El job de expiraciones es un proceso aparte (`src/jobs/runExpirations.ts`).
 
 ---
 
@@ -108,7 +108,7 @@ JavaScript compilado: `node dist/server.js`. El build genera Prisma Client, comp
 
 `GET /health` → `200` `{"status":"ok"}`. Solo liveness (proceso HTTP vivo). Sin JWT. No comprueba DB ni Supabase.
 
-`SIGTERM` / `SIGINT` → detiene el cron in-process si está activo, drena HTTP, desconecta Prisma, `exitCode` 0. Si el cierre no termina en 10 s: salida forzada con código 1.
+`SIGTERM` / `SIGINT` → drena HTTP, desconecta Prisma, `exitCode` 0. Si el cierre no termina en 10 s: salida forzada con código 1.
 
 ---
 
@@ -126,38 +126,31 @@ JavaScript compilado: `node dist/server.js`. El build genera Prisma Client, comp
 
 ---
 
-## ⏰ Cron Jobs (Tareas Programadas)
+## ⏰ Jobs de expiración
 
-El sistema utiliza cron jobs para ejecutar tareas automáticas de expiración:
+El proceso web (`npm run dev` / `npm start`) **no** programa ni ejecuta expiraciones. El scheduling queda a cargo de infraestructura externa (todavía no implementada en este repositorio). Hasta entonces, el job se corre a mano o como proceso one-shot compilado.
 
 ### Funcionalidad
 
-- **Expirar Promociones**: Marca automáticamente las promociones vencidas como inactivas y restaura el estado del lote.
-- **Expirar Reservas**: Marca automáticamente las reservas vencidas como `EXPIRADA` y restaura el estado del lote.
+- **Expirar Promociones**: marca promociones vencidas como inactivas y restaura estado/precio del lote.
+- **Expirar Reservas**: marca reservas vencidas como `EXPIRADA` y restaura el estado del lote.
 
-### Configuración
-
-El entrypoint actual (`server.ts` / `dist/server.js`) conserva el scheduler in-process y lo detiene en el graceful shutdown. No es la arquitectura final: el desacople corresponde a #224. Hasta entonces, `ENABLE_CRON=false` desactiva el cron en el proceso HTTP.
-
-#### Desarrollo local (cron activo por defecto)
-
-Con `npm run dev` o `npm start`, si `ENABLE_CRON` no es `false`, el cron corre cada hora (minuto 0).
-
-### Ejecución Manual
-
-Puedes ejecutar los jobs de expiración manualmente:
+### Desarrollo / manual
 
 ```bash
 npm run jobs:expirations
 ```
 
-Esto ejecutará todas las expiraciones inmediatamente, útil para testing o ejecuciones manuales.
+Ejecuta una vez con TypeScript (`ts-node`). Requiere las mismas variables de base de datos que el backend. No usar contra una base productiva para pruebas.
 
-### Variables de Entorno
+### Productivo / artefacto compilado
 
-| Variable | Descripción | Valores | Default |
-|----------|-------------|---------|---------|
-| `ENABLE_CRON` | Habilita/deshabilita el cron en el servidor | `true` / `false` | `true` |
+```bash
+npm run build
+npm run jobs:expirations:prod
+```
+
+Equivale a `node dist/jobs/runExpirations.js`: una ejecución, disconnect de Prisma, `exit` 0 o 1. No abre HTTP ni PORT.
 
 ---
 

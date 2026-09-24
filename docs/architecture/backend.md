@@ -1,13 +1,13 @@
 # Arquitectura backend
 
-El backend usa Node.js, Express 5, TypeScript, Prisma y PostgreSQL. `src/app.ts` compone y exporta Express (CORS, JSON, logging, rutas y errores). `src/server.ts` es el lifecycle del proceso: `listen` sobre `PORT`, el scheduler de expiraciones cuando `ENABLE_CRON` no es `false`, y el cierre ordenado ante `SIGTERM`/`SIGINT`. El proceso HTTP usa un único `PrismaClient` (`src/config/prisma.ts`).
+El backend usa Node.js, Express 5, TypeScript, Prisma y PostgreSQL. `src/app.ts` compone y exporta Express (CORS, JSON, logging, rutas y errores). `src/server.ts` es el lifecycle del **proceso web**: `listen` sobre `PORT` y cierre ordenado ante `SIGTERM`/`SIGINT`. No programa tareas. El proceso HTTP usa un único `PrismaClient` (`src/config/prisma.ts`). Las expiraciones corren en un **job one-shot** (`src/jobs/runExpirations.ts` → `node dist/jobs/runExpirations.js`).
 
 ## Arranque
 
 - **Desarrollo:** `npm run dev` — TypeScript con watcher sobre `src/server.ts`.
 - **Producción:** `npm run build` && `npm start` — JavaScript compilado (`node dist/server.js`), sin `ts-node-dev`.
 
-`npm run build` genera Prisma Client en `src/generated/prisma`, compila TypeScript a `dist/` y copia el cliente (JS, runtime y binaries) a `dist/generated/prisma`. El scheduler in-process no es el diseño final; su desacople corresponde a #224.
+`npm run build` genera Prisma Client en `src/generated/prisma`, compila TypeScript a `dist/` y copia el cliente (JS, runtime y binaries) a `dist/generated/prisma`. El mismo build deja el artefacto del job en `dist/jobs/runExpirations.js`.
 
 ## Health
 
@@ -15,7 +15,11 @@ El backend usa Node.js, Express 5, TypeScript, Prisma y PostgreSQL. `src/app.ts`
 
 ## Shutdown
 
-`SIGTERM` e `SIGINT` disparan un cierre ordenado (idempotente): detiene el scheduler actual si está activo, drena el HTTP server (`close` + `closeIdleConnections`), desconecta Prisma y deja `process.exitCode = 0` para que Node termine solo. Timeout defensivo de 10 s: `closeAllConnections()` y `process.exit(1)`. La lógica vive en `src/serverLifecycle.ts`; el arranque sigue en `src/server.ts`.
+`SIGTERM` e `SIGINT` disparan un cierre ordenado (idempotente): drena el HTTP server (`close` + `closeIdleConnections`), desconecta Prisma y deja `process.exitCode = 0` para que Node termine solo. Timeout defensivo de 10 s: `closeAllConnections()` y `process.exit(1)`. La lógica vive en `src/serverLifecycle.ts`; el arranque sigue en `src/server.ts`.
+
+## Job de expiración
+
+Proceso distinto al web. No sirve HTTP, no usa `PORT` y no importa Express. Contrato productivo: `npm run jobs:expirations:prod` → `node dist/jobs/runExpirations.js`. Ejecuta `expirePromotions` y `expireReservas` una vez, desconecta Prisma y termina con `exitCode` 0 (éxito) o 1 (fallo fatal, incluido error de disconnect). El scheduler concreto (quién dispara el proceso, y con qué cadencia) queda fuera de la aplicación; la cadencia observable actual era aproximadamente horaria (`0 * * * *`) y se preserva como expectativa de infra futura.
 
 ## Estructura
 
@@ -34,7 +38,7 @@ Las rutas privadas usan `authenticate` y `authorize`. Los roles son `ADMINISTRAD
 
 ## Variables relevantes
 
-`PORT`, `FRONTEND_URL`, `DATABASE_URL`, `DIRECT_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `ENABLE_CRON`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` y `SUPABASE_BUCKET`. Nunca publicar valores reales.
+`PORT`, `FRONTEND_URL`, `DATABASE_URL`, `DIRECT_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` y `SUPABASE_BUCKET`. El job de expiraciones necesita la URL de PostgreSQL inyectada en el entorno del proceso. Nunca publicar valores reales.
 
 ## CORS / `FRONTEND_URL`
 
