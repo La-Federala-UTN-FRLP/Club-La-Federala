@@ -51,6 +51,11 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(logRequest);
 
+app.get('/health', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.status(200).json({ status: 'ok' });
+});
+
 // App Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/lotes', loteRoutes);

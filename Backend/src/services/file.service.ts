@@ -1,6 +1,5 @@
 import { randomUUID } from "crypto";
 import { createClient } from "@supabase/supabase-js";
-import { PrismaClient } from "../generated/prisma";
 import type { FileMetadata, TipoFile, NewFileMetadata, UpdateFileMetadata, EstadoAprobacion, TargetAprobacion } from "../types/files.types";
 import {
   isInmobiliaria,
@@ -9,8 +8,7 @@ import {
   type FileAuthUser,
 } from "../utils/file.auth.utils";
 import { ensureVentaPerteneceALote } from "../utils/file.validation.utils";
-
-const prisma = new PrismaClient();
+import prisma from "../config/prisma";
 
 function getEnv() {
   const url = process.env.SUPABASE_URL;

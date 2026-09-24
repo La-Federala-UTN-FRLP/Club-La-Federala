@@ -78,10 +78,10 @@ Esquemas de validación (generalmente con **Zod** o librerías similares) para g
 ---
 
 ### `app.ts`
-Compone y exporta la aplicación Express: middleware, CORS, rutas y manejo de errores. No ejecuta `listen`.
+Compone y exporta la aplicación Express: middleware, CORS, rutas y manejo de errores. Expone `GET /health` (liveness). No ejecuta `listen`.
 
 ### `server.ts`
-Lifecycle del proceso: importa `app`, resuelve `PORT` y ejecuta `listen`. El scheduler de expiraciones sigue en este entrypoint hasta su desacople (#224).
+Lifecycle del proceso: importa `app`, resuelve `PORT`, ejecuta `listen` y registra `SIGTERM`/`SIGINT`. El scheduler de expiraciones sigue en este entrypoint hasta su desacople (#224). El cierre ordenado está en `serverLifecycle.ts`.
 
 ---
 
@@ -103,6 +103,12 @@ npm start
 ```
 
 JavaScript compilado: `node dist/server.js`. El build genera Prisma Client, compila TypeScript y copia el cliente a `dist/generated/prisma`.
+
+## Health y shutdown
+
+`GET /health` → `200` `{"status":"ok"}`. Solo liveness (proceso HTTP vivo). Sin JWT. No comprueba DB ni Supabase.
+
+`SIGTERM` / `SIGINT` → detiene el cron in-process si está activo, drena HTTP, desconecta Prisma, `exitCode` 0. Si el cierre no termina en 10 s: salida forzada con código 1.
 
 ---
 
@@ -131,7 +137,7 @@ El sistema utiliza cron jobs para ejecutar tareas automáticas de expiración:
 
 ### Configuración
 
-El entrypoint actual (`server.ts` / `dist/server.js`) conserva el scheduler in-process. No es la arquitectura final: el desacople corresponde a #224. Hasta entonces, `ENABLE_CRON=false` desactiva el cron en el proceso HTTP.
+El entrypoint actual (`server.ts` / `dist/server.js`) conserva el scheduler in-process y lo detiene en el graceful shutdown. No es la arquitectura final: el desacople corresponde a #224. Hasta entonces, `ENABLE_CRON=false` desactiva el cron en el proceso HTTP.
 
 #### Desarrollo local (cron activo por defecto)
 
