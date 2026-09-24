@@ -4,6 +4,7 @@ import { loteRoutes } from './routes/lote.routes';
 import { logRequest } from './middlewares/logger.middleware';
 import { handleError } from './middlewares/error.middleware';
 import cors from 'cors';
+import { resolveCorsOrigin } from './config/cors.origins';
 import { authRoutes } from './routes/auth.routes';
 import { usuarioRoutes } from './routes/usuario.routes';
 import { reservaRoutes } from './routes/reserva.routes';
@@ -33,26 +34,14 @@ app.use((req, res, next) => {
   next();
 });
 
-const allowedOrigins = process.env.FRONTEND_URL || 'http://localhost:5173';
 const corsOptions = {
-  origin: function (origin: any, callback: any) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    // Check if the origin matches the allowed origin
-    if (allowedOrigins.indexOf(origin) !== -1 || origin === 'http://localhost:5173') {
-      return callback(null, true);
-    } else {
-      // In dev, sometimes we want to be permissive if strict logic fails, 
-      // but strictly for credentials we need exact match.
-      // Let's just allow it if it matches our expected frontend
-      return callback(null, true); 
-    }
+  origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
+    callback(null, resolveCorsOrigin(origin, process.env.FRONTEND_URL, process.env.NODE_ENV));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  optionsSuccessStatus: 204, // some legacy browsers (IE11, various SmartTVs) choke on 204
+  optionsSuccessStatus: 204,
 }
 
 
