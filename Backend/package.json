@@ -4,11 +4,11 @@
   "main": "index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "build": "tsc",
+    "build": "prisma generate && tsc && node scripts/copy-prisma-generated.cjs",
     "typecheck:app": "tsc --noEmit -p tsconfig.json",
     "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
     "typecheck": "npm run typecheck:app && npm run typecheck:test",
-    "start": "node dist/app.js",
+    "start": "node dist/server.js",
     "test": "jest",
     "test:validation": "jest tests/unit/validations --runInBand",
     "test:domain": "jest tests/unit/domain --runInBand",

@@ -245,6 +245,54 @@ Política CORS fail-closed: un origin exacto, sin substring, sin CSV y sin regex
 - `docs/development/setup-local.md`
 - `AI-DECISIONS.md`
 
+### AI-005 — Contrato de arranque productivo del backend
+
+**Fecha:** 2026-09-24
+**Área:** Backend / Runtime / Cloud readiness
+**Herramientas:** ChatGPT + Cursor
+
+#### Problema
+
+`npm start` ejecutaba `node dist/app.js`, pero `app.ts` solo compone y exporta Express: no llama `listen`. `npm run build` era únicamente `tsc`. Prisma Client se genera en `src/generated/prisma` (output custom); el JS compilado importa `../generated/prisma` desde `dist/` y espera `dist/generated/prisma`. `tsc` no copia el cliente, el runtime ni los binaries. Un checkout limpio con `npm ci && npm run build` no era reproducible sin un `prisma generate` previo en esa máquina.
+
+#### Prompt / intención
+
+Formalizar el contrato `npm ci && npm run build && npm start` como proceso Node compilado: `dist/server.js`, vivo, escuchando `PORT`, con Prisma resoluble y respuesta HTTP, sin `ts-node` / `ts-node-dev`. Docker, health, graceful shutdown, cron split y env/secrets quedaron fuera de este Issue.
+
+#### Propuesta generada por IA
+
+Auditoría READ-ONLY que confirmó el fallo (npm start exit 1, `MODULE_NOT_FOUND`, `dist/server.js` válido una vez copiado el cliente). Alternativas de entrypoint: `dist/server.js` vs `dist/app.js` vs mover `listen` a `app.ts`. Alternativas Prisma: generate+tsc insuficiente; copy a `dist/generated/prisma` (D1) vs migrar imports a `@prisma/client` (D2).
+
+#### Validación humana
+
+Se adoptó entrypoint `dist/server.js` y separación app/server. Se eligió D1 (mantener output custom y copiar el cliente al dist con un script Node cross-platform). No migrar imports a `@prisma/client` en este Issue. Docker, health, cron y env fuera de alcance.
+
+#### Decisión adoptada
+
+- `"start": "node dist/server.js"`
+- `"build": "prisma generate && tsc && node scripts/copy-prisma-generated.cjs"`
+- Copy con `fs.cpSync` desde `src/generated/prisma` hacia `dist/generated/prisma`
+- Sin cambios en `app.ts`, `server.ts`, `schema.prisma`, Dockerfile ni compose
+
+#### Resultado
+
+- `test:unit` / `npm test -- --runInBand`: 16 suites, 476 PASS, 0 FAIL
+- typecheck PASS
+- build PASS (generate + tsc + copy)
+- `npm start` con `ENABLE_CRON=false` y PORT libre: proceso vivo, `Server is running on port …`, sin `MODULE_NOT_FOUND`
+- Smoke `GET /api/lotes` sin Authorization: HTTP 401, `Token no proporcionado`
+- Clean copy sin `src/generated/prisma`: `npm ci` + `npm run build` PASS; `dist/generated/prisma` presente; `npm start` inicia y el smoke 401 se reproduce
+
+#### Evidencia / archivos relacionados
+
+- `Backend/package.json`
+- `Backend/scripts/copy-prisma-generated.cjs`
+- `Backend/README.md`
+- `docs/architecture/backend.md`
+- `docs/architecture/overview.md`
+- `docs/development/setup-local.md`
+- `AI-DECISIONS.md`
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.

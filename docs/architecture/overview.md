@@ -21,6 +21,7 @@ flowchart LR
 
 ## Decisiones relevantes
 
+- Arranque productivo del backend: `npm run build` && `npm start` (`dist/server.js`). Desarrollo local: `npm run dev`.
 - Backend separado en rutas, controladores, servicios, validaciones y middleware.
 - Frontend separado en páginas, componentes, `lib/api`, hooks y utilidades.
 - JWT y autorización por rol reforzada por UI.
