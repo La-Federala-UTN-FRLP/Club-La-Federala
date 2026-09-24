@@ -78,8 +78,31 @@ Esquemas de validación (generalmente con **Zod** o librerías similares) para g
 ---
 
 ### `app.ts`
-Punto de entrada principal del backend.  
-Configura middlewares, rutas y levanta el servidor.
+Compone y exporta la aplicación Express: middleware, CORS, rutas y manejo de errores. No ejecuta `listen`.
+
+### `server.ts`
+Lifecycle del proceso: importa `app`, resuelve `PORT` y ejecuta `listen`. El scheduler de expiraciones sigue en este entrypoint hasta su desacople (#224).
+
+---
+
+## Arranque
+
+### Desarrollo
+
+```bash
+npm run dev
+```
+
+TypeScript con watcher (`ts-node-dev`) sobre `src/server.ts`.
+
+### Producción
+
+```bash
+npm run build
+npm start
+```
+
+JavaScript compilado: `node dist/server.js`. El build genera Prisma Client, compila TypeScript y copia el cliente a `dist/generated/prisma`.
 
 ---
 
@@ -108,38 +131,11 @@ El sistema utiliza cron jobs para ejecutar tareas automáticas de expiración:
 
 ### Configuración
 
-#### Desarrollo Local (cron activo por defecto)
+El entrypoint actual (`server.ts` / `dist/server.js`) conserva el scheduler in-process. No es la arquitectura final: el desacople corresponde a #224. Hasta entonces, `ENABLE_CRON=false` desactiva el cron en el proceso HTTP.
 
-El cron se ejecuta automáticamente cada hora cuando se inicie el servidor. No requiere configuración adicional:
+#### Desarrollo local (cron activo por defecto)
 
-```bash
-npm run dev
-```
-
-El cron se ejecutará en el servidor cada hora (minuto 0).
-
-#### Producción en Render (recomendado)
-
-**Opción 1: Usar Render Cron Jobs (recomendado para producción)**
-
-1. **Desactivar el cron en el servidor principal**:
-   - En Render, configura la variable de entorno:
-     ```
-     ENABLE_CRON=false
-     ```
-
-2. **Configurar un Cron Job separado en Render**:
-   - Vamos al servicio nuestor en Render Dashboard
-   - Creamos un nuevo "Cron Job" (no un servicio web)
-   - Configuracion:
-     - **Comando**: `npm run jobs:expirations:prod` (producción) o `npm run jobs:expirations` (desarrollo)
-     - **Frecuencia**: `0 * * * *` (cada hora)
-     - **Plan**: Free tier o superior
-   - **Importante**: Asegurarse de que el código esté compilado (`npm run build`) antes de usar `jobs:expirations:prod`
-
-**Opción 2: Mantener cron en código (para desarrollo/testing)**
-
-Si se prefiere mantener todo en código, simplemente no configurar `ENABLE_CRON=false`. El cron se ejecutará en todas las instancias del servidor (puede causar ejecuciones duplicadas si se tiene múltiples instancias).
+Con `npm run dev` o `npm start`, si `ENABLE_CRON` no es `false`, el cron corre cada hora (minuto 0).
 
 ### Ejecución Manual
 

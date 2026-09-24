@@ -1,6 +1,13 @@
 # Arquitectura backend
 
-El backend usa Node.js, Express 5, TypeScript, Prisma y PostgreSQL. `src/server.ts` inicia el servidor y programa expiraciones cuando `ENABLE_CRON` no es `false`; `src/app.ts` configura CORS, JSON, logging, rutas y manejo de errores.
+El backend usa Node.js, Express 5, TypeScript, Prisma y PostgreSQL. `src/app.ts` compone y exporta Express (CORS, JSON, logging, rutas y errores). `src/server.ts` es el lifecycle del proceso: `listen` sobre `PORT` y el scheduler de expiraciones cuando `ENABLE_CRON` no es `false`.
+
+## Arranque
+
+- **Desarrollo:** `npm run dev` — TypeScript con watcher sobre `src/server.ts`.
+- **Producción:** `npm run build` && `npm start` — JavaScript compilado (`node dist/server.js`), sin `ts-node-dev`.
+
+`npm run build` genera Prisma Client en `src/generated/prisma`, compila TypeScript a `dist/` y copia el cliente (JS, runtime y binaries) a `dist/generated/prisma`. El scheduler in-process no es el diseño final; su desacople corresponde a #224.
 
 ## Estructura
 

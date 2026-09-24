@@ -21,14 +21,24 @@ El backend necesita `DATABASE_URL`, `DIRECT_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`
 
 ## Ejecución
 
+Desarrollo (TypeScript + watcher):
+
 ```bash
 cd Backend && npm run dev
 cd frontend && npm run dev
 ```
 
-Alternativa desde la raíz: `docker compose up --build`.
+Arranque compilado del backend (el mismo contrato productivo):
+
+```bash
+cd Backend && npm run build && npm start
+```
+
+`npm start` ejecuta `node dist/server.js`. Alternativa desde la raíz: `docker compose up --build` (entorno de desarrollo; no es la imagen productiva).
 
 ## Build y pruebas
+
+El build del backend genera Prisma Client, compila TypeScript y deja el cliente en `dist/generated/prisma`.
 
 ```bash
 cd Backend && npm run build && npm test
