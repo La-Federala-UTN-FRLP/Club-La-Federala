@@ -355,6 +355,71 @@ Readiness, #224, #225, Docker, Cloud, OpenAPI, ruido del logger en probes.
 - `docs/development/setup-local.md`
 - `AI-DECISIONS.md`
 
+### AI-007 — Separación de jobs periódicos del proceso web
+
+**Fecha:** 2026-09-24
+**Área:** Backend / Runtime / Jobs / Cloud readiness
+**Herramientas:** ChatGPT + Cursor
+
+#### Problema
+
+El proceso web (`node dist/server.js`) importaba `node-cron`, programaba `runExpirations` cada hora (`0 * * * *`) y usaba `ENABLE_CRON` como workaround para no duplicar expiraciones. Cada instancia HTTP podía disparar el mismo trabajo. El runner CLI ya existía (`dist/jobs/runExpirations.js`) pero cerraba con `process.exit` sin `prisma.$disconnect()`.
+
+#### Prompt / intención
+
+Desacoplar el scheduler del proceso web: HTTP solamente; job one-shot compilado; lifecycle Prisma alineado con #223; sin locking, sin Docker, sin GCP y sin #225.
+
+#### Propuesta generada por IA
+
+Auditoría READ-ONLY: `node-cron` solo lo usaba `server.ts`; `runExpirations` ya era independiente de Express y no importaba Supabase; el script `jobs:expirations:prod` ya era el contrato compilado. Alternativas: cron in-process, endpoint HTTP invocado por scheduler, o CLI one-shot. Recomendación: CLI one-shot, eliminar `node-cron` y `ENABLE_CRON`, `$disconnect` + `exitCode` en el runner.
+
+#### Validación humana
+
+- Web HTTP-only: sin `node-cron`, sin `runExpirations`, sin `ENABLE_CRON`.
+- Job: `node dist/jobs/runExpirations.js`, una ejecución, Prisma disconnect, `exitCode` 0/1.
+- Sin `process.exit(0)` en el camino feliz.
+- Sin locking / colas / SELECT FOR UPDATE.
+- Cadencia horaria: no se redefine; queda expectativa de infra futura.
+- Sin cambios de reglas en `expirePromotions` / `expireReservas` / `reserva.service`.
+
+#### Decisión adoptada
+
+- Web process = HTTP + health + graceful shutdown (#223 simplificado).
+- Job process = CLI one-shot sobre el singleton Prisma existente.
+- Eliminar dependencies `node-cron` y `@types/node-cron`.
+- Eliminar `ENABLE_CRON`.
+- Scheduler externo futuro (no implementado aquí); no endpoint HTTP de trigger.
+
+#### Resultado
+
+- `npm run test:unit`: 19 suites, 491 PASS, 0 FAIL
+- `npm test -- --runInBand`: 19 suites, 491 PASS, 0 FAIL
+- typecheck PASS
+- build PASS (`prisma generate` + `tsc` + copy; `dist/jobs/runExpirations.js` presente)
+- Smoke web `PORT=3041`: `GET /health` → 200 `{"status":"ok"}`, `Cache-Control: no-store`; sin logs `[CRON]`; proceso vivo
+- Smoke shutdown `process.emit('SIGTERM')`: HTTP cerrado, Prisma desconectado, `exit_code: 0`; **no** aparece `Scheduler detenido`
+- Smoke job fatal con `DATABASE_URL` dummy `127.0.0.1:1`: artefacto carga, Prisma resoluble, error fatal, proceso termina, `exit_code: 1`
+- HAPPY PATH RUNTIME AGAINST DB: NOT VERIFIED (sin DB local/test aislada)
+
+#### Fuera de alcance
+
+#225 (dotenv/env/secrets), Docker, GCP/Cloud Scheduler, locking, reglas de `expirePromotions`.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/server.ts`
+- `Backend/src/serverLifecycle.ts`
+- `Backend/src/jobs/runExpirations.ts`
+- `Backend/package.json`
+- `Backend/package-lock.json`
+- `Backend/tests/unit/runtime/serverLifecycle.test.ts`
+- `Backend/tests/unit/jobs/runExpirations.test.ts`
+- `Backend/README.md`
+- `docs/architecture/backend.md`
+- `docs/architecture/overview.md`
+- `docs/development/setup-local.md`
+- `AI-DECISIONS.md`
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.
