@@ -6,17 +6,12 @@ export type ShutdownServer = {
     closeAllConnections: () => void;
 };
 
-export type ExpirationTask = {
-    stop: () => void | Promise<void>;
-};
-
 export type ShutdownPrisma = {
     $disconnect: () => Promise<void>;
 };
 
 export type ShutdownOptions = {
     server: ShutdownServer;
-    getExpirationTask: () => ExpirationTask | null;
     prisma: ShutdownPrisma;
     timeoutMs?: number;
     log?: (message: string) => void;
@@ -81,15 +76,6 @@ export function createShutdown(options: ShutdownOptions): (signal: string) => Pr
         });
 
         const work = (async () => {
-            const expirationTask = options.getExpirationTask();
-            if (expirationTask) {
-                await Promise.resolve(expirationTask.stop());
-                if (timedOut) {
-                    return;
-                }
-                log('[SHUTDOWN] Scheduler detenido.');
-            }
-
             await closeHttpServer(options.server);
             if (timedOut) {
                 return;
