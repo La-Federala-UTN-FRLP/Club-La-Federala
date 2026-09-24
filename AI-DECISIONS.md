@@ -293,6 +293,68 @@ Se adoptó entrypoint `dist/server.js` y separación app/server. Se eligió D1 (
 - `docs/development/setup-local.md`
 - `AI-DECISIONS.md`
 
+### AI-006 — Health y graceful shutdown del proceso web
+
+**Fecha:** 2026-09-24
+**Área:** Backend / Runtime / Operabilidad
+**Herramientas:** ChatGPT + Cursor
+
+#### Problema
+
+El proceso productivo de #222 (`node dist/server.js`) arrancaba y escuchaba `PORT`, pero no tenía liveness HTTP, handlers `SIGTERM`/`SIGINT`, ni cleanup explícito. `app.listen` descartaba el `http.Server`. Había dos `PrismaClient` en el web process. El `ScheduledTask` de node-cron se descartaba. `GET /health` respondía 404.
+
+#### Prompt / intención
+
+Implementar liveness (`GET /health`) y graceful shutdown idempotente, unificando Prisma del proceso HTTP sobre el singleton, sin readiness, sin #224/#225 y sin tocar Docker/Cloud.
+
+#### Propuesta generada por IA
+
+Health: solo liveness vs liveness+readiness vs health con dependencias. Prisma: dos clients con cleanup separado vs singleton. Lifecycle: cierre inmediato vs graceful (stop cron → drain HTTP → `$disconnect`). Helper `serverLifecycle.ts` para testear shutdown sin importar `server.ts` (que hace `listen`).
+
+#### Validación humana
+
+- `GET /health`, body `{ "status": "ok" }`, sin dependencias, público, `Cache-Control: no-store`.
+- Un único PrismaClient en el web process (`file.service` reutiliza `config/prisma.ts`).
+- `SIGTERM`/`SIGINT`, stop cron, drain HTTP, disconnect Prisma, timeout 10 s.
+- `process.exitCode = 0` en el camino feliz; `process.exit(1)` en timeout o fallo de disconnect.
+- Sin readiness, sin env nuevas, sin cambiar `npm start`.
+
+#### Decisión adoptada
+
+- Ruta directa en `app.ts`.
+- Shutdown extraído a `src/serverLifecycle.ts` (Jest no resuelve `server.lifecycle.ts` porque trata `.lifecycle` como extensión).
+- Timer de 10 s con `unref()` para no retener el event loop tras un cierre exitoso.
+- Tests: Supertest de health (env dummy de Supabase solo en test) y unitarios del lifecycle con mocks.
+
+#### Resultado
+
+- `npm run test:unit`: 18 suites, 486 PASS, 0 FAIL
+- `npm test -- --runInBand`: 18 suites, 486 PASS, 0 FAIL
+- typecheck PASS
+- build PASS (`prisma generate` + `tsc` + copy)
+- Smoke `GET /health`: HTTP 200, `{"status":"ok"}`, `Cache-Control: no-store`
+- Smoke `GET /ready`: 404
+- `process.emit('SIGTERM'|'SIGINT')` sobre el server compilado: logs de shutdown, Prisma disconnect, `exit_code: 0`; con cron, `Scheduler detenido`
+- `process.kill(pid, 'SIGTERM')` desde otro proceso en Windows: terminación incondicional sin handlers (`exit 1`); POSIX no verificado en este host
+
+#### Fuera de alcance
+
+Readiness, #224, #225, Docker, Cloud, OpenAPI, ruido del logger en probes.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/app.ts`
+- `Backend/src/server.ts`
+- `Backend/src/serverLifecycle.ts`
+- `Backend/src/services/file.service.ts`
+- `Backend/tests/unit/app/health.test.ts`
+- `Backend/tests/unit/runtime/serverLifecycle.test.ts`
+- `Backend/README.md`
+- `docs/architecture/backend.md`
+- `docs/architecture/overview.md`
+- `docs/development/setup-local.md`
+- `AI-DECISIONS.md`
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.

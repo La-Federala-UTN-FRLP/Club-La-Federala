@@ -1,6 +1,6 @@
 # Arquitectura backend
 
-El backend usa Node.js, Express 5, TypeScript, Prisma y PostgreSQL. `src/app.ts` compone y exporta Express (CORS, JSON, logging, rutas y errores). `src/server.ts` es el lifecycle del proceso: `listen` sobre `PORT` y el scheduler de expiraciones cuando `ENABLE_CRON` no es `false`.
+El backend usa Node.js, Express 5, TypeScript, Prisma y PostgreSQL. `src/app.ts` compone y exporta Express (CORS, JSON, logging, rutas y errores). `src/server.ts` es el lifecycle del proceso: `listen` sobre `PORT`, el scheduler de expiraciones cuando `ENABLE_CRON` no es `false`, y el cierre ordenado ante `SIGTERM`/`SIGINT`. El proceso HTTP usa un único `PrismaClient` (`src/config/prisma.ts`).
 
 ## Arranque
 
@@ -8,6 +8,14 @@ El backend usa Node.js, Express 5, TypeScript, Prisma y PostgreSQL. `src/app.ts`
 - **Producción:** `npm run build` && `npm start` — JavaScript compilado (`node dist/server.js`), sin `ts-node-dev`.
 
 `npm run build` genera Prisma Client en `src/generated/prisma`, compila TypeScript a `dist/` y copia el cliente (JS, runtime y binaries) a `dist/generated/prisma`. El scheduler in-process no es el diseño final; su desacople corresponde a #224.
+
+## Health
+
+`GET /health` es **liveness**: el proceso Node + Express responde HTTP. Devuelve `200` con `{"status":"ok"}` y `Cache-Control: no-store`. Es público (sin JWT). No consulta PostgreSQL, Prisma, Supabase ni otros servicios. No es readiness: una DB caída no hace “muerto” al proceso.
+
+## Shutdown
+
+`SIGTERM` e `SIGINT` disparan un cierre ordenado (idempotente): detiene el scheduler actual si está activo, drena el HTTP server (`close` + `closeIdleConnections`), desconecta Prisma y deja `process.exitCode = 0` para que Node termine solo. Timeout defensivo de 10 s: `closeAllConnections()` y `process.exit(1)`. La lógica vive en `src/serverLifecycle.ts`; el arranque sigue en `src/server.ts`.
 
 ## Estructura
 

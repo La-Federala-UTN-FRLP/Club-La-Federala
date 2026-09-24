@@ -36,6 +36,14 @@ cd Backend && npm run build && npm start
 
 `npm start` ejecuta `node dist/server.js`. Alternativa desde la raíz: `docker compose up --build` (entorno de desarrollo; no es la imagen productiva).
 
+Comprobar liveness (sin autenticación):
+
+```bash
+curl -i http://localhost:3000/health
+```
+
+Esperado: `200` y `{"status":"ok"}`. Eso no garantiza PostgreSQL ni Supabase.
+
 ## Build y pruebas
 
 El build del backend genera Prisma Client, compila TypeScript y deja el cliente en `dist/generated/prisma`.
