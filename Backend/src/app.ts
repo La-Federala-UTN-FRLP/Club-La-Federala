@@ -1,4 +1,3 @@
-import dotenv from 'dotenv';
 import express from 'express';
 import { loteRoutes } from './routes/lote.routes';
 import { logRequest } from './middlewares/logger.middleware';
@@ -15,8 +14,6 @@ import {personaRoutes} from "./routes/persona.routes";
 import { fraccionRoutes } from './routes/fraccion.routes';
 import { ubicacionRoutes } from './routes/ubicacion.routes';
 import { prioridadRoutes } from './routes/prioridad.routes';
-
-dotenv.config();
 
 const app = express();
 

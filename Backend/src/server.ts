@@ -1,12 +1,14 @@
 // server.ts
+import './config/bootstrapWeb';
 import app from './app';
 import prisma from './config/prisma';
 import { createShutdown } from './serverLifecycle';
+import { getWebEnv } from './config/env';
 
-const PORT = process.env.PORT || 3000;
+const { port } = getWebEnv();
 
-const server = app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+const server = app.listen(port, () => {
+    console.log(`Server is running on port ${port}`);
 });
 
 const shutdown = createShutdown({

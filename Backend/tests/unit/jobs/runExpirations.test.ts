@@ -1,3 +1,7 @@
+jest.mock('../../../src/config/loadEnv', () => ({
+    loadLocalEnv: jest.fn(),
+}));
+
 jest.mock('../../../src/config/prisma', () => ({
     __esModule: true,
     default: {
@@ -13,6 +17,7 @@ jest.mock('../../../src/jobs/expireReservas', () => ({
     expireReservas: jest.fn(),
 }));
 
+import { loadLocalEnv } from '../../../src/config/loadEnv';
 import { expirePromotions } from '../../../src/jobs/expirePromotions';
 import { expireReservas } from '../../../src/jobs/expireReservas';
 import { runExpirations, runExpirationsCli } from '../../../src/jobs/runExpirations';
@@ -77,7 +82,7 @@ describe('runExpirationsCli', () => {
         const run = jest.fn(async () => undefined);
         const prisma = { $disconnect: jest.fn(async () => undefined) };
 
-        await runExpirationsCli({ run, prisma });
+        await runExpirationsCli({ run, prisma, skipEnvValidation: true });
 
         expect(run).toHaveBeenCalledTimes(1);
         expect(prisma.$disconnect).toHaveBeenCalledTimes(1);
@@ -90,7 +95,7 @@ describe('runExpirationsCli', () => {
         });
         const prisma = { $disconnect: jest.fn(async () => undefined) };
 
-        await runExpirationsCli({ run, prisma });
+        await runExpirationsCli({ run, prisma, skipEnvValidation: true });
 
         expect(run).toHaveBeenCalledTimes(1);
         expect(prisma.$disconnect).toHaveBeenCalledTimes(1);
@@ -105,10 +110,29 @@ describe('runExpirationsCli', () => {
             }),
         };
 
-        await runExpirationsCli({ run, prisma });
+        await runExpirationsCli({ run, prisma, skipEnvValidation: true });
 
         expect(run).toHaveBeenCalledTimes(1);
         expect(prisma.$disconnect).toHaveBeenCalledTimes(1);
         expect(process.exitCode).toBe(1);
+    });
+
+    test('config job inválida: no ejecuta run ni queries', async () => {
+        const run = jest.fn(async () => undefined);
+        const prisma = { $disconnect: jest.fn(async () => undefined) };
+        const original = process.env.DATABASE_URL;
+        delete process.env.DATABASE_URL;
+
+        await runExpirationsCli({ run, prisma });
+
+        expect(loadLocalEnv).toHaveBeenCalled();
+        expect(run).not.toHaveBeenCalled();
+        expect(process.exitCode).toBe(1);
+
+        if (original === undefined) {
+            delete process.env.DATABASE_URL;
+        } else {
+            process.env.DATABASE_URL = original;
+        }
     });
 });

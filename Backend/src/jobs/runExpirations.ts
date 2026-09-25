@@ -3,6 +3,8 @@
 import prisma from '../config/prisma';
 import { expirePromotions } from './expirePromotions';
 import { expireReservas } from './expireReservas';
+import { loadLocalEnv } from '../config/loadEnv';
+import { EnvValidationError, parseJobEnv } from '../config/env';
 
 export type ExpirationsCliPrisma = {
   $disconnect: () => Promise<void>;
@@ -11,7 +13,26 @@ export type ExpirationsCliPrisma = {
 export type ExpirationsCliOptions = {
   run?: () => Promise<void>;
   prisma?: ExpirationsCliPrisma;
+  skipEnvValidation?: boolean;
 };
+
+function validateJobEnvironment(): boolean {
+  loadLocalEnv();
+  try {
+    parseJobEnv(process.env);
+    return true;
+  } catch (error) {
+    if (error instanceof EnvValidationError) {
+      console.error('[runExpirations] Invalid job environment configuration:');
+      for (const issue of error.issues) {
+        console.error(`  - ${issue}`);
+      }
+    } else {
+      console.error('[runExpirations] Invalid job environment configuration.');
+    }
+    return false;
+  }
+}
 
 /**
  * Ejecuta todos los jobs de expiración.
@@ -40,6 +61,11 @@ export async function runExpirations(): Promise<void> {
  * Ejecuta una vez, cierra Prisma y deja el exit code para que el proceso termine solo.
  */
 export async function runExpirationsCli(options?: ExpirationsCliOptions): Promise<void> {
+  if (!options?.skipEnvValidation && !validateJobEnvironment()) {
+    process.exitCode = 1;
+    return;
+  }
+
   const run = options?.run ?? runExpirations;
   const client = options?.prisma ?? prisma;
 
