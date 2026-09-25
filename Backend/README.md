@@ -28,6 +28,9 @@ Contiene todo lo relacionado con **Prisma ORM**:
 Código fuente del backend. Aquí se concentra toda la lógica de negocio y configuración.
 
 #### `config/` [https://github.com/justinasmith1/UTN-DS25-Grupo01/tree/main/Backend/src/config]
+- `env.ts`: contratos **WebEnv** y **JobEnv** (Zod), parsing y tipos.
+- `loadEnv.ts`: carga `Backend/.env` local sin sobrescribir env inyectada.
+- `bootstrapWeb.ts`: carga + validación web antes de importar la app.
 - `prisma.ts`: inicializa y exporta la conexión de **Prisma Client** para ser reutilizada en los servicios.
 
 #### `controllers/` [https://github.com/justinasmith1/UTN-DS25-Grupo01/tree/main/Backend/src/controllers]
@@ -81,7 +84,39 @@ Esquemas de validación (generalmente con **Zod** o librerías similares) para g
 Compone y exporta la aplicación Express: middleware, CORS, rutas y manejo de errores. Expone `GET /health` (liveness). No ejecuta `listen`.
 
 ### `server.ts`
-Lifecycle del proceso HTTP: importa `app`, resuelve `PORT`, ejecuta `listen` y registra `SIGTERM`/`SIGINT`. No programa tareas. El cierre ordenado está en `serverLifecycle.ts`. El job de expiraciones es un proceso aparte (`src/jobs/runExpirations.ts`).
+Lifecycle del proceso HTTP: valida **WebEnv** (`bootstrapWeb`), importa `app`, resuelve `PORT` validado y ejecuta `listen`. Registra `SIGTERM`/`SIGINT`. No programa tareas. El job de expiraciones es un proceso aparte (`src/jobs/runExpirations.ts`).
+
+---
+
+## Configuración y secretos
+
+Copiar `Backend/.env.example` a `Backend/.env` con valores locales **no versionados**. En producción la plataforma inyecta variables de entorno; el código no depende de GCP Secret Manager.
+
+### WebEnv (`npm run dev` / `npm start`)
+
+Validado en `src/config/bootstrapWeb.ts` **antes** de abrir el puerto.
+
+| Variable | Required | Default |
+|---|---|---|
+| `NODE_ENV` | sí (`development` \| `test` \| `production`) | — |
+| `DATABASE_URL` | sí | — |
+| `JWT_SECRET` | sí | — |
+| `SUPABASE_URL` | sí | — |
+| `SUPABASE_SERVICE_KEY` | sí | — |
+| `FRONTEND_URL` | sí si `NODE_ENV=production` | opcional en dev/test |
+| `PORT` | no | `3000` |
+| `JWT_EXPIRES_IN` | no | `2h` |
+| `SUPABASE_BUCKET` | no | `lotes-files` |
+
+Cliente Supabase: inicialización **lazy** en `file.service.ts` (sin side effects al importar rutas).
+
+### JobEnv (`jobs:expirations*`)
+
+Solo `DATABASE_URL`. Carga `.env` local + validación al inicio del runner CLI.
+
+### Tooling Prisma
+
+`prisma/schema.prisma` referencia `DATABASE_URL` y `DIRECT_URL`. `prisma generate`, migraciones y seeds usan ambas según el schema; el job **no** exige `DIRECT_URL` en runtime.
 
 ---
 
@@ -141,7 +176,7 @@ El proceso web (`npm run dev` / `npm start`) **no** programa ni ejecuta expiraci
 npm run jobs:expirations
 ```
 
-Ejecuta una vez con TypeScript (`ts-node`). Requiere las mismas variables de base de datos que el backend. No usar contra una base productiva para pruebas.
+Ejecuta una vez con TypeScript (`ts-node`). Requiere `DATABASE_URL` (contrato JobEnv). Carga `Backend/.env` si existe, sin sobrescribir env ya inyectada. No usar contra una base productiva para pruebas.
 
 ### Productivo / artefacto compilado
 

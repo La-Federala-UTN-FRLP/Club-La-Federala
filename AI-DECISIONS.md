@@ -420,6 +420,74 @@ Auditoría READ-ONLY: `node-cron` solo lo usaba `server.ts`; `runExpirations` ya
 - `docs/development/setup-local.md`
 - `AI-DECISIONS.md`
 
+### AI-008 — Contrato de configuración y secretos
+
+**Fecha:** 2026-09-25
+**Área:** Backend / Config / Runtime / Jobs
+**Herramientas:** ChatGPT + Cursor
+
+#### Problema
+
+`process.env` disperso; `dotenv.config()` en `app.ts` después de imports estáticos (Supabase eager en `file.service`); JWT validado tarde; job sin carga consistente de `.env` local; `.env.example` incompleto.
+
+#### Evidencia
+
+Auditoría READ-ONLY #225: inventario de consumidores, orden de imports vs dotenv, contratos web/job/tooling, secretos vs config, tests `health.supabase-env` como parche.
+
+#### Alternativas
+
+- A: `process.env` directo en cada módulo.
+- B: módulo único de config.
+- C: contratos **WebEnv** + **JobEnv** separados (mínimo privilegio).
+
+#### Validación humana
+
+- Zod (sin nueva dependency).
+- Fail-fast web antes de `listen`; fail-fast job antes de queries.
+- Supabase required en WebEnv + cliente **lazy**.
+- `loadLocalEnv` en entrypoints; `override: false`.
+- `DIRECT_URL` solo tooling Prisma; frontend / Docker productivo / GCP fuera de scope.
+
+#### Decisión adoptada
+
+- `src/config/env.ts`, `loadEnv.ts`, `bootstrapWeb.ts`.
+- `server.ts` importa bootstrap antes de `app`.
+- `runExpirationsCli` valida JobEnv (`DATABASE_URL` únicamente).
+- `.env.example` provider-neutral; Postman JWT literal sanitizado.
+- Tests `tests/unit/config/env.test.ts`; eliminado `health.supabase-env.ts`.
+
+#### Resultado
+
+- `npm run test:unit`: 20 suites, **506** PASS, 0 FAIL (~4 s)
+- `npm test -- --runInBand`: 20 suites, **506** PASS, 0 FAIL (~4 s)
+- `npm run typecheck`: PASS
+- `npm run build`: PASS (`prisma generate` + `tsc` + copy; requiere `DATABASE_URL`/`DIRECT_URL` en entorno o `.env` local por schema Prisma)
+- Smoke web (env fake inyectada, `PORT=3042`): listen OK; `GET /health` → **200** `{"status":"ok"}`; logs sin secretos
+- Smoke web inválida (`NODE_ENV=staging`): exit **1**; mensaje `NODE_ENV: Invalid option...`; sin listener
+- Smoke job inválida: validación cubierta por tests unitarios; con `Backend/.env` local presente, `loadLocalEnv` puede proveer `DATABASE_URL` (comportamiento esperado en dev)
+- Postman collection: JWT literal **sanitizado** (valor vacío + header `{{JWT_TOKEN}}`)
+
+#### Fuera de alcance
+
+GCP Secret Manager, Cloud Run, docker-compose productivo, CI dummy URLs, frontend `VITE_*`, rotación de credenciales históricas.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/config/env.ts`
+- `Backend/src/config/loadEnv.ts`
+- `Backend/src/config/bootstrapWeb.ts`
+- `Backend/src/server.ts`
+- `Backend/src/app.ts`
+- `Backend/src/services/file.service.ts`
+- `Backend/src/jobs/runExpirations.ts`
+- `Backend/.env.example`
+- `Backend/tests/unit/config/env.test.ts`
+- `Backend/tests/unit/app/health.test.ts`
+- `Backend/README.md`
+- `docs/architecture/backend.md`
+- `docs/development/setup-local.md`
+- `AI-DECISIONS.md`
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.

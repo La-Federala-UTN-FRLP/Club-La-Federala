@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { getWebEnv } from '../config/env';
 
  // Extender tipo Request
  declare global {
@@ -25,7 +26,7 @@ import jwt from 'jsonwebtoken';
        }
        const token = authHeader.split(' ')[1];
        // 2. Verificar token
-       const decoded = jwt.verify( token, process.env.JWT_SECRET!) as any;
+       const decoded = jwt.verify(token, getWebEnv().jwtSecret) as any;
        
        // 3. Agregar usuario al request
        // El inmobiliariaId ya viene en el JWT si el rol es INMOBILIARIA (se incluye en el login)

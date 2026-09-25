@@ -9,20 +9,22 @@ import {
 } from "../utils/file.auth.utils";
 import { ensureVentaPerteneceALote } from "../utils/file.validation.utils";
 import prisma from "../config/prisma";
+import { getWebEnv } from "../config/env";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-function getEnv() {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_KEY; // service_role en backend
-  const bucket = process.env.SUPABASE_BUCKET || "lotes-files";
+let supabaseClient: SupabaseClient | null = null;
 
-  if (!url) throw new Error("SUPABASE_URL no está definido");
-  if (!key) throw new Error("SUPABASE_SERVICE_KEY no está definido");
-
-  return { url, key, bucket };
+function getSupabaseClient(): SupabaseClient {
+  if (!supabaseClient) {
+    const { supabaseUrl, supabaseServiceKey } = getWebEnv();
+    supabaseClient = createClient(supabaseUrl, supabaseServiceKey);
+  }
+  return supabaseClient;
 }
 
-const { url, key, bucket } = getEnv();
-const supabase = createClient(url, key);
+function getSupabaseBucket(): string {
+  return getWebEnv().supabaseBucket;
+}
 
 const TIPOS_DOC_VENTA: TipoFile[] = ["BOLETO", "ESCRITURA", "OTRO"];
 const TIPOS_DOC_LOTE: TipoFile[] = ["PLANO", "IMAGEN"];
@@ -90,8 +92,8 @@ export async function uploadFileToSupabase(
     ventaId: metadata.ventaId,
   });
 
-  const { error } = await supabase.storage
-    .from(bucket)
+  const { error } = await getSupabaseClient().storage
+    .from(getSupabaseBucket())
     .upload(objectPath, fileBuffer, {
       contentType: "application/octet-stream",
       upsert: false,
@@ -108,8 +110,8 @@ export async function uploadFileToSupabase(
 }
 
 export async function generateSignedUrl(objectPath: string, expiresIn: number = 3660): Promise<string> {
-  const { data, error } = await supabase.storage
-    .from(bucket)
+  const { data, error } = await getSupabaseClient().storage
+    .from(getSupabaseBucket())
     .createSignedUrl(objectPath, expiresIn, { download: false });
 
   if (error || !data?.signedUrl) {
@@ -281,7 +283,7 @@ export async function purgeFileById(id: number): Promise<void> {
   const file = await prisma.archivos.findUnique({ where: { id } });
   if (!file) throw new Error("Archivo no encontrado");
   const objectPath = file.linkArchivo;
-  const { error } = await supabase.storage.from(bucket).remove([objectPath]);
+  const { error } = await getSupabaseClient().storage.from(getSupabaseBucket()).remove([objectPath]);
   if (error) {
     console.warn(`Supabase remove: ${error.message} (continuando con borrado DB)`);
   }

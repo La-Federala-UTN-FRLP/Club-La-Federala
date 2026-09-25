@@ -89,7 +89,7 @@
   "variable": [
     {
       "key": "JWT_TOKEN",
-      "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjksImVtYWlsIjoidXN1YXJpbzJAZ21haWwuY29tIiwicm9sZSI6IkFETUlOSVNUUkFET1IiLCJpYXQiOjE3NTg5ODE2MDUsImV4cCI6MTc1ODk4ODgwNX0.w-5pMUQjwVgWvSDwvKb4iBJ6BZgHPFJAdP9vUSQNh_o"
+      "value": ""
     },
     {
       "key": "FILE_ID",

@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt, { Secret, SignOptions } from 'jsonwebtoken';
 import { LoginRequest, LoginResponse } from '../types/auth.types';
 import { Role } from '../generated/prisma';
+import { getWebEnv } from '../config/env';
 
 type JWTPayload = { 
     sub: number;
@@ -33,11 +34,12 @@ export async function login(data: LoginRequest): Promise<LoginResponse> {
   }
 
   // 3. Generar JWT
-  const JWT_SECRET = process.env.JWT_SECRET as Secret | undefined;
+  const { jwtSecret, jwtExpiresIn } = getWebEnv();
+  const JWT_SECRET = jwtSecret as Secret;
   if (!JWT_SECRET) {
     throw new Error('Falta JWT_SECRET en .env');
   }
-  const EXPIRES_IN = process.env.JWT_EXPIRES_IN ?? '2h';
+  const EXPIRES_IN = jwtExpiresIn;
 
   // Obtener inmobiliariaId desde la relación incluida
   const inmobiliariaId = user.inmobiliaria?.id ?? null;
