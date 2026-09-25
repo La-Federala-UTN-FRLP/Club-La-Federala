@@ -15,9 +15,15 @@ cd ../frontend && npm install
 
 ## Variables de entorno
 
-El backend necesita `DATABASE_URL`, `DIRECT_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `FRONTEND_URL` y, para archivos, `SUPABASE_*`. El frontend usa `VITE_*`, incluida la URL base de API. Usar valores locales no versionados.
+Copiar `Backend/.env.example` → `Backend/.env` (gitignored). No commitear secretos.
 
-`FRONTEND_URL` es un único origin CORS (no CSV). En local: `http://localhost:5173`. El contrato completo está en `docs/architecture/backend.md`.
+**WebEnv** (dev / `npm start`): `NODE_ENV`, `DATABASE_URL`, `JWT_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`; en `production` también `FRONTEND_URL`. Opcionales con default: `PORT`, `JWT_EXPIRES_IN`, `SUPABASE_BUCKET`.
+
+**JobEnv** (expiraciones): solo `DATABASE_URL`.
+
+**Tooling Prisma:** `DIRECT_URL` además de `DATABASE_URL` para `prisma generate`, migraciones y seeds (schema actual).
+
+El frontend usa `VITE_*` (fuera del alcance del contrato backend). `FRONTEND_URL` es un único origin CORS (no CSV). En local: `http://localhost:5173`. Detalle en `docs/architecture/backend.md`.
 
 ## Ejecución
 
@@ -58,11 +64,11 @@ Para validar el artefacto compilado:
 cd Backend && npm run build && npm run jobs:expirations:prod
 ```
 
-El job escribe en la base apuntada por `DATABASE_URL`. No usarlo contra producción para pruebas.
+El job escribe en la base apuntada por `DATABASE_URL` (JobEnv). Carga `.env` local sin pisar env inyectada. No usarlo contra producción para pruebas.
 
 ## Build y pruebas
 
-El build del backend genera Prisma Client, compila TypeScript y deja el cliente en `dist/generated/prisma`.
+El build del backend genera Prisma Client (`prisma generate` necesita `DATABASE_URL` y `DIRECT_URL` según el schema), compila TypeScript y deja el cliente en `dist/generated/prisma`.
 
 ```bash
 cd Backend && npm run build && npm test

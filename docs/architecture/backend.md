@@ -38,10 +38,30 @@ Las rutas privadas usan `authenticate` y `authorize`. Los roles son `ADMINISTRAD
 
 ## Variables relevantes
 
-`PORT`, `FRONTEND_URL`, `DATABASE_URL`, `DIRECT_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` y `SUPABASE_BUCKET`. El job de expiraciones necesita la URL de PostgreSQL inyectada en el entorno del proceso. Nunca publicar valores reales.
+La configuración se valida con Zod en `src/config/env.ts`. Contratos separados:
+
+### WebEnv (proceso HTTP)
+
+Requeridas: `NODE_ENV` (`development` | `test` | `production`), `DATABASE_URL`, `JWT_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`. En `production`, también `FRONTEND_URL`.
+
+Defaults: `PORT=3000`, `JWT_EXPIRES_IN=2h`, `SUPABASE_BUCKET=lotes-files`.
+
+Carga local: `src/config/loadEnv.ts` lee `Backend/.env` sin sobrescribir variables ya inyectadas (shell, Docker, Cloud). Validación fail-fast en `src/config/bootstrapWeb.ts` antes de `listen`.
+
+Secretos: `DATABASE_URL`, `JWT_SECRET`, `SUPABASE_SERVICE_KEY`. No loguear valores.
+
+### JobEnv (expiraciones)
+
+Solo `DATABASE_URL`. Validado al inicio de `runExpirationsCli`. Sin JWT, Supabase, `PORT` ni `FRONTEND_URL`.
+
+### Tooling Prisma
+
+`DIRECT_URL` figura en `prisma/schema.prisma` para migraciones y `prisma generate`; no forma parte de JobEnv ni se exige al job en runtime.
+
+Nunca publicar valores reales en docs ni en Git.
 
 ## CORS / `FRONTEND_URL`
 
 `FRONTEND_URL` es **un único origin** autorizado para browsers (sin path, sin CSV, matching exacto). Ejemplos: `http://localhost:5173` o `https://frontend.example.com`. Se recortan espacios externos de la variable; no se normaliza el header `Origin`.
 
-Fuera de `production`, `http://localhost:5173` se admite automáticamente. En `production` no: hay que configurarlo de forma explícita si hace falta. Si `FRONTEND_URL` falta en `production`, la allowlist de browsers queda vacía (el proceso arranca igual). Las requests sin `Origin` (curl, Postman, server-to-server) no dependen de esta lista.
+Fuera de `production`, `http://localhost:5173` se admite automáticamente. En `production` no: hay que configurar `FRONTEND_URL` de forma explícita (requerido en WebEnv al arrancar). Las requests sin `Origin` (curl, Postman, server-to-server) no dependen de esta lista.
