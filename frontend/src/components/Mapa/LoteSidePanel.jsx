@@ -24,6 +24,7 @@ import VentaVerCard from "../Cards/Ventas/VentaVerCard";
 import LoteVerCard from "../Cards/Lotes/LoteVerCard";
 import { getAllReservas, getReservaById } from "../../lib/api/reservas";
 import { getAllVentas, getVentaById } from "../../lib/api/ventas";
+import { isLoteReservable } from "../../utils/loteStates";
 import "../Cards/Base/cards.css";
 
 // Helper para verificar si es inmobiliaria
@@ -71,7 +72,7 @@ export default function LoteSidePanel({
   const navigate = useNavigate();
   const authContext = useAuth();
   const user = authContext?.user || null;
-  const { error: showError } = useToast() || { error: () => {} };
+  const { error: showError, info: showInfo } = useToast() || { error: () => {}, info: () => {} };
 
   // Estado para el lote completo cargado
   const [currentLot, setCurrentLot] = useState(null);
@@ -299,9 +300,8 @@ export default function LoteSidePanel({
   const isReserveButtonDisabled = useMemo(() => {
     if (!currentLot) return true;
     const estado = estadoLote;
-    // Deshabilitado si está NO_DISPONIBLE (ocupación se maneja por separado)
-    // NO deshabilitado si está DISPONIBLE, RESERVADO (muestra "Ver Reserva"), o VENDIDO (muestra "Ver Venta")
-    return estado === "NO_DISPONIBLE" || estado === "NO DISPONIBLE";
+    // Accionable solo si hay una acción válida: reservar, ver reserva o ver venta
+    return !(isLoteReservable(estado) || estado === "RESERVADO" || estado === "VENDIDO");
   }, [currentLot, estadoLote]);
 
   // Obtener metadata de prioridades/reservas/ventas para el lote actual
@@ -432,7 +432,7 @@ export default function LoteSidePanel({
       } finally {
         setLoadingReservaVenta(false);
       }
-    } else if (estado === "DISPONIBLE") {
+    } else if (isLoteReservable(estado)) {
       setShowReserveCard(true);
     }
   };
@@ -486,19 +486,35 @@ export default function LoteSidePanel({
   };
   
   const handleReserveCreated = () => {
-    // Recargar el lote para actualizar el estado
-    if (selectedLotId) {
-      getLoteById(selectedLotId).then(resp => {
-        const lot = resp?.data ?? resp ?? null;
-        if (lot) setCurrentLot(lot);
-      }).catch(console.error);
-    }
+    // La reserva ya fue creada: cerrar la card y mostrar éxito pase lo que pase con la sincronización
     setShowReserveCard(false);
-    // Mostrar animación de éxito
     setShowSuccessReserve(true);
     setTimeout(() => {
       setShowSuccessReserve(false);
     }, 1500);
+
+    if (!selectedLotId) return;
+
+    const syncFailed = () =>
+      showInfo("La reserva se creó, pero no se pudo actualizar la vista. Recargá para ver el estado actual.");
+
+    // Refrescar el lote local y notificar al Layout para que el mapa refleje el nuevo estado
+    getLoteById(selectedLotId)
+      .then((resp) => {
+        const lot = resp?.data ?? resp ?? null;
+        if (!lot) {
+          syncFailed();
+          return;
+        }
+        setCurrentLot(lot);
+        if (typeof onLoteUpdated === "function") {
+          onLoteUpdated(lot);
+        }
+      })
+      .catch((err) => {
+        console.error("Error sincronizando lote tras crear reserva:", err);
+        syncFailed();
+      });
   };
 
   // AHORA SÍ, después de todos los hooks, verificar si debemos renderizar

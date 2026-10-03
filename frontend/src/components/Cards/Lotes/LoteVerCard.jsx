@@ -9,6 +9,7 @@ import { getLoteById } from "../../../lib/api/lotes.js";
 import { useAuth } from "../../../app/providers/AuthProvider.jsx";
 import { ChevronLeft, ChevronRight, Image as ImageIcon } from "lucide-react";
 import { getLoteIdFormatted } from "../../Table/TablaLotes/utils/getters.js";
+import { isLoteReservable } from "../../../utils/loteStates.js";
 
 const ESTADOS_LOTE = [
   { value: "DISPONIBLE", label: "Disponible" },
@@ -411,11 +412,9 @@ export default function LoteVerCard({
   }, [reservaActiva, user]);
 
   // Determinar si se puede reservar (solo INMOBILIARIA en lotes DISPONIBLE)
-  const estadosReservables = ['DISPONIBLE', 'EN_PROMOCION'];
   const puedeReservar = useMemo(() => {
     if (user?.role !== 'INMOBILIARIA') return false;
-    const estadoUpper = String(currentLot?.estado || "").toUpperCase();
-    return estadosReservables.includes(estadoUpper);
+    return isLoteReservable(currentLot?.estado);
   }, [user?.role, currentLot?.estado]);
 
   // Early return DESPUÉS de todos los hooks
