@@ -10,6 +10,7 @@ import { getAllPersonas } from "../../../lib/api/personas.js";
 import { getAllLotes } from "../../../lib/api/lotes.js";
 import PersonaSearchSelect from "../Lotes/PersonaSearchSelect.jsx";
 import { useAuth } from "../../../app/providers/AuthProvider.jsx";
+import { isLoteReservable } from "../../../utils/loteStates.js";
 import { reservaCreateSchema } from "../../../lib/validations/reservaCreate.schema.js";
 
 // Límite de años para el plazo de reserva (Inmobiliaria)
@@ -141,11 +142,8 @@ export default function ReservaCrearCard({
         try {
           const resp = await getAllLotes({});
           const lotesData = resp?.data || [];
-          // Filtrar lotes DISPONIBLE, EN_PROMOCION, CON_PRIORIDAD
-          let filteredLots = lotesData.filter((l) => {
-            const st = String(l.estado || l.status || "").toUpperCase();
-            return ["DISPONIBLE", "EN_PROMOCION", "CON_PRIORIDAD"].includes(st);
-          });
+          // Filtrar solo lotes reservables
+          let filteredLots = lotesData.filter((l) => isLoteReservable(l.estado || l.status));
 
           // Si lockLote es true y hay loteIdPreSeleccionado, asegurar que el lote esté en el array
           if (lockLote && loteIdPreSeleccionado) {
