@@ -5,7 +5,7 @@
 // - Mini-resumen compacto
 // - Botones basados en roles usando RBAC
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { Offcanvas } from "react-bootstrap";
 import { useAuth } from "../../app/providers/AuthProvider";
 import { can, PERMISSIONS, userPermissions } from "../../lib/auth/rbac";
@@ -99,10 +99,25 @@ export default function LoteSidePanel({
   const [showSuccessEdit, setShowSuccessEdit] = useState(false);
   const [showSuccessReserve, setShowSuccessReserve] = useState(false);
 
+  // Lote mostrado y estado del panel "ahora", para que los handlers async detecten si siguen vigentes.
+  const selectedLotIdRef = useRef(selectedLotId);
+  const showRef = useRef(show);
+  selectedLotIdRef.current = selectedLotId;
+  showRef.current = show;
+  const isPanelShowingLot = (lotId) =>
+    showRef.current && String(selectedLotIdRef.current) === String(lotId);
+
+  // Número de la última operación de handleReserve; cambiar de lote o cerrar el panel invalida la pendiente.
+  const reserveOpSeq = useRef(0);
+
   // Cargar lote completo cuando se selecciona o se abre el panel
   useEffect(() => {
+    reserveOpSeq.current++;
+    setLoadingReservaVenta(false);
+
     if (!selectedLotId || !show) {
       setCurrentLot(null);
+      setLoading(false);
       setDescripcionExpanded(false); // Resetear descripción cerrada
       // Cerrar cualquier card abierto cuando se cierra el panel
       setShowEditCard(false);
@@ -119,10 +134,14 @@ export default function LoteSidePanel({
       return;
     }
 
+    // Si el lote cambia, el panel se cierra o se desmonta, las respuestas pendientes no deben escribir estado.
+    let active = true;
+
     const fetchLote = async () => {
       try {
         setLoading(true);
         const resp = await getLoteById(selectedLotId);
+        if (!active) return;
         const lot = resp?.data ?? resp ?? null;
         setCurrentLot(lot);
 
@@ -130,6 +149,7 @@ export default function LoteSidePanel({
         if (lot?.id) {
           try {
             const archivos = await getArchivosByLote(lot.id);
+            if (!active) return;
             const imagenes = (archivos?.data ?? archivos ?? []).filter(
               (a) => ((a.tipo || "").toUpperCase() === "IMAGEN") && a.id
             );
@@ -149,8 +169,10 @@ export default function LoteSidePanel({
             };
 
             const urls = await Promise.all(imagenes.map(obtenerSignedUrl));
+            if (!active) return;
             setLoteImages(urls.filter(Boolean));
           } catch (err) {
+            if (!active) return;
             console.error("Error cargando imágenes del lote:", err);
             setLoteImages([]);
           }
@@ -165,6 +187,7 @@ export default function LoteSidePanel({
           if (estadoUpper === "RESERVADO") {
             try {
               const reservasResp = await getAllReservas({});
+              if (!active) return;
               const allReservas = reservasResp?.data || reservasResp || [];
         const reservaActiva = allReservas.find(
           (r) => {
@@ -173,20 +196,18 @@ export default function LoteSidePanel({
             // Comparar IDs como números y strings para asegurar que coincidan
             const lotIdNum = Number(lot.id);
             const rLoteIdNum = Number(rLoteId);
-            const matches = (rLoteIdNum === lotIdNum || String(rLoteId) === String(lot.id)) && estadoReserva === "ACTIVA";
-            if (matches) {
-              console.log("Reserva encontrada:", r, "para lote:", lot.id);
-            }
-            return matches;
+            return (rLoteIdNum === lotIdNum || String(rLoteId) === String(lot.id)) && estadoReserva === "ACTIVA";
           }
         );
               // Cargar datos completos de la reserva si se encontró
               if (reservaActiva) {
                 try {
                   const reservaCompleta = await getReservaById(reservaActiva.id || reservaActiva.idReserva);
+                  if (!active) return;
                   const fullReserva = reservaCompleta?.data ?? reservaCompleta ?? reservaActiva;
                   setReservaAsociada(fullReserva);
                 } catch (err) {
+                  if (!active) return;
                   console.error("Error obteniendo reserva completa al cargar lote:", err);
                   setReservaAsociada(reservaActiva);
                 }
@@ -195,12 +216,14 @@ export default function LoteSidePanel({
               }
               setVentaAsociada(null);
             } catch (err) {
+              if (!active) return;
               console.error("Error buscando reserva:", err);
               setReservaAsociada(null);
             }
           } else if (estadoUpper === "VENDIDO") {
             try {
               const ventasResp = await getAllVentas({});
+              if (!active) return;
               const allVentas = ventasResp?.data || ventasResp || [];
               const ventaDelLote = allVentas.find(
                 (v) => {
@@ -212,9 +235,11 @@ export default function LoteSidePanel({
               if (ventaDelLote) {
                 try {
                   const ventaCompleta = await getVentaById(ventaDelLote.id);
+                  if (!active) return;
                   const fullVenta = ventaCompleta?.data ?? ventaCompleta ?? ventaDelLote;
                   setVentaAsociada(fullVenta);
                 } catch (err) {
+                  if (!active) return;
                   console.error("Error obteniendo venta completa al cargar lote:", err);
                   setVentaAsociada(ventaDelLote);
                 }
@@ -223,6 +248,7 @@ export default function LoteSidePanel({
               }
               setReservaAsociada(null);
             } catch (err) {
+              if (!active) return;
               console.error("Error buscando venta:", err);
               setVentaAsociada(null);
             }
@@ -232,17 +258,19 @@ export default function LoteSidePanel({
           }
         }
       } catch (err) {
+        if (!active) return;
         console.error("Error obteniendo lote por id:", err);
         showError("No pude obtener el detalle del lote.");
         setCurrentLot(null);
         setReservaAsociada(null);
         setVentaAsociada(null);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
     fetchLote();
+    return () => { active = false; };
   }, [selectedLotId, show, showError]);
 
   // Usar las imágenes cargadas desde getArchivosByLote, con fallback a las del lote
@@ -337,7 +365,11 @@ export default function LoteSidePanel({
   const handleReserve = async () => {
     if (!currentLot || isReserveButtonDisabled) return;
     const estado = estadoLote;
-    
+    const lotId = currentLot.id;
+    const seq = ++reserveOpSeq.current;
+    // La operación deja de ser vigente si cambió el lote, se cerró el panel o arrancó otra operación.
+    const isStale = () => seq !== reserveOpSeq.current || !isPanelShowingLot(lotId);
+
     if (estado === "RESERVADO") {
       // Si ya tenemos la reserva, abrir el card
       if (reservaAsociada) {
@@ -349,44 +381,45 @@ export default function LoteSidePanel({
       setLoadingReservaVenta(true);
       try {
         const reservasResp = await getAllReservas({});
+        if (isStale()) return;
         const allReservas = reservasResp?.data || reservasResp || [];
         const reservaActiva = allReservas.find(
           (r) => {
             const rLoteId = r.loteId || r.lote?.id || r.lotId || r.lot?.id;
             const estadoReserva = String(r.estado || "").toUpperCase();
             // Comparar IDs como números y strings para asegurar que coincidan
-            const lotIdNum = Number(currentLot.id);
+            const lotIdNum = Number(lotId);
             const rLoteIdNum = Number(rLoteId);
-            const matches = (rLoteIdNum === lotIdNum || String(rLoteId) === String(currentLot.id)) && estadoReserva === "ACTIVA";
-            if (matches) {
-              console.log("Reserva encontrada en handleReserve:", r, "para lote:", currentLot.id);
-            }
-            return matches;
+            return (rLoteIdNum === lotIdNum || String(rLoteId) === String(lotId)) && estadoReserva === "ACTIVA";
           }
         );
-        
+
         if (reservaActiva) {
           // Cargar datos completos de la reserva usando getReservaById
           try {
             const reservaCompleta = await getReservaById(reservaActiva.id || reservaActiva.idReserva);
+            if (isStale()) return;
             const fullReserva = reservaCompleta?.data ?? reservaCompleta ?? reservaActiva;
             setReservaAsociada(fullReserva);
             setShowReservaVerCard(true);
           } catch (err) {
+            if (isStale()) return;
             console.error("Error obteniendo reserva completa:", err);
             // Si falla, usar la reserva encontrada como fallback
             setReservaAsociada(reservaActiva);
             setShowReservaVerCard(true);
           }
         } else {
-          console.warn("No se encontró reserva activa para el lote", currentLot.id);
+          console.warn("No se encontró reserva activa para el lote", lotId);
           showError("No se encontró la reserva activa para este lote.");
         }
       } catch (err) {
+        if (isStale()) return;
         console.error("Error buscando reserva:", err);
         showError("Error al buscar la reserva del lote.");
       } finally {
-        setLoadingReservaVenta(false);
+        // Una operación vieja no debe pisar el loading de una más nueva.
+        if (seq === reserveOpSeq.current) setLoadingReservaVenta(false);
       }
     } else if (estado === "VENDIDO") {
       // Si ya tenemos la venta, abrir el card
@@ -399,38 +432,42 @@ export default function LoteSidePanel({
       setLoadingReservaVenta(true);
       try {
         const ventasResp = await getAllVentas({});
+        if (isStale()) return;
         const allVentas = ventasResp?.data || ventasResp || [];
         const ventaDelLote = allVentas.find(
           (v) => {
             const vLoteId = v.loteId || v.lote?.id || v.lotId || v.lot?.id;
-            const lotIdNum = Number(currentLot.id);
+            const lotIdNum = Number(lotId);
             const vLoteIdNum = Number(vLoteId);
-            return (vLoteIdNum === lotIdNum || String(vLoteId) === String(currentLot.id));
+            return (vLoteIdNum === lotIdNum || String(vLoteId) === String(lotId));
           }
         );
-        
+
         if (ventaDelLote) {
           // Cargar datos completos de la venta usando getVentaById
           try {
             const ventaCompleta = await getVentaById(ventaDelLote.id);
+            if (isStale()) return;
             const fullVenta = ventaCompleta?.data ?? ventaCompleta ?? ventaDelLote;
             setVentaAsociada(fullVenta);
             setShowVentaVerCard(true);
           } catch (err) {
+            if (isStale()) return;
             console.error("Error obteniendo venta completa:", err);
             // Si falla, usar la venta encontrada como fallback
             setVentaAsociada(ventaDelLote);
             setShowVentaVerCard(true);
           }
         } else {
-          console.warn("No se encontró venta para el lote", currentLot.id);
+          console.warn("No se encontró venta para el lote", lotId);
           showError("No se encontró la venta para este lote.");
         }
       } catch (err) {
+        if (isStale()) return;
         console.error("Error buscando venta:", err);
         showError("Error al buscar la venta del lote.");
       } finally {
-        setLoadingReservaVenta(false);
+        if (seq === reserveOpSeq.current) setLoadingReservaVenta(false);
       }
     } else if (isLoteReservable(estado)) {
       setShowReserveCard(true);
@@ -494,19 +531,22 @@ export default function LoteSidePanel({
     }, 1500);
 
     if (!selectedLotId) return;
+    const lotId = selectedLotId;
 
     const syncFailed = () =>
       showInfo("La reserva se creó, pero no se pudo actualizar la vista. Recargá para ver el estado actual.");
 
     // Refrescar el lote local y notificar al Layout para que el mapa refleje el nuevo estado
-    getLoteById(selectedLotId)
+    getLoteById(lotId)
       .then((resp) => {
         const lot = resp?.data ?? resp ?? null;
         if (!lot) {
           syncFailed();
           return;
         }
-        setCurrentLot(lot);
+        // Estado local: solo si el panel sigue mostrando ese lote.
+        if (isPanelShowingLot(lotId)) setCurrentLot(lot);
+        // Estado global del mapa: el lote actualizado es válido aunque el usuario ya haya cambiado de lote.
         if (typeof onLoteUpdated === "function") {
           onLoteUpdated(lot);
         }

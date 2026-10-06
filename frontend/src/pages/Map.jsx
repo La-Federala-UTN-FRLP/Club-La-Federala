@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { Container } from "react-bootstrap";
-import { useOutletContext, useSearchParams, useNavigate, useLocation } from "react-router-dom";
+import { useOutletContext, useSearchParams, useLocation } from "react-router-dom";
 import { useAuth } from "../app/providers/AuthProvider";
 
 import FilterBarLotes from "../components/FilterBar/FilterBarLotes";
@@ -15,11 +15,13 @@ import {
 
 import "../components/Mapa/Map.css";
 
+const EMPTY_LOTS = [];
+
 export default function Map() {
-  // Tomo del Layout los lotes y el handler para abrir el side panel
+  // Tomo del Layout los lotes, su estado de carga y el handler para abrir el side panel
   const ctx = useOutletContext() || {};
-  const allLots = ctx.allLots || ctx.lotes || ctx.lots || [];
-  const { openSidePanel, selectedLotId, showPanel } = ctx;
+  const allLots = ctx.allLots ?? EMPTY_LOTS;
+  const { openSidePanel, selectedLotId, showPanel, loadingLots, lotsError } = ctx;
 
   const { user } = useAuth();
   const userRole = (user?.role ?? user?.rol ?? "ADMIN")
@@ -33,7 +35,6 @@ export default function Map() {
   const mapIdParam = searchParams.get("mapId");
   const mapIdsParam = searchParams.get("mapIds");
   const selectedMapIdsParam = searchParams.get("selectedMapIds");
-  const navigate = useNavigate();
 
   // Leer metadata desde location.state (nuevo formato del hook)
   const mapHighlight = location.state?.mapHighlight || null;
@@ -54,15 +55,6 @@ export default function Map() {
     return [];
   });
 
-  // Estado para metadata de prioridades/reservas/ventas
-  const [highlightMetadata, setHighlightMetadata] = useState(() => {
-    return mapHighlight?.metaByLoteId || {};
-  });
-
-  const [highlightSource, setHighlightSource] = useState(() => {
-    return mapHighlight?.source || null;
-  });
-  
   // Track si es la primera llamada (inicialización) para no limpiar el resaltado
   const isInitialMount = useRef(true);
   
@@ -193,9 +185,7 @@ export default function Map() {
     if (mapHighlight) {
       if (mapHighlight.loteIds?.length > 0) {
         setHighlightedFromPreview(mapHighlight.loteIds);
-        setHighlightMetadata(mapHighlight.metaByLoteId || {});
-        setHighlightSource(mapHighlight.source || null);
-        
+
         // Limpiar el state para que no persista en la navegación
         window.history.replaceState({}, document.title);
       }
@@ -232,8 +222,6 @@ export default function Map() {
   // Función para limpiar manualmente el resaltado
   const handleClearHighlight = useCallback(() => {
     setHighlightedFromPreview([]);
-    setHighlightMetadata({});
-    setHighlightSource(null);
     const newParams = new URLSearchParams(searchParams);
     newParams.delete('selectedMapIds');
     setSearchParams(newParams, { replace: true });
@@ -261,12 +249,18 @@ export default function Map() {
         <div className="map-header-left">
           <h3>Mapa Interactivo de Lotes</h3>
           <div className="map-info-messages">
-            {filteredLots.length > 0 ? (
+            {lotsError ? (
+              <span className="map-info-empty" role="alert">No se pudieron cargar los lotes</span>
+            ) : loadingLots && allLots.length === 0 ? (
+              <span className="map-info-count" role="status">Cargando lotes...</span>
+            ) : allLots.length === 0 ? (
+              <span className="map-info-count">No hay lotes cargados</span>
+            ) : filteredLots.length === 0 ? (
+              <span className="map-info-empty">No hay lotes que coincidan con este filtro</span>
+            ) : (
               <span className="map-info-count">
                 {filteredLots.length} {filteredLots.length === 1 ? "Lote mostrado" : "Lotes mostrados"}
               </span>
-            ) : (
-              <span className="map-info-empty">No hay lotes que coincidan con este filtro</span>
             )}
             {highlightedFromPreview.length > 0 && (
               <button

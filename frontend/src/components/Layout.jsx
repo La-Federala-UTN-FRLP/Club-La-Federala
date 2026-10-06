@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { Outlet, useSearchParams, useLocation } from "react-router-dom";
 import { useToast } from "../app/providers/ToastProvider";
 import { mockUser } from "../lib/data";
@@ -19,6 +19,7 @@ export default function Layout() {
   const { success, error, info } = useToast();
   const [lotsData, setLotsData] = useState([]);
   const [loadingLots, setLoadingLots] = useState(true);
+  const [lotsError, setLotsError] = useState(null);
 
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
@@ -28,53 +29,46 @@ export default function Layout() {
     return location.state?.mapHighlight || null;
   }, [location.state]);
 
-  // El fetch de lotes está centralizado en Dashboard.jsx para evitar múltiples llamadas.
-  // Layout solo carga lotes si no estamos en el Dashboard (para otras páginas como Map).
-  const loadLotes = async () => {
+  // lotsData solo lo consume el mapa (Outlet context, LoteSidePanel, LotInfo), así que
+  // solo se carga mientras la ruta activa es /map. Las demás páginas cargan lo suyo.
+  // Se tolera la barra final: "/map/" también renderiza Map.
+  const isMapRoute = location.pathname.replace(/\/+$/, "") === "/map";
+
+  // Cada carga toma un número; solo la más reciente puede escribir estado.
+  const loadSeq = useRef(0);
+
+  const loadLotes = useCallback(async () => {
+    const seq = ++loadSeq.current;
+    setLoadingLots(true);
+    setLotsError(null);
     try {
-      setLoadingLots(true);
       const res = await getAllLotes();
+      if (seq !== loadSeq.current) return;
       setLotsData(res.data || []);
     } catch (err) {
-      console.error(err);
+      if (seq !== loadSeq.current) return;
+      console.error("Error cargando lotes:", err);
+      setLotsError(err?.message || "Error al cargar lotes");
       error("No pude cargar los lotes");
     } finally {
-      setLoadingLots(false);
+      if (seq === loadSeq.current) setLoadingLots(false);
     }
-  };
+  }, [error]);
 
-  // Solo cargar lotes si NO estamos en el Dashboard (donde ya se cargan)
+  // Carga inicial al entrar al mapa; al salir se descarta cualquier respuesta en vuelo.
   useEffect(() => {
-    if (location.pathname === "/" || location.pathname === "/dashboard") {
-      // En Dashboard, no hacer fetch aquí (ya lo hace Dashboard.jsx)
-      setLoadingLots(false);
-      return;
-    }
-    
-    let alive = true;
-    loadLotes().then(() => {
-      if (!alive) return;
-    });
-    return () => { alive = false; };
-  }, [location.pathname]);
+    if (!isMapRoute) return;
+    const seqRef = loadSeq;
+    loadLotes();
+    return () => { seqRef.current++; };
+  }, [isMapRoute, loadLotes]);
 
-  // Recargar lotes cuando se navega al mapa para asegurar datos actualizados
+  // reloadLotes lo emiten Reservas y Prioridades (nunca estando en /map); solo refresca si el mapa está activo.
   useEffect(() => {
-    if ((location.pathname === "/mapa" || location.pathname === "/map") && location.pathname !== "/" && location.pathname !== "/dashboard") {
-      loadLotes();
-    }
-  }, [location.pathname]);
-
-  // Escuchar evento personalizado para recargar lotes (cuando se crea/elimina una reserva o venta)
-  useEffect(() => {
-    const handleReloadLotes = () => {
-      loadLotes();
-    };
-    window.addEventListener('reloadLotes', handleReloadLotes);
-    return () => {
-      window.removeEventListener('reloadLotes', handleReloadLotes);
-    };
-  }, []);
+    if (!isMapRoute) return;
+    window.addEventListener('reloadLotes', loadLotes);
+    return () => window.removeEventListener('reloadLotes', loadLotes);
+  }, [isMapRoute, loadLotes]);
 
   const [filters, setFilters] = useState({
     search: "", owner: [], location: [], status: [], subStatus: [],
@@ -102,6 +96,17 @@ export default function Layout() {
   const handleViewDetail = (lotId) => { setSelectedLotId(lotId); setShowPanel(false); setShowLotInfo(true); };
 
   const [modalLote, setModalLote] = useState({ show: false, modo: "crear", datosIniciales: null });
+
+  // El panel lateral, LotInfo y el modal que se lanza desde LotInfo solo viven en el mapa: al salir no deben
+  // sobrevivir en otras páginas. Con editLotId en la URL el modal lo abrió el flujo legacy, así que no se toca.
+  const hasEditLotId = searchParams.has("editLotId");
+  useEffect(() => {
+    if (isMapRoute) return;
+    setShowPanel(false);
+    setShowLotInfo(false);
+    setSelectedLotId(null);
+    if (!hasEditLotId) setModalLote((prev) => (prev.show ? { ...prev, show: false } : prev));
+  }, [isMapRoute, hasEditLotId]);
   const abrirModalCrear = () => setModalLote({ show: true, modo: "crear", datosIniciales: null });
   const abrirModalEditar = (lote) => setModalLote({ show: true, modo: "editar", datosIniciales: lote });
   const abrirModalEliminar = (lote) => setModalLote({ show: true, modo: "borrar", datosIniciales: lote });
@@ -181,6 +186,7 @@ export default function Layout() {
             lots: filteredLots,
             allLots: lotsData,
             loadingLots,
+            lotsError,
             handleStatusChange,
             handleSubStatusChange,
             handleViewDetail,
