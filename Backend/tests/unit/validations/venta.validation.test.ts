@@ -300,4 +300,21 @@ describe('queryVentaSchema', () => {
         const result = queryVentaSchema.safeParse({ montoMin: -1 });
         expectFailedAt(result, ['montoMin']);
     });
+
+    // Query strings llegan como string desde la URL
+    test('acepta loteId="25" como string y lo coerciona a número', () => {
+        const result = queryVentaSchema.safeParse({ loteId: '25', estadoOperativo: 'OPERATIVO' });
+        expect(result.success).toBe(true);
+        if (result.success) expect(result.data.loteId).toBe(25);
+    });
+
+    test.each(['abc', '0', '-1', '25.5', ''])('rechaza loteId=%p', (loteId) => {
+        const result = queryVentaSchema.safeParse({ loteId });
+        expectFailedAt(result, ['loteId']);
+    });
+
+    test('rechaza estadoOperativo inválido', () => {
+        const result = queryVentaSchema.safeParse({ estadoOperativo: 'TODOS' });
+        expectFailedAt(result, ['estadoOperativo']);
+    });
 });

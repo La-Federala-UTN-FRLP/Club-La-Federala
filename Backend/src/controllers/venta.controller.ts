@@ -10,7 +10,13 @@ export async function obtenerTodos(req: Request, res: Response, next: NextFuncti
        try {
            // Llamo al servicio para obtener todas las Ventas
            const user = req.user;
-           const query = req.query as { estadoOperativo?: string };
+           // validateQuery valida pero en Express 5 no reemplaza req.query (llega como string):
+           // se arma la query tipada a mano solo con los filtros soportados.
+           const { estadoOperativo, estado, loteId } = req.query;
+           const query: ventaService.VentasListQuery = {};
+           if (estadoOperativo !== undefined) query.estadoOperativo = estadoOperativo as ventaService.VentasListQuery['estadoOperativo'];
+           if (estado !== undefined) query.estado = estado as ventaService.VentasListQuery['estado'];
+           if (loteId !== undefined) query.loteId = Number(loteId);
            const result = await ventaService.getAllVentas(query, user);
            res.json({success: true,data:result});
        } catch (error) {

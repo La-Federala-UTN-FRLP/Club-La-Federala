@@ -9,10 +9,12 @@ const router = Router();
 // GET /api/Reservas
 // Permitido para ADMINISTRADOR, GESTOR e INMOBILIARIA
 // INMOBILIARIA solo verá sus propias reservas (filtrado en el servicio)
+// Filtros soportados: loteId, estado, estadoOperativo (ver controller)
 router.get(
     '/', 
     authenticate,
     authorize('ADMINISTRADOR', 'GESTOR', 'INMOBILIARIA'),
+    validateQuery(queryReservasSchema),
     reservaController.getAllReservasController);
 
 // GET /api/Reservas/:id

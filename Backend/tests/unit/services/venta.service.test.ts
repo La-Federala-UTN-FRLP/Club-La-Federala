@@ -1,5 +1,6 @@
 import {
     createVenta,
+    getAllVentas,
     getVentaById,
     deleteVenta,
     getVentasByInmobiliaria,
@@ -109,6 +110,52 @@ function setupBaseMocks(loteOverrides: any = {}) {
         id: 1, loteId: 10, compradorId: 100, monto: 80000,
     });
 }
+
+describe('getAllVentas', () => {
+    const findManyArgs = () => (prisma.venta.findMany as jest.Mock).mock.calls[0][0];
+
+    beforeEach(() => {
+        (prisma.venta.findMany as jest.Mock).mockResolvedValue([]);
+    });
+
+    test('sin filtros usa estadoOperativo OPERATIVO por default', async () => {
+        await getAllVentas(undefined, buildUser('ADMINISTRADOR'));
+        expect(findManyArgs().where).toEqual({ estadoOperativo: 'OPERATIVO' });
+    });
+
+    test('respeta estadoOperativo explícito', async () => {
+        await getAllVentas({ estadoOperativo: 'ELIMINADO' }, buildUser('GESTOR'));
+        expect(findManyArgs().where).toEqual({ estadoOperativo: 'ELIMINADO' });
+    });
+
+    test('loteId se aplica como número en el where', async () => {
+        await getAllVentas({ loteId: 25, estadoOperativo: 'OPERATIVO' }, buildUser('ADMINISTRADOR'));
+        expect(findManyArgs().where).toEqual({ estadoOperativo: 'OPERATIVO', loteId: 25 });
+        expect(typeof findManyArgs().where.loteId).toBe('number');
+    });
+
+    test('loteId + estado', async () => {
+        await getAllVentas({ loteId: 25, estado: 'INICIADA' }, buildUser('GESTOR'));
+        expect(findManyArgs().where).toEqual({
+            estadoOperativo: 'OPERATIVO',
+            loteId: 25,
+            estado: 'INICIADA',
+        });
+    });
+
+    test('mantiene orderBy id asc y devuelve el array tal cual', async () => {
+        const rows = [{ id: 1, loteId: 25 }, { id: 2, loteId: 25 }];
+        (prisma.venta.findMany as jest.Mock).mockResolvedValue(rows);
+        const result = await getAllVentas({ loteId: 25 }, buildUser('ADMINISTRADOR'));
+        expect(findManyArgs().orderBy).toEqual({ id: 'asc' });
+        expect(findManyArgs().include).toEqual(expect.objectContaining({
+            comprador: true,
+            compradores: true,
+            inmobiliaria: true,
+        }));
+        expect(result).toBe(rows);
+    });
+});
 
 describe('getVentasByInmobiliaria', () => {
     test('INMOBILIARIA cross-tenant: rechaza 403 sin findMany (regression RED)', async () => {

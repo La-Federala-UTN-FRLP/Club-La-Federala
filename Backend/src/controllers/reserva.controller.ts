@@ -10,19 +10,26 @@ import {
   getReservaByImmobiliariaId,
   getReservaByEstado,
   getOfertasByReservaId,
-  createOfertaReserva
+  createOfertaReserva,
+  ReservasListQuery,
 } from '../services/reserva.service';
 import { EstadoReserva } from '../types/interfacesCCLF';
 
 // ==============================
 // Obtener todas las reservas
 // ==============================
-// La query ya viene validada por el middleware de Zod.
+// validateQuery valida la query pero en Express 5 no reemplaza req.query:
+// los valores llegan como string, por eso se arma la query tipada a mano.
+// Solo se toman estadoOperativo, estado y loteId; el resto del schema se ignora.
 // Si el usuario es INMOBILIARIA, solo devuelve sus reservas.
 export async function getAllReservasController(req: Request, res: Response, next: NextFunction) {
   try {
     const user = req.user; // Usuario autenticado desde el middleware
-    const query = req.query as { estadoOperativo?: string };
+    const { estadoOperativo, estado, loteId } = req.query;
+    const query: ReservasListQuery = {};
+    if (estadoOperativo !== undefined) query.estadoOperativo = estadoOperativo as ReservasListQuery['estadoOperativo'];
+    if (estado !== undefined) query.estado = estado as ReservasListQuery['estado'];
+    if (loteId !== undefined) query.loteId = Number(loteId);
     const data = await getAllReservas(query, user);
     res.json({ success: true, data });
   } catch (error) {
@@ -74,7 +81,6 @@ export async function getAllReservasByEstadoController(req: Request, res: Respon
 // Body validado por Zod (createReservaSchema.strict()).
 export async function createReservaController(req: Request, res: Response, next: NextFunction) {
   try {
-    console.log("DEBUG: Controller createReserva body:", JSON.stringify(req.body));
     const user = req.user; // Usuario autenticado desde el middleware
     const data = await createReserva(req.body, user);
     res.status(201).json({ success: true, message: 'Reserva creada exitosamente', data });
