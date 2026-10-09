@@ -4,7 +4,7 @@ import LoteEditarCard from "./LoteEditarCard.jsx";
 import DocumentoVerCard from "../Documentos/DocumentoVerCard.jsx";
 import NiceSelect from "../../Base/NiceSelect.jsx";
 import { getArchivosByLote, getFileSignedUrl } from "../../../lib/api/archivos.js";
-import { getAllReservas } from "../../../lib/api/reservas.js";
+import { getReservaActivaByLoteId } from "../../../lib/api/reservas.js";
 import { getLoteById } from "../../../lib/api/lotes.js";
 import { useAuth } from "../../../app/providers/AuthProvider.jsx";
 import { ChevronLeft, ChevronRight, Image as ImageIcon } from "lucide-react";
@@ -119,23 +119,18 @@ export default function LoteVerCard({
 
     const estadoUpper = String(currentLot?.estado || "").toUpperCase();
     if (estadoUpper === "RESERVADO") {
+      // Si cambia el lote o se cierra la card antes de la respuesta, se descarta
+      let abort = false;
       (async () => {
         try {
-          const reservasResp = await getAllReservas({});
-          const allReservas = reservasResp?.data?.reservas ?? reservasResp?.data ?? [];
-          const reserva = allReservas.find(
-            (r) => {
-              const rLoteId = r.loteId || r.lote?.id || r.lotId || r.lot?.id;
-              const estadoReserva = String(r.estado || "").toUpperCase();
-              return (rLoteId === currentLot.id || String(rLoteId) === String(currentLot.id)) && estadoReserva === "ACTIVA";
-            }
-          );
-          setReservaActiva(reserva || null);
+          const reserva = await getReservaActivaByLoteId(currentLot.id);
+          if (!abort) setReservaActiva(reserva);
         } catch (err) {
           console.error("Error cargando reserva activa:", err);
-          setReservaActiva(null);
+          if (!abort) setReservaActiva(null);
         }
       })();
+      return () => { abort = true; };
     } else {
       setReservaActiva(null);
     }

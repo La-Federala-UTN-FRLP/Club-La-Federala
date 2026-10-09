@@ -4,8 +4,7 @@ import EditarBase from "../Base/EditarBase.jsx";
 import SuccessAnimation from "../Base/SuccessAnimation.jsx";
 import NiceSelect from "../../Base/NiceSelect.jsx";
 import { updateLote, getLoteById } from "../../../lib/api/lotes.js";
-import { getAllReservas } from "../../../lib/api/reservas.js";
-import { getAllVentas } from "../../../lib/api/ventas.js";
+import { getVentaAsociadaByLoteId } from "../../../lib/api/ventas.js";
 import { getAllPersonas } from "../../../lib/api/personas.js";
 import { uploadArchivo, getArchivosByLote, deleteArchivo, getFileSignedUrl } from "../../../lib/api/archivos.js";
 import { useToast } from "../../../app/providers/ToastProvider.jsx";
@@ -172,8 +171,7 @@ export default function LoteEditarCard({
   const [fracciones, setFracciones] = useState([]);
   const [loadingFracciones, setLoadingFracciones] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
-  const [reservasLote, setReservasLote] = useState([]);
-  const [ventasLote, setVentasLote] = useState([]);
+  const [ventaAsociada, setVentaAsociada] = useState(null);
   const [archivosParaBorrar, setArchivosParaBorrar] = useState([]);
   const [personas, setPersonas] = useState([]);
   const [loadingPersonas, setLoadingPersonas] = useState(false);
@@ -321,23 +319,20 @@ export default function LoteEditarCard({
     return () => { cancelled = true; };
   }, [detalle?.id, open]);
 
+  // Venta válida del lote (OPERATIVA y no CANCELADA): habilita el guard de VENDIDO
   useEffect(() => {
+    setVentaAsociada(null);
     if (!open || !detalle?.id) return;
+    let cancelled = false;
     (async () => {
       try {
-        const reservasResp = await getAllReservas({});
-        const allReservas = reservasResp?.data ?? [];
-        const reservasDelLote = allReservas.filter(r => (r.loteId || r.lote?.id) === detalle.id);
-        setReservasLote(reservasDelLote);
-
-        const ventasResp = await getAllVentas({});
-        const allVentas = ventasResp?.data ?? [];
-        const ventasDelLote = allVentas.filter(v => (v.loteId || v.lote?.id) === detalle.id);
-        setVentasLote(ventasDelLote);
+        const venta = await getVentaAsociadaByLoteId(detalle.id);
+        if (!cancelled) setVentaAsociada(venta);
       } catch (err) {
-        console.error("Error cargando reservas/ventas del lote:", err);
+        if (!cancelled) console.error("Error cargando la venta del lote:", err);
       }
     })();
+    return () => { cancelled = true; };
   }, [open, detalle?.id]);
 
   const updateForm = (patch) => {
@@ -473,9 +468,9 @@ export default function LoteEditarCard({
       const nuevoEstado = payload.estado || form.estado;
       const estadoUpperPayload = String(nuevoEstado || "").toUpperCase();
 
-      // Validación de VENDIDO: solo permitir si hay venta registrada
+      // Validación de VENDIDO: solo permitir si hay una venta válida (no CANCELADA)
       if (estadoUpperPayload === "VENDIDO") {
-        if (ventasLote.length === 0) {
+        if (!ventaAsociada) {
           setError("No se puede establecer el estado VENDIDO sin una venta registrada para este lote.");
           setSaving(false);
           return;

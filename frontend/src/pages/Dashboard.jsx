@@ -17,7 +17,7 @@ import ReservaCrearCard from "../components/Cards/Reservas/ReservaCrearCard.jsx"
 import VentaCrearCard from "../components/Cards/Ventas/VentaCrearCard.jsx";
 import PrioridadCrearCard from "../components/Cards/Prioridades/PrioridadCrearCard.jsx";
 import { getAllLotes, getLoteById, deleteLote } from "../lib/api/lotes";
-import { getAllReservas, getReservaById } from "../lib/api/reservas";
+import { getReservaActivaByLoteId } from "../lib/api/reservas";
 import ReservaVerCard from "../components/Cards/Reservas/ReservaVerCard.jsx";
 
 /**
@@ -103,15 +103,9 @@ export default function Dashboard() {
     // Verificar si el lote está RESERVADO
     const estadoUpper = String(lot?.estado || "").toUpperCase();
     if (estadoUpper === "RESERVADO") {
-      // Buscar la reserva ACTIVA para este lote
+      // Buscar la reserva ACTIVA para este lote (filtrada en backend, ya normalizada)
       try {
-        const reservasResp = await getAllReservas({});
-        const allReservas = reservasResp?.data || [];
-        const reservaActiva = allReservas.find(
-          (r) => 
-            (r.loteId || r.lote?.id) === lot.id &&
-            String(r.estado || "").toUpperCase() === "ACTIVA"
-        );
+        const reservaActiva = await getReservaActivaByLoteId(lot.id);
         
         if (reservaActiva) {
           // Abrir el modal de ver reserva
@@ -306,21 +300,6 @@ export default function Dashboard() {
       return { ...cleaned, ...convertedParams };
     });
   }, []); // Sin dependencias: solo se ejecuta una vez al montar
-
-  // Cargar datos completos de la reserva cuando se abre el modal
-  useEffect(() => {
-    if (openReservaVer && reservaSel?.id) {
-      (async () => {
-        try {
-          const resp = await getReservaById(reservaSel.id);
-          const detail = resp?.data ?? resp ?? {};
-          setReservaSel((prev) => ({ ...(prev || reservaSel), ...(detail || {}) }));
-        } catch (e) {
-          console.error("Error obteniendo reserva por id:", e);
-        }
-      })();
-    }
-  }, [openReservaVer, reservaSel?.id]);
 
   // Centralizamos el fetch de lotes en este componente para evitar
   // múltiples llamadas al endpoint /lotes (mapa + tabla lo reciben por props).

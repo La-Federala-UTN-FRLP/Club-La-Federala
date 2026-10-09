@@ -71,6 +71,10 @@ const fromApi = (row = {}) => {
     // Submódulo pagos / tabla: el back incluye plan vigente y conteos; sin esto siempre cae "Sin plan"
     planPagos: Array.isArray(row.planPagos) ? row.planPagos : [],
     _count: row._count && typeof row._count === "object" ? row._count : undefined,
+    // Relaciones que el backend ya incluye en listado y detalle (VENTA_INCLUDE); se conservan
+    // solo si existen para que el listado sirva de fallback completo (p. ej. VentaVerCard).
+    ...(row.comprador ? { comprador: row.comprador } : {}),
+    ...(row.inmobiliaria && typeof row.inmobiliaria === "object" ? { inmobiliaria: row.inmobiliaria } : {}),
   };
 };
 
@@ -106,12 +110,52 @@ async function fetchWithFallback(path, options) {
 
 async function apiGetAll(params = {}) {
   const res = await fetchWithFallback(`${PRIMARY}${qs(params)}`, { method: "GET" });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.message || "Error al cargar ventas");
+  let data;
+  let invalidJson = false;
+  try {
+    data = await res.json();
+  } catch {
+    invalidJson = true;
+    data = {};
+  }
+  if (!res.ok) {
+    const error = new Error(data?.message || "Error al cargar ventas");
+    error.status = res.status;
+    throw error;
+  }
+  // Un 2xx con body que no es JSON válido no equivale a "no hay ventas".
+  if (invalidJson) {
+    const error = new Error("Respuesta inválida del servidor al cargar ventas");
+    error.status = res.status;
+    throw error;
+  }
 
   const arr = normalizeApiListResponse(data);
   const meta = data?.meta ?? { total: Number(data?.meta?.total ?? arr.length) || arr.length, page: Number(params.page || 1), pageSize: Number(params.pageSize || arr.length) };
   return { data: arr.map(fromApi), meta };
+}
+
+// Ventas OPERATIVAS de un lote. El filtro lo hace el backend (GET /ventas?loteId=X).
+async function apiGetByLoteId(loteId) {
+  const id = Number(loteId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error("Lote inválido para buscar ventas");
+  }
+  const { data } = await apiGetAll({ loteId: id, estadoOperativo: "OPERATIVO" });
+  return data;
+}
+
+// Venta "asociada" a un lote: entre las OPERATIVAS del lote, se excluyen las CANCELADAS
+// y se toma la de mayor id (la más reciente). Retorna null si no hay ninguna.
+// No pide el detalle: VentaVerCard hace GET /ventas/:id al abrirse.
+async function apiGetVentaAsociadaByLoteId(loteId) {
+  const ventas = await apiGetByLoteId(loteId);
+  let asociada = null;
+  for (const v of ventas) {
+    if (String(v.estado ?? "").toUpperCase() === "CANCELADA") continue;
+    if (asociada == null || Number(v.id) > Number(asociada.id)) asociada = v;
+  }
+  return asociada;
 }
 
 async function apiGetById(id) {
@@ -328,6 +372,8 @@ async function apiRegistrarEscritura(ventaId, file, fechaEscritura) {
 
 export const getAllVentas = apiGetAll;
 export const getVentaById = apiGetById;
+export const getVentasByLoteId = apiGetByLoteId;
+export const getVentaAsociadaByLoteId = apiGetVentaAsociadaByLoteId;
 export const createVenta = apiCreate;
 export const updateVenta = apiUpdate;
 export const deleteVenta = apiDelete;

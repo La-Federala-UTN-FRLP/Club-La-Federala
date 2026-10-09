@@ -114,12 +114,33 @@ export const getAllReservas = async (params = {}) => {
     
     // Si response es un objeto Response de fetch, necesitamos parsear el JSON
     let data;
+    let invalidJson = false;
     if (response && typeof response === 'object' && response.json) {
       // Es un objeto Response de fetch
-      data = await response.json();
+      try {
+        data = await response.json();
+      } catch {
+        invalidJson = true;
+        data = {};
+      }
     } else {
       // Ya son los datos parseados
       data = response;
+    }
+
+    // Una respuesta no-2xx (400 de validación, 403, 500) no es una lista válida:
+    // su body puede traer arrays como `errors` que no deben leerse como reservas.
+    if (response && typeof response.ok === 'boolean' && !response.ok) {
+      const error = new Error(data?.message || data?.error || 'Error al obtener reservas');
+      error.status = response.status;
+      throw error;
+    }
+
+    // Un 2xx con body que no es JSON válido tampoco es una lista válida (no se asume lista vacía).
+    if (invalidJson) {
+      const error = new Error('Respuesta inválida del servidor al obtener reservas');
+      error.status = response.status;
+      throw error;
     }
 
     // Manejar diferentes estructuras de respuesta
@@ -169,28 +190,18 @@ export const getAllReservas = async (params = {}) => {
       success: false,
       data: [],
       total: 0,
+      status: error.status,
       message: error.message || 'Error al obtener reservas'
     };
   }
 };
 
-export const getReservaById = async (id) => {
-  try {
-    // Usar httpJson que maneja el parsing de manera segura y consistente
-    const response = await httpJson(`/reservas/${id}`, {
-      method: 'GET'
-    });
-
-    // El backend devuelve { success: true, data: {...} }
-    // Extraer la reserva de response.data (que es lo que envía el controller)
-    const raw = response?.data ?? response?.reserva ?? response;
-    
-    // Si raw no tiene las relaciones, puede que el backend no las esté incluyendo
-    // Verificar que el backend esté devolviendo correctamente
-    
+// Normaliza una reserva del backend al shape de detalle (el que consumen las cards).
+// El listado y el detalle traen el mismo include, así que sirve para ambos.
+const normalizeReservaDetail = (raw) => {
     const base = fromApi(raw);
     // Normalizar manteniendo relaciones y fechas
-    const normalized = {
+    return {
       ...base,
       // Preservar relaciones completas del backend (si vienen)
       cliente: raw?.cliente
@@ -226,10 +237,22 @@ export const getReservaById = async (id) => {
       // Preservar seña/sena
       seña: raw?.sena ?? raw?.seña ?? base.seña ?? null,
     };
+};
+
+export const getReservaById = async (id) => {
+  try {
+    // Usar httpJson que maneja el parsing de manera segura y consistente
+    const response = await httpJson(`/reservas/${id}`, {
+      method: 'GET'
+    });
+
+    // El backend devuelve { success: true, data: {...} }
+    // Extraer la reserva de response.data (que es lo que envía el controller)
+    const raw = response?.data ?? response?.reserva ?? response;
 
     return {
       success: true,
-      data: normalized,
+      data: normalizeReservaDetail(raw),
       message: response.message || 'Reserva obtenida correctamente'
     };
   } catch (error) {
@@ -240,6 +263,31 @@ export const getReservaById = async (id) => {
 
 // Alias para compatibilidad
 export const getReserva = getReservaById;
+
+// Reserva "asociada" a un lote: ACTIVA y OPERATIVA (mismo criterio que usaban las pantallas).
+// El filtro lo hace el backend; la fila ya trae el include del detalle, no hace falta GET /reservas/:id.
+// Retorna la reserva normalizada como getReservaById, o null si el lote no tiene reserva activa visible.
+export const getReservaActivaByLoteId = async (loteId) => {
+  const id = Number(loteId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error('Lote inválido para buscar la reserva');
+  }
+
+  const result = await getAllReservas({
+    loteId: id,
+    estado: 'ACTIVA',
+    estadoOperativo: 'OPERATIVO',
+  });
+
+  if (!result.success) {
+    const error = new Error(result.message || 'Error al obtener la reserva del lote');
+    error.status = result.status;
+    throw error;
+  }
+
+  const row = Array.isArray(result.data) ? result.data[0] : null;
+  return row ? normalizeReservaDetail(row) : null;
+};
 
 export const createReserva = async (data) => {
   try {
