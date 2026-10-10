@@ -251,6 +251,32 @@ describe('queryReservasSchema', () => {
         const result = queryReservasSchema.safeParse({ [field]: value });
         expectFailedAt(result, [field]);
     });
+
+    // Query strings llegan como string desde la URL
+    test('acepta loteId="25" + estado ACTIVA + OPERATIVO y coerciona loteId', () => {
+        const result = queryReservasSchema.safeParse({
+            loteId: '25',
+            estado: 'ACTIVA',
+            estadoOperativo: 'OPERATIVO',
+        });
+        expect(result.success).toBe(true);
+        if (result.success) expect(result.data.loteId).toBe(25);
+    });
+
+    test.each(['abc', '0', '-1', '25.5', ''])('rechaza loteId=%p', (loteId) => {
+        const result = queryReservasSchema.safeParse({ loteId });
+        expectFailedAt(result, ['loteId']);
+    });
+
+    test('rechaza estado en minúscula', () => {
+        const result = queryReservasSchema.safeParse({ estado: 'activa' });
+        expectFailedAt(result, ['estado']);
+    });
+
+    test('rechaza estadoOperativo inválido', () => {
+        const result = queryReservasSchema.safeParse({ estadoOperativo: 'TODOS' });
+        expectFailedAt(result, ['estadoOperativo']);
+    });
 });
 
 describe('createOfertaSchema', () => {

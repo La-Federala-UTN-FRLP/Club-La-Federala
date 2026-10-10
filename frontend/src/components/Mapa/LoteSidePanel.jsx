@@ -22,8 +22,8 @@ import ReservaCrearCard from "../Cards/Reservas/ReservaCrearCard";
 import ReservaVerCard from "../Cards/Reservas/ReservaVerCard";
 import VentaVerCard from "../Cards/Ventas/VentaVerCard";
 import LoteVerCard from "../Cards/Lotes/LoteVerCard";
-import { getAllReservas, getReservaById } from "../../lib/api/reservas";
-import { getAllVentas, getVentaById } from "../../lib/api/ventas";
+import { getReservaActivaByLoteId } from "../../lib/api/reservas";
+import { getVentaAsociadaByLoteId } from "../../lib/api/ventas";
 import { isLoteReservable } from "../../utils/loteStates";
 import "../Cards/Base/cards.css";
 
@@ -186,34 +186,10 @@ export default function LoteSidePanel({
           
           if (estadoUpper === "RESERVADO") {
             try {
-              const reservasResp = await getAllReservas({});
+              // Reserva ACTIVA del lote, filtrada en backend y ya normalizada (sin GET por id)
+              const reservaActiva = await getReservaActivaByLoteId(lot.id);
               if (!active) return;
-              const allReservas = reservasResp?.data || reservasResp || [];
-        const reservaActiva = allReservas.find(
-          (r) => {
-            const rLoteId = r.loteId || r.lote?.id || r.lotId || r.lot?.id;
-            const estadoReserva = String(r.estado || "").toUpperCase();
-            // Comparar IDs como números y strings para asegurar que coincidan
-            const lotIdNum = Number(lot.id);
-            const rLoteIdNum = Number(rLoteId);
-            return (rLoteIdNum === lotIdNum || String(rLoteId) === String(lot.id)) && estadoReserva === "ACTIVA";
-          }
-        );
-              // Cargar datos completos de la reserva si se encontró
-              if (reservaActiva) {
-                try {
-                  const reservaCompleta = await getReservaById(reservaActiva.id || reservaActiva.idReserva);
-                  if (!active) return;
-                  const fullReserva = reservaCompleta?.data ?? reservaCompleta ?? reservaActiva;
-                  setReservaAsociada(fullReserva);
-                } catch (err) {
-                  if (!active) return;
-                  console.error("Error obteniendo reserva completa al cargar lote:", err);
-                  setReservaAsociada(reservaActiva);
-                }
-              } else {
-                setReservaAsociada(null);
-              }
+              setReservaAsociada(reservaActiva);
               setVentaAsociada(null);
             } catch (err) {
               if (!active) return;
@@ -222,30 +198,10 @@ export default function LoteSidePanel({
             }
           } else if (estadoUpper === "VENDIDO") {
             try {
-              const ventasResp = await getAllVentas({});
+              // Venta asociada del lote (no CANCELADA, la más reciente). El detalle lo pide VentaVerCard al abrirse.
+              const ventaDelLote = await getVentaAsociadaByLoteId(lot.id);
               if (!active) return;
-              const allVentas = ventasResp?.data || ventasResp || [];
-              const ventaDelLote = allVentas.find(
-                (v) => {
-                  const vLoteId = v.loteId || v.lote?.id || v.lotId || v.lot?.id;
-                  return vLoteId === lot.id;
-                }
-              );
-              // Cargar datos completos de la venta si se encontró
-              if (ventaDelLote) {
-                try {
-                  const ventaCompleta = await getVentaById(ventaDelLote.id);
-                  if (!active) return;
-                  const fullVenta = ventaCompleta?.data ?? ventaCompleta ?? ventaDelLote;
-                  setVentaAsociada(fullVenta);
-                } catch (err) {
-                  if (!active) return;
-                  console.error("Error obteniendo venta completa al cargar lote:", err);
-                  setVentaAsociada(ventaDelLote);
-                }
-              } else {
-                setVentaAsociada(null);
-              }
+              setVentaAsociada(ventaDelLote);
               setReservaAsociada(null);
             } catch (err) {
               if (!active) return;
@@ -380,35 +336,12 @@ export default function LoteSidePanel({
       // Si no la tenemos, buscarla ahora con loading
       setLoadingReservaVenta(true);
       try {
-        const reservasResp = await getAllReservas({});
+        const reservaActiva = await getReservaActivaByLoteId(lotId);
         if (isStale()) return;
-        const allReservas = reservasResp?.data || reservasResp || [];
-        const reservaActiva = allReservas.find(
-          (r) => {
-            const rLoteId = r.loteId || r.lote?.id || r.lotId || r.lot?.id;
-            const estadoReserva = String(r.estado || "").toUpperCase();
-            // Comparar IDs como números y strings para asegurar que coincidan
-            const lotIdNum = Number(lotId);
-            const rLoteIdNum = Number(rLoteId);
-            return (rLoteIdNum === lotIdNum || String(rLoteId) === String(lotId)) && estadoReserva === "ACTIVA";
-          }
-        );
 
         if (reservaActiva) {
-          // Cargar datos completos de la reserva usando getReservaById
-          try {
-            const reservaCompleta = await getReservaById(reservaActiva.id || reservaActiva.idReserva);
-            if (isStale()) return;
-            const fullReserva = reservaCompleta?.data ?? reservaCompleta ?? reservaActiva;
-            setReservaAsociada(fullReserva);
-            setShowReservaVerCard(true);
-          } catch (err) {
-            if (isStale()) return;
-            console.error("Error obteniendo reserva completa:", err);
-            // Si falla, usar la reserva encontrada como fallback
-            setReservaAsociada(reservaActiva);
-            setShowReservaVerCard(true);
-          }
+          setReservaAsociada(reservaActiva);
+          setShowReservaVerCard(true);
         } else {
           console.warn("No se encontró reserva activa para el lote", lotId);
           showError("No se encontró la reserva activa para este lote.");
@@ -431,33 +364,13 @@ export default function LoteSidePanel({
       // Si no la tenemos, buscarla ahora con loading
       setLoadingReservaVenta(true);
       try {
-        const ventasResp = await getAllVentas({});
+        // VentaVerCard pide el detalle (GET /ventas/:id) cuando se abre
+        const ventaDelLote = await getVentaAsociadaByLoteId(lotId);
         if (isStale()) return;
-        const allVentas = ventasResp?.data || ventasResp || [];
-        const ventaDelLote = allVentas.find(
-          (v) => {
-            const vLoteId = v.loteId || v.lote?.id || v.lotId || v.lot?.id;
-            const lotIdNum = Number(lotId);
-            const vLoteIdNum = Number(vLoteId);
-            return (vLoteIdNum === lotIdNum || String(vLoteId) === String(lotId));
-          }
-        );
 
         if (ventaDelLote) {
-          // Cargar datos completos de la venta usando getVentaById
-          try {
-            const ventaCompleta = await getVentaById(ventaDelLote.id);
-            if (isStale()) return;
-            const fullVenta = ventaCompleta?.data ?? ventaCompleta ?? ventaDelLote;
-            setVentaAsociada(fullVenta);
-            setShowVentaVerCard(true);
-          } catch (err) {
-            if (isStale()) return;
-            console.error("Error obteniendo venta completa:", err);
-            // Si falla, usar la venta encontrada como fallback
-            setVentaAsociada(ventaDelLote);
-            setShowVentaVerCard(true);
-          }
+          setVentaAsociada(ventaDelLote);
+          setShowVentaVerCard(true);
         } else {
           console.warn("No se encontró venta para el lote", lotId);
           showError("No se encontró la venta para este lote.");

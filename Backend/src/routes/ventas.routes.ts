@@ -15,10 +15,12 @@ import {
 const router = Router();
 
 // GET /api/Ventas
+// Filtros soportados: loteId, estado, estadoOperativo (ver controller)
 router.get(
     '/', 
     authenticate,
     authorize('ADMINISTRADOR', 'GESTOR'),
+    validateQuery(queryVentaSchema),
     ventaController.obtenerTodos);
 
 // GET /api/Ventas/inmobiliaria/:id

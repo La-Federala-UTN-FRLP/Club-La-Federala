@@ -1,5 +1,5 @@
 import prisma from '../config/prisma';
-import { Venta, EstadoReserva, EstadoPrioridad, EstadoLote } from '../generated/prisma';
+import { Venta, EstadoReserva, EstadoPrioridad, EstadoLote, EstadoOperativo, EstadoVenta, Prisma } from '../generated/prisma';
 import { PostVentaRequest, PutVentaRequest, DeleteVentaResponse } from '../types/interfacesCCLF'; 
 import { updateLoteState } from './lote.service';
 import { ESTADO_LOTE_OP } from '../domain/loteState/loteState.types';
@@ -84,17 +84,32 @@ function resolveCompradorIds(data: { compradorId?: number; compradores?: { perso
     return [];
 }
 
+// Filtros aceptados por el listado (el controller arma este objeto desde la query)
+export type VentasListQuery = {
+    estadoOperativo?: EstadoOperativo;
+    estado?: EstadoVenta;
+    loteId?: number;
+};
+
 export async function getAllVentas(
-  query?: { estadoOperativo?: string },
+  query?: VentasListQuery,
   user?: { role: string; inmobiliariaId?: number | null }
 ): Promise<Venta[]> {
-    const whereClause: any = {};
+    const whereClause: Prisma.VentaWhereInput = {};
 
     if (user?.role === 'INMOBILIARIA' && user?.inmobiliariaId != null) {
       whereClause.inmobiliariaId = user.inmobiliariaId;
     }
 
     whereClause.estadoOperativo = query?.estadoOperativo || 'OPERATIVO';
+
+    if (query?.loteId !== undefined) {
+      whereClause.loteId = query.loteId;
+    }
+
+    if (query?.estado !== undefined) {
+      whereClause.estado = query.estado;
+    }
 
     return prisma.venta.findMany({
         where: whereClause,

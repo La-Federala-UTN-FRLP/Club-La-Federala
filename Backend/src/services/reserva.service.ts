@@ -98,26 +98,40 @@ function assertReservaOwnership(
   }
 }
 
+// Filtros aceptados por el listado (el controller arma este objeto desde la query)
+export type ReservasListQuery = {
+  estadoOperativo?: EstadoOperativo;
+  estado?: EstadoReserva;
+  loteId?: number;
+};
+
 // ==============================
 // Obtener todas las reservas
 // Retorna el listado junto con el total.
 // Si el usuario es INMOBILIARIA, solo devuelve las reservas de su inmobiliaria.
 // ==============================
 export async function getAllReservas(
-  query?: { estadoOperativo?: string },
+  query?: ReservasListQuery,
   user?: { role: string; inmobiliariaId?: number | null }
 ): Promise<{ reservas: any[]; total: number }> {
-  const whereClause: any = {};
+  const whereClause: Prisma.ReservaWhereInput = {};
 
+  // 1. Tenant: la query nunca define inmobiliariaId
   if (user?.role === 'INMOBILIARIA') {
     whereClause.inmobiliariaId = requireInmobiliariaContext(user);
   }
 
-  // Filtro estadoOperativo: default OPERATIVO si no viene
-  if (query?.estadoOperativo) {
-    whereClause.estadoOperativo = query.estadoOperativo;
-  } else {
-    whereClause.estadoOperativo = 'OPERATIVO'; // Default: solo operativas
+  // 2. Filtro estadoOperativo: default OPERATIVO si no viene
+  whereClause.estadoOperativo = query?.estadoOperativo || 'OPERATIVO';
+
+  // 3. Lote
+  if (query?.loteId !== undefined) {
+    whereClause.loteId = query.loteId;
+  }
+
+  // 4. Estado comercial
+  if (query?.estado !== undefined) {
+    whereClause.estado = query.estado;
   }
   
   const reservas = await prisma.reserva.findMany({
@@ -158,8 +172,6 @@ export async function getReservaById(id: number, user?: { role: string; inmobili
     err.status = 404;
     throw err;
   }
-  
-  console.log("getReservaById row:", JSON.stringify(row));
   
   // Validar permisos: INMOBILIARIA solo puede ver sus propias reservas
   if (user?.role === 'INMOBILIARIA') {
@@ -325,16 +337,6 @@ export async function createReserva(
 
     // Guardar el estado original del lote antes de crear la reserva (para restaurarlo al finalizar)
     const estadoOriginalLote = lote.estado;
-
-    console.log("DEBUG: createReserva creating prisma record", { 
-        data: {
-            fechaReserva: body.fechaReserva,
-            loteId: body.loteId,
-            sena: body.sena,
-            ofertaInicial: body.ofertaInicial,
-            state: EstadoReserva.ACTIVA
-        }
-    });
 
     const result = await prisma.$transaction(async (tx) => {
         // 1. Crear Reserva

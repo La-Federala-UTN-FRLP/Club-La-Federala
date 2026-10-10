@@ -211,6 +211,68 @@ describe('getAllReservas', () => {
         );
         expect(prismaMock.reserva.findMany).not.toHaveBeenCalled();
     });
+
+    test('loteId se aplica como número en el where con default OPERATIVO', async () => {
+        prismaMock.reserva.findMany.mockResolvedValue([]);
+        await getAllReservas({ loteId: 25 }, buildUser('ADMINISTRADOR'));
+        expect(listWhere()).toEqual({ estadoOperativo: 'OPERATIVO', loteId: 25 });
+        expect(typeof listWhere().loteId).toBe('number');
+    });
+
+    test('loteId + estado ACTIVA + estadoOperativo explícito', async () => {
+        prismaMock.reserva.findMany.mockResolvedValue([]);
+        await getAllReservas(
+            { loteId: 25, estado: 'ACTIVA', estadoOperativo: 'OPERATIVO' },
+            buildUser('GESTOR'),
+        );
+        expect(listWhere()).toEqual({
+            estadoOperativo: 'OPERATIVO',
+            loteId: 25,
+            estado: 'ACTIVA',
+        });
+    });
+
+    test('INMOBILIARIA conserva su inmobiliariaId junto con loteId', async () => {
+        prismaMock.reserva.findMany.mockResolvedValue([]);
+        await getAllReservas({ loteId: 25, estado: 'ACTIVA' }, buildUser('INMOBILIARIA', 5));
+        expect(listWhere()).toEqual({
+            inmobiliariaId: 5,
+            estadoOperativo: 'OPERATIVO',
+            loteId: 25,
+            estado: 'ACTIVA',
+        });
+    });
+
+    test('la query no puede sobrescribir el tenant de INMOBILIARIA', async () => {
+        prismaMock.reserva.findMany.mockResolvedValue([]);
+        // Un caller que intente colar inmobiliariaId en la query no debe afectar el where
+        const queryConTenantAjeno = { loteId: 25, inmobiliariaId: 9 } as unknown as Parameters<typeof getAllReservas>[0];
+        await getAllReservas(queryConTenantAjeno, buildUser('INMOBILIARIA', 5));
+        expect(listWhere().inmobiliariaId).toBe(5);
+        expect(listWhere()).toEqual({ inmobiliariaId: 5, estadoOperativo: 'OPERATIVO', loteId: 25 });
+    });
+
+    test('ADMIN no recibe inmobiliariaId aunque la query lo traiga', async () => {
+        prismaMock.reserva.findMany.mockResolvedValue([]);
+        const query = { loteId: 25, inmobiliariaId: 9 } as unknown as Parameters<typeof getAllReservas>[0];
+        await getAllReservas(query, buildUser('ADMINISTRADOR'));
+        expect(listWhere().inmobiliariaId).toBeUndefined();
+    });
+
+    test('mantiene orderBy fechaReserva desc e include con filtros', async () => {
+        prismaMock.reserva.findMany.mockResolvedValue([]);
+        await getAllReservas({ loteId: 25, estado: 'ACTIVA' }, buildUser('ADMINISTRADOR'));
+        const args = prismaMock.reserva.findMany.mock.calls[0][0];
+        expect(args.orderBy).toEqual({ fechaReserva: 'desc' });
+        expect(Object.keys(args.include).sort()).toEqual(['cliente', 'inmobiliaria', 'lote']);
+    });
+
+    test('con filtros devuelve el mismo shape { reservas, total }', async () => {
+        const rows = [buildReservaRow({ loteId: 25 })];
+        prismaMock.reserva.findMany.mockResolvedValue(rows);
+        const result = await getAllReservas({ loteId: 25, estado: 'ACTIVA' }, buildUser('ADMINISTRADOR'));
+        expect(result).toEqual({ reservas: rows, total: 1 });
+    });
 });
 
 describe('getReservaById — RBAC', () => {
