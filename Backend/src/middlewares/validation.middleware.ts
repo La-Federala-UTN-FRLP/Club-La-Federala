@@ -3,7 +3,6 @@ import { ZodError, ZodTypeAny } from 'zod';
 import { Request, Response, NextFunction } from 'express';
 
 function sendZodError(res: Response, e: ZodError) {
-  console.error("DEBUG: Zod Validation Error:", JSON.stringify(e.issues, null, 2));
   return res.status(400).json({
     success: false,
     message: 'Datos inválidos',
@@ -17,7 +16,6 @@ function sendZodError(res: Response, e: ZodError) {
 export const validate = (schema: ZodTypeAny) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      console.log("DEBUG: validate receiving body:", JSON.stringify(req.body));
       req.body = await schema.parseAsync(req.body);
       next();
     } catch (e) {

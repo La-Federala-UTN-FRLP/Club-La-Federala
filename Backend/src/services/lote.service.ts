@@ -665,15 +665,7 @@ export async function updatedLote(id: number, data: any, role?: string): Promise
       (error as any).statusCode = 404;
       throw error;
     }
-    // Log temporal para debugging
-    console.error('[updatedLote] Error updating lote:', {
-      loteId: id,
-      error: e,
-      errorCode: e.code,
-      errorMessage: e.message,
-      dataToUpdate: JSON.stringify(dataToUpdate, null, 2),
-    });
-    throw e; // Re-lanzar otros errores
+    throw e; // Re-lanzar otros errores (los 500 los registra el error middleware)
   }
 }
 

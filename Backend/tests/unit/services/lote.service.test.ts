@@ -475,6 +475,20 @@ describe('updatedLote', () => {
         await expect(updatedLote(1, { descripcion: 'x' })).rejects.toThrow('Lote no encontrado');
         await expectStatus(() => updatedLote(1, { descripcion: 'x' }), 404);
     });
+
+    test('otro error de Prisma en update se relanza sin loguear el payload', async () => {
+        stubLoteActual();
+        const prismaError = Object.assign(new Error('fallo de escritura'), { code: 'P2000' });
+        prismaMock.lote.update.mockRejectedValue(prismaError);
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+        try {
+            await expect(updatedLote(1, { descripcion: 'DESCRIPCION-SENSIBLE-XYZ' })).rejects.toBe(prismaError);
+            expect(errorSpy).not.toHaveBeenCalled();
+        } finally {
+            errorSpy.mockRestore();
+        }
+    });
 });
 
 describe('updatedLote — TECNICO', () => {
