@@ -85,7 +85,6 @@ export async function createReservaController(req: Request, res: Response, next:
     const data = await createReserva(req.body, user);
     res.status(201).json({ success: true, message: 'Reserva creada exitosamente', data });
   } catch (error) {
-    console.error("Error creating reserva:", error);
     next(error);
   }
 }

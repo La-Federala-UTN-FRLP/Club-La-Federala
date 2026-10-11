@@ -38,7 +38,8 @@ import { getWebEnv } from '../config/env';
        };
        next();
    } catch (error: any) {
-       console.error(error);
+       // Solo el tipo de error: sin mensaje (puede citar el header de un token malformado), stack, token ni headers.
+       console.warn(`[AUTH] ${error?.name}`);
        if (error.name === 'TokenExpiredError') {
            return res.status(401).json({ success: false, error: 'Token expirado' });
        }
