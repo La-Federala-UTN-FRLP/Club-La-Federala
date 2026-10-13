@@ -2,7 +2,7 @@ import { Router } from 'express';
 import * as usuarioController from '../controllers/usuario.controller';
 import { validate, validateParams, validateQuery } from '../middlewares/validation.middleware';
 import { authenticate, authorize } from '../middlewares/auth.middleware';
-import { createUsuarioSchema, updateUsuarioSchema, updateUsuarioWithParamsSchema, getUsuarioSchema, deleteUsuarioSchema, queryUsuarioSchema } from '../validations/usuario.validation';
+import { createUsuarioSchema, updateUsuarioSchema, getUsuarioSchema, deleteUsuarioSchema, queryUsuarioSchema } from '../validations/usuario.validation';
 
 const router = Router();
 
@@ -34,7 +34,8 @@ router.put(
     '/:id', 
     authenticate,
     authorize('ADMINISTRADOR', 'GESTOR'),
-    validateParams(updateUsuarioWithParamsSchema), 
+    validateParams(getUsuarioSchema),
+    validate(updateUsuarioSchema),
     usuarioController.actualizarUsuario);
 
 // DELETE /api/Usuarios/:id

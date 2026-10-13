@@ -1,7 +1,7 @@
 import prisma from '../config/prisma';
 import type { User as PrismaUser } from "../generated/prisma";
 import type { Usuario, Rol, UserData, PostUsuarioRequest, PostUsuarioResponse, PutUsuarioRequest, PutUsuarioResponse, DeleteUsuarioRequest, DeleteUsuarioResponse } from '../types/interfacesCCLF';
-import type { $Enums} from "../generated/prisma"
+import type { $Enums, Prisma } from "../generated/prisma"
 import bcrypt from 'bcrypt'
 import { toLowerCase } from 'zod';
 
@@ -70,14 +70,13 @@ export async function createUser(req: PostUsuarioRequest): Promise<PostUsuarioRe
 // actualizar usuario
 export async function updateUser( idActual: number, req: PutUsuarioRequest ): Promise<PutUsuarioResponse> {
    try {
-       const updateData: Partial<PutUsuarioRequest> = { ...req };
-       if (req.password) {
-           updateData.password = await bcrypt.hash(req.password, 10);
-       } else {
-           delete (updateData as any).password;
-       }
-       updateData.email = (req.email)?.toLowerCase().trim();
-       updateData.username = (req.username)?.trim();
+       // Solo los campos del contrato de actualización: cualquier otra propiedad del input
+       // (id, relaciones, etc.) no llega a Prisma. El rol público (rol) se persiste como role.
+       const updateData: Prisma.UserUpdateInput = {};
+       if (req.username !== undefined) updateData.username = req.username.trim();
+       if (req.email !== undefined) updateData.email = req.email.toLowerCase().trim();
+       if (req.password) updateData.password = await bcrypt.hash(req.password, 10);
+       if (req.rol !== undefined) updateData.role = req.rol as unknown as $Enums.Role;
        const updated= await prisma.user.update({
            where: { id: idActual },
            data: updateData,
