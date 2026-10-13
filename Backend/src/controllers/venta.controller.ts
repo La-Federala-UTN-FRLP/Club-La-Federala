@@ -74,7 +74,8 @@ export async function crearVenta(req: Request, res: Response, next: NextFunction
 
 export async function actualizarVenta(req: Request, res: Response, next: NextFunction) {
     try {
-        const id = parseInt(req.params.id);
+        // id validado por getVentaSchema (z.coerce.number): Number() da el mismo valor; parseInt no.
+        const id = Number(req.params.id);
         const result = await ventaService.updateVenta(id, req.body);
         res.json({success: true,message: "Venta actualizada exitosamente",data:result});
     } catch (error) {
