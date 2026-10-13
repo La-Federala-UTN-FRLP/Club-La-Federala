@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { positiveIntString } from "./params.validation";
+
+const identificadorTipoEnum = z.enum(["DNI", "CUIT", "CUIL", "PASAPORTE", "OTRO"]);
 
 // Función para normalizar identificadorValor
 const normalizeIdentificadorValor = (tipo: string, valor: string): string => {
@@ -34,7 +37,7 @@ const validateIdentificadorFormat = (tipo: string, valor: string): boolean => {
 // Schema para identificador
 const identificadorSchema = z
   .object({
-    tipo: z.enum(["DNI", "CUIT", "CUIL", "PASAPORTE", "OTRO"]),
+    tipo: identificadorTipoEnum,
     valor: z.string().min(1, "El valor del identificador es requerido"),
   })
   .refine(
@@ -53,7 +56,7 @@ const identificadorSchema = z
 
 // Schema base para crear persona
 const baseCreatePersonaSchema = z.object({
-  identificadorTipo: z.enum(["DNI", "CUIT", "CUIL", "PASAPORTE", "OTRO"]),
+  identificadorTipo: identificadorTipoEnum,
   identificadorValor: z
     .string()
     .min(1, "El valor del identificador es requerido")
@@ -105,7 +108,7 @@ const baseCreatePersonaSchema = z.object({
 export const createPersonaSchema = baseCreatePersonaSchema;
 
 export const updatePersonaSchema = z.object({
-  identificadorTipo: z.enum(["DNI", "CUIT", "CUIL", "PASAPORTE", "OTRO"]).optional(),
+  identificadorTipo: identificadorTipoEnum.optional(),
   identificadorValor: z
     .string()
     .min(1)
@@ -166,4 +169,40 @@ export const getPersonaSchema = z.object({
 
 export const deletePersonaSchema = z.object({
   id: z.string().regex(/^\d+$/, "ID debe ser un numero").transform(Number),
+});
+
+// Body: alta de miembro de grupo familiar. Mismas reglas de formato y normalización
+// del identificador que el alta de Persona.
+export const createMiembroFamiliarSchema = z
+  .object({
+    nombre: z.string().trim().min(1, "El nombre es requerido").max(100, "El nombre no puede tener mas de 100 caracteres"),
+    apellido: z.string().trim().min(1, "El apellido es requerido").max(100, "El apellido no puede tener mas de 100 caracteres"),
+    identificadorTipo: identificadorTipoEnum,
+    identificadorValor: z.string().trim().min(1, "El valor del identificador es requerido"),
+  })
+  .refine((data) => validateIdentificadorFormat(data.identificadorTipo, data.identificadorValor), {
+    message: "Valor de identificador no coincide con el tipo especificado",
+    path: ["identificadorValor"],
+  })
+  .transform((data) => ({
+    ...data,
+    identificadorValor: normalizeIdentificadorValor(data.identificadorTipo, data.identificadorValor),
+  }));
+
+export type CreateMiembroFamiliarInput = z.infer<typeof createMiembroFamiliarSchema>;
+
+// Params: /:id/grupo-familiar/miembros/:miembroId
+export const miembroFamiliarParamsSchema = z.object({
+  id: positiveIntString,
+  miembroId: positiveIntString,
+});
+
+// Query: GET /personas. Solo lo que lee el controller; validateQuery no conserva
+// transforms, así que se valida la representación HTTP y el controller convierte.
+export const queryPersonasSchema = z.object({
+  view: z.enum(["ALL", "PROPIETARIOS", "INQUILINOS", "CLIENTES", "MIS_CLIENTES"]).optional(),
+  q: z.string().optional(),
+  includeInactive: z.enum(["true", "false"]).optional(),
+  estado: z.enum(["OPERATIVO", "ELIMINADO"]).optional(),
+  limit: positiveIntString.optional(),
 });

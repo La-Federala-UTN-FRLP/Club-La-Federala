@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { PersonaService, PersonaView } from '../services/persona.service';
-import { createPersonaSchema, updatePersonaSchema, getPersonaSchema, deletePersonaSchema } from '../validations/persona.validation';
+import { createPersonaSchema, updatePersonaSchema, getPersonaSchema, deletePersonaSchema, miembroFamiliarParamsSchema, CreateMiembroFamiliarInput } from '../validations/persona.validation';
 import { GetPersonasResponse, PostPersonaResponse, GetPersonaResponse, PutPersonaResponse, DeletePersonaResponse, PostPersonaRequest, PutPersonaRequest } from '../types/interfacesCCLF';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 
@@ -309,14 +309,8 @@ async obtenerPersonaPorCuil(req: Request, res: Response) {
   async crearMiembroFamiliar(req: Request, res: Response) {
     try {
       const { id } = getPersonaSchema.parse(req.params);
-      const { nombre, apellido, identificadorTipo, identificadorValor } = req.body;
-
-      if (!nombre || !apellido || !identificadorTipo || !identificadorValor) {
-        return res.status(400).json({
-          success: false,
-          message: 'Faltan campos requeridos: nombre, apellido, identificadorTipo, identificadorValor',
-        });
-      }
+      // Body validado y normalizado por createMiembroFamiliarSchema en la ruta
+      const { nombre, apellido, identificadorTipo, identificadorValor } = req.body as CreateMiembroFamiliarInput;
 
       const miembro = await personaService.crearMiembroFamiliar(id, {
         nombre,
@@ -341,18 +335,10 @@ async obtenerPersonaPorCuil(req: Request, res: Response) {
 
   async eliminarMiembroFamiliar(req: Request, res: Response) {
     try {
-      const { id, miembroId } = req.params;
-      const titularId = Number(id);
-      const miembroIdNum = Number(miembroId);
+      // Params ya validados en la ruta como enteros positivos decimales
+      const { id: titularId, miembroId } = miembroFamiliarParamsSchema.parse(req.params);
 
-      if (isNaN(titularId) || isNaN(miembroIdNum)) {
-        return res.status(400).json({
-          success: false,
-          message: 'IDs inválidos',
-        });
-      }
-
-      await personaService.eliminarMiembroFamiliar(titularId, miembroIdNum);
+      await personaService.eliminarMiembroFamiliar(titularId, miembroId);
 
       res.status(200).json({
         success: true,

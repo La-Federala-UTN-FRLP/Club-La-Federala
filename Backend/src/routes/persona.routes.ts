@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { PersonaController } from '../controllers/persona.controller';
 import { authenticate, authorize } from '../middlewares/auth.middleware';
-import { createPersonaSchema, updatePersonaSchema, getPersonaSchema, deletePersonaSchema } from '../validations/persona.validation';
-import { validate, validateParams } from '../middlewares/validation.middleware';
+import { createPersonaSchema, getPersonaSchema, deletePersonaSchema, createMiembroFamiliarSchema, miembroFamiliarParamsSchema, queryPersonasSchema } from '../validations/persona.validation';
+import { validate, validateParams, validateQuery } from '../middlewares/validation.middleware';
 
 const router = Router();
 const personaController = new PersonaController(); 
@@ -14,6 +14,7 @@ router.get(
     '/', 
     authenticate,
     authorize('ADMINISTRADOR', 'GESTOR', 'TECNICO', 'INMOBILIARIA'),
+    validateQuery(queryPersonasSchema),
     personaController.obtenerTodas
 );
 
@@ -46,11 +47,12 @@ router.post(
 );
 
 // PUT /api/personas/:id
+// El body lo valida el controller con updatePersonaSchema (manejo de errores propio de Persona).
 router.put(
     '/:id', 
     authenticate,
     authorize('ADMINISTRADOR', 'GESTOR'),
-    validateParams(updatePersonaSchema), 
+    validateParams(getPersonaSchema),
     personaController.actualizarPersona
 );
 
@@ -96,6 +98,7 @@ router.post(
     authenticate,
     authorize('ADMINISTRADOR', 'GESTOR'),
     validateParams(getPersonaSchema),
+    validate(createMiembroFamiliarSchema),
     personaController.crearMiembroFamiliar
 );
 
@@ -104,7 +107,7 @@ router.delete(
     '/:id/grupo-familiar/miembros/:miembroId',
     authenticate,
     authorize('ADMINISTRADOR', 'GESTOR'),
-    validateParams(getPersonaSchema),
+    validateParams(miembroFamiliarParamsSchema),
     personaController.eliminarMiembroFamiliar
 );
 
