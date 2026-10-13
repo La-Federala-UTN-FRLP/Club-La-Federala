@@ -10,10 +10,11 @@ import {
 // ==============================
 export async function getAllInmobiliariasController(req: Request, res: Response, next: NextFunction) {
     try {
-        // CAMBIO 1: Capturamos los query params (ej: ?estado=ACTIVA)
-        // Nota: Asegúrate de actualizar la firma de tu servicio para recibir esto.
-        const filters = req.query; 
-        
+        // validateQuery valida la query pero en Express 5 no reemplaza req.query: se arma el
+        // filtro a mano. El listado solo filtra por estadoOperativo; el resto se ignora.
+        const { estadoOperativo } = req.query;
+        const filters = estadoOperativo !== undefined ? { estadoOperativo: estadoOperativo as string } : {};
+
         // Pasamos los filtros al servicio
         const result = await inmobiliariaService.getAllInmobiliarias(filters);
         
