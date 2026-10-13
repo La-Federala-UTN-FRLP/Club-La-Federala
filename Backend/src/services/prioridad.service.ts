@@ -172,21 +172,24 @@ export async function createPrioridad(
   }
 }
 
+// Filtros aceptados por el listado (el controller arma este objeto desde la query)
+export type PrioridadesListQuery = {
+  estado?: string;
+  estadoOperativo?: string;
+  ownerType?: string;
+  inmobiliariaId?: number;
+  loteId?: number;
+  fechaInicioDesde?: string;
+  fechaInicioHasta?: string;
+  fechaFinDesde?: string;
+  fechaFinHasta?: string;
+};
+
 // ==============================
 // Obtener todas las prioridades
 // ==============================
 export async function getAllPrioridades(
-  query: {
-    estado?: string;
-    estadoOperativo?: string;
-    ownerType?: string;
-    inmobiliariaId?: number;
-    loteId?: number;
-    fechaInicioDesde?: string;
-    fechaInicioHasta?: string;
-    fechaFinDesde?: string;
-    fechaFinHasta?: string;
-  },
+  query: PrioridadesListQuery,
   user?: { role: string; inmobiliariaId?: number | null }
 ): Promise<{ prioridades: any[]; total: number }> {
   // Construir where clause

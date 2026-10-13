@@ -10,17 +10,23 @@ jest.mock('../../../src/services/venta.service', () => ({
     getAllVentas: jest.fn(),
 }));
 
+jest.mock('../../../src/services/prioridad.service', () => ({
+    getAllPrioridades: jest.fn(),
+}));
+
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import app from '../../../src/app';
 import { initWebEnv, resetWebEnvForTests } from '../../../src/config/env';
 import { getAllReservas } from '../../../src/services/reserva.service';
 import { getAllVentas } from '../../../src/services/venta.service';
+import { getAllPrioridades } from '../../../src/services/prioridad.service';
 
 const JWT_SECRET = 'unit-test-jwt-secret';
 
 const getAllReservasMock = getAllReservas as jest.Mock;
 const getAllVentasMock = getAllVentas as jest.Mock;
+const getAllPrioridadesMock = getAllPrioridades as jest.Mock;
 
 function tokenFor(role: string, inmobiliariaId?: number) {
     return jwt.sign(
@@ -50,6 +56,7 @@ afterAll(() => {
 beforeEach(() => {
     getAllReservasMock.mockReset().mockResolvedValue({ reservas: [], total: 0 });
     getAllVentasMock.mockReset().mockResolvedValue([]);
+    getAllPrioridadesMock.mockReset().mockResolvedValue({ prioridades: [], total: 0 });
 });
 
 describe('GET /api/reservas — query del listado', () => {
@@ -140,5 +147,60 @@ describe('GET /api/ventas — query del listado', () => {
             expect(res.status).toBe(403);
         }
         expect(getAllVentasMock).not.toHaveBeenCalled();
+    });
+});
+
+describe('GET /api/prioridades — query del listado', () => {
+    test('loteId + estado (consulta de TablaLotes) llegan tipados al service', async () => {
+        const res = await request(app)
+            .get('/api/prioridades?loteId=12&estado=ACTIVA')
+            .set(auth('ADMINISTRADOR'));
+
+        expect(res.status).toBe(200);
+        const [query, user] = getAllPrioridadesMock.mock.calls[0];
+        expect(query).toEqual({ loteId: 12, estado: 'ACTIVA' });
+        expect(typeof query.loteId).toBe('number');
+        expect(user).toEqual(expect.objectContaining({ role: 'ADMINISTRADOR' }));
+    });
+
+    test('inmobiliariaId llega como número', async () => {
+        await request(app).get('/api/prioridades?inmobiliariaId=8').set(auth('GESTOR'));
+        expect(getAllPrioridadesMock.mock.calls[0][0]).toEqual({ inmobiliariaId: 8 });
+    });
+
+    test('filtros enum y fechas se pasan sin cambios', async () => {
+        await request(app)
+            .get('/api/prioridades?estadoOperativo=ELIMINADO&ownerType=CCLF&fechaInicioDesde=2026-01-01&fechaInicioHasta=2026-02-01&fechaFinDesde=2026-03-01&fechaFinHasta=2026-04-01')
+            .set(auth('ADMINISTRADOR'));
+        expect(getAllPrioridadesMock.mock.calls[0][0]).toEqual({
+            estadoOperativo: 'ELIMINADO',
+            ownerType: 'CCLF',
+            fechaInicioDesde: '2026-01-01',
+            fechaInicioHasta: '2026-02-01',
+            fechaFinDesde: '2026-03-01',
+            fechaFinHasta: '2026-04-01',
+        });
+    });
+
+    test('sin query el service recibe una query vacía; parámetros ajenos no llegan', async () => {
+        await request(app).get('/api/prioridades').set(auth('INMOBILIARIA', 5));
+        await request(app).get('/api/prioridades?loteId=12&foo=bar').set(auth('INMOBILIARIA', 5));
+        expect(getAllPrioridadesMock.mock.calls[0][0]).toEqual({});
+        expect(getAllPrioridadesMock.mock.calls[1][0]).toEqual({ loteId: 12 });
+    });
+
+    test.each([['loteId=abc'], ['loteId=0'], ['inmobiliariaId=-3'], ['estado=FOO'], ['fechaFinDesde=no-es-fecha']])(
+        'query inválida (%s) responde 400 sin llamar al service',
+        async (qs) => {
+            const res = await request(app).get(`/api/prioridades?${qs}`).set(auth('ADMINISTRADOR'));
+            expect(res.status).toBe(400);
+            expect(getAllPrioridadesMock).not.toHaveBeenCalled();
+        },
+    );
+
+    test('RBAC sin cambios: TECNICO 403', async () => {
+        const res = await request(app).get('/api/prioridades?loteId=12').set(auth('TECNICO'));
+        expect(res.status).toBe(403);
+        expect(getAllPrioridadesMock).not.toHaveBeenCalled();
     });
 });
