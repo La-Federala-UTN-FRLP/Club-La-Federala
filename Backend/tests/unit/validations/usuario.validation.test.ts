@@ -1,8 +1,7 @@
 import { 
     createUsuarioSchema, 
-    updateUsuarioSchema, 
-    updateUsuarioWithParamsSchema, 
-    getUsuarioSchema, 
+    updateUsuarioSchema,
+    getUsuarioSchema,
     deleteUsuarioSchema, 
     queryUsuarioSchema 
 } from '../../../src/validations/usuario.validation';
@@ -166,42 +165,6 @@ describe('updateUsuarioSchema', () => {
     });
 });
 
-//--- Tests para updateUsuarioWithParamsSchema ---
-describe('updateUsuarioWithParamsSchema', () => {
-    test('debe validar correctamente un usuario con ID y datos de actualización', () => {
-        // ARRANGE
-        const validData = {
-            id: 1,
-            username: 'newusername',
-        };
-
-        // ACT & ASSERT
-        expect(() => updateUsuarioWithParamsSchema.parse(validData)).not.toThrow();
-    });
-
-    test('debe rechazar un ID negativo', () => {
-        // ARRANGE
-        const invalidData = {
-            id: -1,
-            username: 'newusername',
-        };
-
-        // ACT & ASSERT
-        expect(() => updateUsuarioWithParamsSchema.parse(invalidData)).toThrow();
-    });
-
-    test('debe rechazar un ID no entero', () => {
-        // ARRANGE
-        const invalidData = {
-            id: 1.5,
-            username: 'newusername',
-        };
-
-        // ACT & ASSERT
-        expect(() => updateUsuarioWithParamsSchema.parse(invalidData)).toThrow();
-    });
-});
-
 //--- Tests para getUsuarioSchema ---
 describe('getUsuarioSchema', () => {
     test('debe validar correctamente un ID válido', () => {
@@ -303,5 +266,35 @@ describe('queryUsuarioSchema', () => {
     test('rechaza password en query con menos de 6 caracteres', () => {
         const result = queryUsuarioSchema.safeParse({ password: '12345' });
         expect(result.success).toBe(false);
+    });
+});
+
+//--- Normalización: trim/minúsculas antes de validar; password exacta ---
+describe('normalización de usuario (create y update)', () => {
+    const base = { username: 'testuser', password: 'password123', rol: 'GESTOR', email: 'test@example.com' };
+
+    test('email con espacios y mayúsculas se normaliza antes de validarse', () => {
+        const created = createUsuarioSchema.safeParse({ ...base, email: '  Usuario@Mail.COM ' });
+        const updated = updateUsuarioSchema.safeParse({ email: '  Usuario@Mail.COM ' });
+        expect(created.success && created.data.email).toBe('usuario@mail.com');
+        expect(updated.success && updated.data.email).toBe('usuario@mail.com');
+    });
+
+    test('username vacío tras el trim se rechaza', () => {
+        expect(createUsuarioSchema.safeParse({ ...base, username: '   ' }).success).toBe(false);
+        expect(updateUsuarioSchema.safeParse({ username: '   ' }).success).toBe(false);
+    });
+
+    test('username se normaliza con trim', () => {
+        const result = createUsuarioSchema.safeParse({ ...base, username: '  juan  ' });
+        expect(result.success && result.data.username).toBe('juan');
+    });
+
+    test('la password se conserva exacta, con sus espacios', () => {
+        const created = createUsuarioSchema.safeParse({ ...base, password: '  abc  ' });
+        const updated = updateUsuarioSchema.safeParse({ password: '  abc  ' });
+        // Comparación booleana para no volcar la password en el mensaje de fallo.
+        expect(created.success && created.data.password === '  abc  ').toBe(true);
+        expect(updated.success && updated.data.password === '  abc  ').toBe(true);
     });
 });

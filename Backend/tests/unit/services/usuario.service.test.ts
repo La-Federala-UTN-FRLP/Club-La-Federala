@@ -191,3 +191,45 @@ describe('deleteUser', () => {
         await expect(deleteUser({ idUsuario: 999 })).rejects.toHaveProperty('statusCode', 404);
     });
 });
+
+//--- Contrato de actualización: solo campos públicos, rol → role ---
+describe('updateUser — contrato de actualización', () => {
+    beforeEach(() => {
+        (bcrypt.hash as jest.Mock).mockResolvedValue('hashed_password');
+        (prisma.user.update as jest.Mock).mockResolvedValue({ id: 7 });
+    });
+
+    function updateData() {
+        return (prisma.user.update as jest.Mock).mock.calls[0][0].data;
+    }
+
+    test('el rol del contrato público se persiste como role', async () => {
+        await updateUser(7, { rol: 'GESTOR' });
+        expect(updateData()).toEqual({ role: 'GESTOR' });
+    });
+
+    test('propiedades fuera del contrato no llegan a Prisma', async () => {
+        await updateUser(7, {
+            username: 'nuevo',
+            id: 99,
+            role: 'ADMINISTRADOR',
+            createdAt: new Date('2020-01-01'),
+            uplodedFiles: { deleteMany: {} },
+            inmobiliaria: { disconnect: true },
+            persona: { disconnect: true },
+        } as any);
+        expect(updateData()).toEqual({ username: 'nuevo' });
+    });
+
+    test('normaliza username y email', async () => {
+        await updateUser(7, { username: '  juan  ', email: '  Usuario@Mail.COM ' });
+        expect(updateData()).toEqual({ username: 'juan', email: 'usuario@mail.com' });
+    });
+
+    test('hashea la password exacta, sin trim', async () => {
+        await updateUser(7, { password: '  clave segura  ' });
+        // Comparación booleana para no volcar la password en el mensaje de fallo.
+        expect((bcrypt.hash as jest.Mock).mock.calls[0][0] === '  clave segura  ').toBe(true);
+        expect(updateData()).toEqual({ password: 'hashed_password' });
+    });
+});

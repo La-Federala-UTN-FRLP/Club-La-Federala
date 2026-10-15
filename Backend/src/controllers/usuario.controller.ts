@@ -36,7 +36,8 @@ export async function crearUsuario(req: Request, res: Response, next: NextFuncti
 // Actualizar usuario por ID
 export async function actualizarUsuario(req: Request<{id: string}, {}, PutUsuarioRequest>, res: Response, next: NextFunction) {
     try {
-        const id = parseInt(req.params.id);
+        // id validado por getUsuarioSchema (z.coerce.number): Number() da el mismo valor; parseInt no.
+        const id = Number(req.params.id);
         const result = await UsuarioService.updateUser(id, req.body);
         res.json({success: true, message: "Usuario actualizado exitosamente", data:result});
     } catch (error) {

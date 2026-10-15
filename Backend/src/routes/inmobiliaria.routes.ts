@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import * as inmobiliariaController from '../controllers/inmobiliaria.controller';
-import { validate, validateParams} from '../middlewares/validation.middleware';
+import { validate, validateParams, validateQuery } from '../middlewares/validation.middleware';
 import { authenticate, authorize } from '../middlewares/auth.middleware';
-import { createInmobiliariaSchema, updateInmobiliariaSchema, getInmobiliariaSchema, deleteInmobiliariaSchema, idParamSchema } from '../validations/inmobiliaria.validation';
+import { createInmobiliariaSchema, updateInmobiliariaSchema, getInmobiliariaSchema, deleteInmobiliariaSchema, idParamSchema, listInmobiliariasQuerySchema } from '../validations/inmobiliaria.validation';
 
 const router = Router();
 
@@ -11,6 +11,7 @@ router.get(
     '/',
     authenticate,
     authorize('ADMINISTRADOR', 'GESTOR'),
+    validateQuery(listInmobiliariasQuerySchema),
     inmobiliariaController.getAllInmobiliariasController);
 
 //GET /api/inmobiliarias/:id

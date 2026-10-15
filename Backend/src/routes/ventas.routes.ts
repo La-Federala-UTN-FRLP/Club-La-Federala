@@ -50,10 +50,11 @@ router.post(
 
 // PUT /api/Ventas/:id
 router.put(
-    '/:id', 
+    '/:id',
     authenticate,
     authorize('ADMINISTRADOR', 'GESTOR'),
-    validateParams(updateVentaSchema), 
+    validateParams(getVentaSchema),
+    validate(updateVentaSchema),
     ventaController.actualizarVenta);
 
 // DELETE /api/Ventas/:id

@@ -10,15 +10,30 @@ import {
   expirePrioridadesManual,
   eliminarPrioridad,
   reactivarPrioridad,
+  PrioridadesListQuery,
 } from '../services/prioridad.service';
+
+// Filtros que viajan como texto (enums y fechas ISO ya validados por queryPrioridadesSchema)
+const PRIORIDADES_TEXT_FILTERS = [
+  'estado', 'estadoOperativo', 'ownerType',
+  'fechaInicioDesde', 'fechaInicioHasta', 'fechaFinDesde', 'fechaFinHasta',
+] as const;
 
 // ==============================
 // Obtener todas las prioridades
 // ==============================
+// validateQuery valida la query pero en Express 5 no reemplaza req.query: los valores
+// llegan como string, por eso se arma la query tipada a mano (mismo patrón que reservas/ventas).
+// Solo se toman los filtros del schema; cualquier otro parámetro se ignora.
 export async function getAllPrioridadesController(req: Request, res: Response, next: NextFunction) {
   try {
     const user = req.user; // Usuario autenticado desde el middleware
-    const query = req.query as any;
+    const query: PrioridadesListQuery = {};
+    for (const key of PRIORIDADES_TEXT_FILTERS) {
+      if (req.query[key] !== undefined) query[key] = req.query[key] as string;
+    }
+    if (req.query.loteId !== undefined) query.loteId = Number(req.query.loteId);
+    if (req.query.inmobiliariaId !== undefined) query.inmobiliariaId = Number(req.query.inmobiliariaId);
     const data = await getAllPrioridades(query, user);
     res.json({ success: true, data });
   } catch (error) {

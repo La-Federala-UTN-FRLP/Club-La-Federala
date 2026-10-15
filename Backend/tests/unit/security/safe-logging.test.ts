@@ -110,7 +110,7 @@ describe('POST /api/auth/login — no expone credenciales en logs', () => {
 });
 
 describe('POST /api/usuarios — alta sin contraseña en logs', () => {
-    test('el service recibe el body parseado (trim) y la contraseña no aparece en consola', async () => {
+    test('el service recibe el body parseado (username recortado, password exacta) y la contraseña no aparece en consola', async () => {
         createUserMock.mockResolvedValue({ id: 10 });
 
         const res = await request(app)
@@ -126,7 +126,8 @@ describe('POST /api/usuarios — alta sin contraseña en logs', () => {
         expect(res.status).toBe(201);
         expect(createUserMock).toHaveBeenCalledWith({
             username: 'nuevo.usuario',
-            password: SECRET_PASSWORD,
+            // La password es una secuencia exacta: no se recorta (los espacios forman parte de ella)
+            password: `  ${SECRET_PASSWORD}  `,
             rol: 'GESTOR',
             email: 'nuevo@example.com',
         });

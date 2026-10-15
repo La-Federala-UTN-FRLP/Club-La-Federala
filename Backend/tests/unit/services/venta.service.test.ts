@@ -6,6 +6,7 @@ import {
     getVentasByInmobiliaria,
     eliminarVenta,
     reactivarVenta,
+    updateVenta,
 } from '../../../src/services/venta.service';
 import prisma from '../../../src/config/prisma';
 import type { PostVentaRequest } from '../../../src/types/interfacesCCLF';
@@ -553,6 +554,111 @@ describe('createVenta', () => {
         expect(mockTx.prioridad.update).toHaveBeenCalledWith({
             where: { id: 200 },
             data: { estado: 'FINALIZADA' },
+        });
+    });
+});
+
+describe('updateVenta — allowlist de campos escribibles', () => {
+    const ventaActual = {
+        estado: 'INICIADA',
+        estadoCobro: 'PENDIENTE',
+        loteId: 10,
+        estadoOperativo: 'OPERATIVO',
+        fechaEscrituraReal: null,
+        fechaCancelacion: null,
+        motivoCancelacion: null,
+    };
+
+    beforeEach(() => {
+        (prisma.venta.findUnique as jest.Mock).mockResolvedValue(ventaActual);
+        (prisma.venta.update as jest.Mock).mockResolvedValue({ id: 1 });
+    });
+
+    test('campos internos o relaciones fuera del contrato no llegan a prisma.venta.update', async () => {
+        await updateVenta(1, {
+            monto: 10,
+            id: 999,
+            estadoOperativo: 'ELIMINADO',
+            fechaBaja: new Date('2026-01-01'),
+            estadoPrevio: 'INICIADA',
+            updateAt: new Date('2026-01-01'),
+            reservaId: 3,
+            planPagos: { deleteMany: {} },
+            pagosRegistrados: { deleteMany: {} },
+            archivos: { deleteMany: {} },
+            reservaConsumo: { disconnect: true },
+        } as any);
+
+        expect(prisma.venta.update).toHaveBeenCalledTimes(1);
+        const { where, data } = (prisma.venta.update as jest.Mock).mock.calls[0][0];
+        expect(where).toEqual({ id: 1 });
+        expect(data).toEqual({ monto: 10 });
+    });
+
+    test('ESCRITURADO usa la fechaEscrituraReal persistida si el payload no la trae', async () => {
+        (prisma.venta.findUnique as jest.Mock).mockResolvedValue({
+            ...ventaActual,
+            estado: 'CON_BOLETO',
+            fechaEscrituraReal: new Date('2026-03-01'),
+        });
+
+        await updateVenta(1, { estado: 'ESCRITURADO' } as any);
+
+        expect((prisma.venta.update as jest.Mock).mock.calls[0][0].data).toEqual({ estado: 'ESCRITURADO' });
+    });
+
+    test('ESCRITURADO sin fecha en payload ni en DB: 400 sin update', async () => {
+        (prisma.venta.findUnique as jest.Mock).mockResolvedValue({ ...ventaActual, estado: 'CON_BOLETO' });
+
+        await expectStatus(() => updateVenta(1, { estado: 'ESCRITURADO' } as any), 400, 'status');
+        expect(prisma.venta.update).not.toHaveBeenCalled();
+    });
+
+    test('CANCELADA reutiliza fechaCancelacion y motivoCancelacion persistidos (DB + payload parcial)', async () => {
+        (prisma.venta.findUnique as jest.Mock).mockResolvedValue({
+            ...ventaActual,
+            estado: 'CON_BOLETO',
+            fechaCancelacion: new Date('2026-03-01'),
+            motivoCancelacion: 'Cliente desistió',
+        });
+
+        await updateVenta(1, { estado: 'CANCELADA' } as any);
+
+        expect((prisma.venta.update as jest.Mock).mock.calls[0][0].data).toEqual({ estado: 'CANCELADA' });
+        // La cancelación libera el lote (efecto existente del lifecycle)
+        expect(prisma.lote.update).toHaveBeenCalledWith({ where: { id: 10 }, data: { estado: 'DISPONIBLE' } });
+    });
+
+    test('CANCELADA sin motivo en payload ni en DB: 400 sin update', async () => {
+        await expectStatus(
+            () => updateVenta(1, { estado: 'CANCELADA', fechaCancelacion: '2026-03-01T00:00:00.000Z' } as any),
+            400,
+            'status',
+        );
+        expect(prisma.venta.update).not.toHaveBeenCalled();
+    });
+
+    test('conserva el contrato: fechas a Date y compradores con set + sync legacy de compradorId', async () => {
+        (prisma.persona.findUnique as jest.Mock).mockResolvedValue({ id: 3 });
+
+        await updateVenta(1, {
+            fechaVenta: '2026-02-01T00:00:00.000Z',
+            plazoEscritura: '2026-06-01T00:00:00.000Z',
+            numero: 'V-0001',
+            tipoPago: 'CONTADO',
+            estadoCobro: 'EN_CURSO',
+            compradores: [{ personaId: 3 }, { personaId: 4 }],
+        } as any);
+
+        const { data } = (prisma.venta.update as jest.Mock).mock.calls[0][0];
+        expect(data).toEqual({
+            fechaVenta: new Date('2026-02-01T00:00:00.000Z'),
+            plazoEscritura: new Date('2026-06-01T00:00:00.000Z'),
+            numero: 'V-0001',
+            tipoPago: 'CONTADO',
+            estadoCobro: 'EN_CURSO',
+            compradores: { set: [{ id: 3 }, { id: 4 }] },
+            compradorId: 3,
         });
     });
 });

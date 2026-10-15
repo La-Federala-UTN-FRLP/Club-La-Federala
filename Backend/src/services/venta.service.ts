@@ -84,6 +84,32 @@ function resolveCompradorIds(data: { compradorId?: number; compradores?: { perso
     return [];
 }
 
+// Campos del contrato de actualización (updateVentaSchema) que se escriben tal cual o como fecha.
+// compradores se trata aparte (set + sync legacy de compradorId).
+const VENTA_UPDATE_FIELDS = [
+    'loteId', 'monto', 'estado', 'estadoCobro', 'motivoCancelacion',
+    'tipoPago', 'compradorId', 'inmobiliariaId', 'numero',
+] as const;
+const VENTA_UPDATE_DATE_FIELDS = ['fechaVenta', 'plazoEscritura', 'fechaEscrituraReal', 'fechaCancelacion'] as const;
+
+/**
+ * Arma el data de prisma.venta.update solo con los campos del contrato de actualización.
+ * Estado operativo, baja y relaciones (planes, pagos, archivos, reserva) tienen flujos
+ * propios: aunque lleguen en el input, no se escriben desde acá.
+ */
+function buildVentaUpdateData(updateData: PutVentaRequest): Record<string, unknown> {
+    const input = updateData as unknown as Record<string, unknown>;
+    const data: Record<string, unknown> = {};
+    for (const field of VENTA_UPDATE_FIELDS) {
+        if (input[field] !== undefined) data[field] = input[field];
+    }
+    for (const field of VENTA_UPDATE_DATE_FIELDS) {
+        const value = input[field];
+        if (value !== undefined) data[field] = value ? new Date(value as string) : value;
+    }
+    return data;
+}
+
 // Filtros aceptados por el listado (el controller arma este objeto desde la query)
 export type VentasListQuery = {
     estadoOperativo?: EstadoOperativo;
@@ -411,23 +437,10 @@ export async function updateVenta(id: number, updateData: PutVentaRequest): Prom
     }
 
     try {
+        const prismaUpdateData: any = buildVentaUpdateData(updateData);
+
         // compradores se maneja aparte con set() en la relación implícita
-        const { compradores: compradoresPayload, ...restUpdateData } = updateData as any;
-        const prismaUpdateData: any = { ...restUpdateData };
-
-        if (updateData.fechaVenta) {
-            prismaUpdateData.fechaVenta = new Date(updateData.fechaVenta);
-        }
-        if (updateData.plazoEscritura) {
-            prismaUpdateData.plazoEscritura = new Date(updateData.plazoEscritura);
-        }
-        if (updateData.fechaEscrituraReal) {
-            prismaUpdateData.fechaEscrituraReal = new Date(updateData.fechaEscrituraReal);
-        }
-        if (updateData.fechaCancelacion) {
-            prismaUpdateData.fechaCancelacion = new Date(updateData.fechaCancelacion);
-        }
-
+        const compradoresPayload = updateData.compradores;
         if (compradoresPayload && compradoresPayload.length > 0) {
             prismaUpdateData.compradores = {
                 set: compradoresPayload.map((c: { personaId: number }) => ({ id: c.personaId })),

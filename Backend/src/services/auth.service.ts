@@ -13,9 +13,9 @@ type JWTPayload = {
 };
 
 export async function login(data: LoginRequest): Promise<LoginResponse> {
-  // 1. Buscar usuario con su inmobiliaria incluida
+  // 1. Buscar usuario con su inmobiliaria incluida (los emails se guardan normalizados)
   const user = await prisma.user.findUnique({
-    where: { email: data.email },
+    where: { email: data.email.trim().toLowerCase() },
     include: { inmobiliaria: true }
   });
 

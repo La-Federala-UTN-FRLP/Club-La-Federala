@@ -49,5 +49,11 @@ export const queryInmobiliariaSchema = z.object({
 }); 
 
 
+// Query de GET /inmobiliarias: el listado solo filtra por estadoOperativo
+// (sin el parámetro, el service devuelve solo OPERATIVO).
+export const listInmobiliariasQuerySchema = z.object({
+    estadoOperativo: EstadoInmobiliariaEnum.optional(),
+});
+
 export const getInmobiliariaSchema = idParamSchema;
 export const deleteInmobiliariaSchema = idParamSchema;
