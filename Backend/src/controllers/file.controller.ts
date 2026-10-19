@@ -5,6 +5,8 @@ import { isInmobiliaria, canUserAccessArchivo, canUseIncludeDeleted } from "../u
 import { validateUploadFile } from "../utils/file.upload.validation";
 import { ensureVentaPerteneceALote } from "../utils/file.validation.utils";
 import prisma from "../config/prisma";
+import { validatedParams } from "../middlewares/validation.middleware";
+import { fileIdParamsSchema, fileLoteParamsSchema, fileVentaParamsSchema } from "../validations/filemeta.validation";
 
 const TIPOS_REQUIEREN_VENTA: TipoFile[] = ["BOLETO", "ESCRITURA", "OTRO"];
 const TIPOS_PROHIBEN_VENTA: TipoFile[] = ["PLANO", "IMAGEN"];
@@ -108,7 +110,7 @@ export class fileController {
 
 export const getAllFilesController = async (req: Request, res: Response) => {
     try {
-        const idLote = req.params.idLoteAsociado ? parseInt(req.params.idLoteAsociado as string, 10) : 0;
+        const { idLoteAsociado: idLote } = validatedParams(req, fileLoteParamsSchema);
         let includeDeleted = req.query.includeDeleted === "true";
         if (!canUseIncludeDeleted(req.user)) includeDeleted = false;
         const files = await FileService.listByLote(idLote, includeDeleted, req.user);
@@ -120,10 +122,7 @@ export const getAllFilesController = async (req: Request, res: Response) => {
 
 export const getAllFilesByVentaController = async (req: Request, res: Response) => {
     try {
-        const ventaId = parseInt(req.params.ventaId, 10);
-        if (isNaN(ventaId)) {
-            return res.status(400).json({ message: "ventaId inválido" });
-        }
+        const { ventaId } = validatedParams(req, fileVentaParamsSchema);
         if (isInmobiliaria(req.user)) {
             const venta = await prisma.venta.findUnique({
                 where: { id: ventaId },
@@ -144,11 +143,8 @@ export const getAllFilesByVentaController = async (req: Request, res: Response) 
 };
 
 export const sustituirArchivoController = async (req: Request, res: Response) => {
-    const id = parseInt(req.params.id, 10);
+    const { id } = validatedParams(req, fileIdParamsSchema);
     const file = req.file as Express.Multer.File;
-    if (isNaN(id)) {
-        return res.status(400).json({ message: "ID de archivo inválido" });
-    }
     try {
         validateUploadFile(file);
     } catch (err: any) {
@@ -171,10 +167,7 @@ export const sustituirArchivoController = async (req: Request, res: Response) =>
 
 // Signed URL obligatoria: obtiene objectPath del registro por ID, nunca del body
 export const generateSignedUrlController = async (req: Request, res: Response) => {
-    const fileId = parseInt(req.params.id, 10);
-    if (isNaN(fileId)) {
-        return res.status(400).json({ message: "ID de archivo inválido" });
-    }
+    const { id: fileId } = validatedParams(req, fileIdParamsSchema);
 
     try {
         const file = await FileService.getOperativeFileRaw(fileId);
@@ -195,7 +188,7 @@ export const generateSignedUrlController = async (req: Request, res: Response) =
 };
 
 export const getFileByIdController = async (req: Request, res: Response) => {
-    const id = parseInt(req.params.id, 10);
+    const { id } = validatedParams(req, fileIdParamsSchema);
     try {
         const file = await FileService.getFileById(id);
         if (!file) {
@@ -226,8 +219,7 @@ export const updateFileController = async (req: Request, res: Response) => {
 };
 
 export const deleteFileController = async (req: Request, res: Response) => {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) return res.status(400).json({ message: "ID de archivo inválido" });
+    const { id } = validatedParams(req, fileIdParamsSchema);
     try {
         await FileService.deleteFileById(id, req.user?.email);
         res.status(204).send();
@@ -238,8 +230,7 @@ export const deleteFileController = async (req: Request, res: Response) => {
 };
 
 export const restoreFileController = async (req: Request, res: Response) => {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) return res.status(400).json({ message: "ID de archivo inválido" });
+    const { id } = validatedParams(req, fileIdParamsSchema);
     try {
         const file = await FileService.restoreFileById(id);
         res.status(200).json({ message: "Archivo restaurado", data: file });
@@ -250,8 +241,7 @@ export const restoreFileController = async (req: Request, res: Response) => {
 };
 
 export const updateAprobacionController = async (req: Request, res: Response) => {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) return res.status(400).json({ message: "ID de archivo inválido" });
+    const { id } = validatedParams(req, fileIdParamsSchema);
 
     const { target, estado, observacion } = req.body;
     try {
@@ -271,8 +261,7 @@ export const updateAprobacionController = async (req: Request, res: Response) =>
 };
 
 export const purgeFileController = async (req: Request, res: Response) => {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) return res.status(400).json({ message: "ID de archivo inválido" });
+    const { id } = validatedParams(req, fileIdParamsSchema);
     try {
         const file = await prisma.archivos.findUnique({ where: { id } });
         if (!file) return res.status(404).json({ message: "Archivo no encontrado" });

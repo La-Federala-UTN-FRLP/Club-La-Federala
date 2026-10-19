@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import * as ubicacionService from '../services/ubicacion.service';
 import { GetUbicacionesResponse, GetUbicacionResponse, PostUbicacionResponse, PutUbicacionResponse, DeleteUbicacionResponse } from '../types/interfacesCCLF';
+import { validatedParams } from '../middlewares/validation.middleware';
+import { getUbicacionSchema, deleteUbicacionSchema } from '../validations/ubicacion.validation';
 
 export async function obtenerTodas(req: Request, res: Response, next: NextFunction) {
   try {
@@ -17,7 +19,7 @@ export async function obtenerTodas(req: Request, res: Response, next: NextFuncti
 
 export async function obtenerUbicacionPorId(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = parseInt(req.params.id);
+    const { id } = validatedParams(req, getUbicacionSchema);
     const data = await ubicacionService.getUbicacionById(id);
     const response: GetUbicacionResponse = { ubicacion: data, message: 'Ubicación obtenida exitosamente' };
     res.status(200).json({ success: true, ...response });
@@ -42,7 +44,7 @@ export async function crearUbicacion(req: Request, res: Response, next: NextFunc
 
 export async function actualizarUbicacion(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = parseInt(req.params.id);
+    const { id } = validatedParams(req, getUbicacionSchema);
     const ubicacion = await ubicacionService.updateUbicacion(id, req.body);
     const response: PutUbicacionResponse = { message: 'Ubicación actualizada exitosamente' };
     res.status(200).json({ success: true, ...response });
@@ -53,7 +55,7 @@ export async function actualizarUbicacion(req: Request, res: Response, next: Nex
 
 export async function eliminarUbicacion(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = parseInt(req.params.id);
+    const { id } = validatedParams(req, deleteUbicacionSchema);
     const response: DeleteUbicacionResponse = await ubicacionService.deleteUbicacion(id);
     res.status(200).json({ success: true, ...response });
   } catch (error) {

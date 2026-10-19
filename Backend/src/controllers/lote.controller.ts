@@ -1,6 +1,8 @@
 // src/controllers/lote.controller.ts
 import { Request, Response, NextFunction } from 'express';
 import * as loteService from '../services/lote.service';
+import { validatedParams } from '../middlewares/validation.middleware';
+import { getLoteSchema, deleteLoteSchema } from '../validations/lote.validation';
 import { Lote } from '../types/interfacesCCLF';
 
 //Obtener todos los lotes
@@ -21,7 +23,7 @@ export async function obtenerTodos(req: Request, res: Response, next: NextFuncti
 export async function obtenerLotePorId(req: Request, res: Response, next: NextFunction) {
     try {
         const user = req.user;
-        const id = parseInt(req.params.id);
+        const { id } = validatedParams(req, getLoteSchema);
         const data = await loteService.getLoteById(id, user?.role);
         res.json({success: true,data});
     } catch (error) {
@@ -51,7 +53,7 @@ export async function actualizarLote(req: Request, res: Response, next: NextFunc
     try {
         const user = req.user;
 
-        const id = parseInt(String(req.params.id), 10);
+        const { id } = validatedParams(req, getLoteSchema);
         // La validación de si el técnico puede acceder a este lote
         // ya se hizo en el middleware `checkLoteStatusForTecnico`.
         // El controlador solo actualiza.
@@ -67,7 +69,7 @@ export async function actualizarLote(req: Request, res: Response, next: NextFunc
 export async function eliminarLote(req: Request, res: Response, next: NextFunction) {
     try {
         const user = req.user;
-        const id = parseInt(req.params.id);
+        const { id } = validatedParams(req, deleteLoteSchema);
         // La validación de si el técnico puede acceder a este lote
         // ya se hizo en el middleware `checkLoteStatusForTecnico`.
         // El controlador solo elimina.

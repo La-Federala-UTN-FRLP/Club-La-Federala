@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import * as fraccionService from '../services/fraccion.service';
 import { GetFraccionResponse, GetFraccionesResponse, DeleteFraccionResponse} from '../types/interfacesCCLF';
+import { validatedParams } from '../middlewares/validation.middleware';
+import { getFraccionSchema, deleteFraccionSchema } from '../validations/fraccion.validation';
 
 //Obtener todas las fracciones
 
@@ -30,7 +32,7 @@ export async function obtenerTodas(req: Request, res: Response, next: NextFuncti
 
 export async function obtenerFraccionPorId(req: Request, res: Response, next: NextFunction) {
     try {
-        const id = parseInt(req.params.id);
+        const { id } = validatedParams(req, getFraccionSchema);
         const data = await fraccionService.getFraccionById(id);
         const response: GetFraccionResponse = {
             fraccion: data,
@@ -68,7 +70,7 @@ export async function crearFraccion(req: Request, res: Response, next: NextFunct
 
 export async function actualizarFraccion(req: Request, res: Response, next: NextFunction) {
     try {
-        const id = parseInt(req.params.id);
+        const { id } = validatedParams(req, getFraccionSchema);
         const fraccion = await fraccionService.updateFraccion(id, req.body);
         res.status(200).json({success: true,message: "Fracción actualizada exitosamente",data:fraccion});
     } catch (error) {
@@ -79,7 +81,7 @@ export async function actualizarFraccion(req: Request, res: Response, next: Next
 // Eliminar fraccion
 export async function eliminarFraccion(req: Request, res: Response, next: NextFunction) {
     try {
-        const id = parseInt(req.params.id);
+        const { id } = validatedParams(req, deleteFraccionSchema);
         await fraccionService.deleteFraccion(id);
         const response: DeleteFraccionResponse = {
             message: 'Fracción eliminada exitosamente'

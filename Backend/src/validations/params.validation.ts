@@ -4,14 +4,18 @@ import { z } from 'zod';
 const INT4_MAX = 2_147_483_647;
 
 /**
- * Entero positivo en notación decimal canónica ("12"), tal como llega en params/query.
- * Rechaza lo que z.coerce.number() aceptaría o parseInt truncaría: "1.5", "-1", "1e2",
- * "0x10", "5abc", "007".
- * validateParams/validateQuery no conservan el resultado transformado: los controllers
- * convierten con Number() o vuelven a parsear con el schema.
+ * ID HTTP de una PK numérica: entero positivo en notación decimal canónica ("12"), dentro
+ * del rango int4. Rechaza "0", "-1", "007", "+5", " 12", "1e2", "10e-1", "0x10", "1.5" y
+ * "5abc". Para todo valor aceptado, parseInt, Number y el resultado de Zod coinciden.
  */
 export const positiveIntString = z
     .string()
-    .regex(/^[1-9]\d*$/, 'Debe ser un entero positivo')
+    // abort: sin él Zod 4 sigue con el refine y "abc" sumaba un segundo error "Fuera de rango"
+    .regex(/^[1-9]\d*$/, { message: 'Debe ser un entero positivo', abort: true })
     .refine((value) => Number(value) <= INT4_MAX, 'Fuera de rango')
     .transform(Number);
+
+// Params de ruta con PK numérica. Los schemas de params de cada módulo son alias de estos;
+// el controller lee el resultado con validatedParams().
+export const idParamsSchema = z.object({ id: positiveIntString });
+export const ventaIdParamsSchema = z.object({ ventaId: positiveIntString });

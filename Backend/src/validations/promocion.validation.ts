@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { idParamsSchema } from './params.validation';
 
 // Schema para aplicar promoción
 export const aplicarPromocionSchema = z.object({
@@ -35,15 +36,11 @@ export const aplicarPromocionSchema = z.object({
     }, { message: 'La explicación no puede tener más de 500 caracteres' }),
 });
 
-// Schema para quitar promoción (sin body, solo params)
-export const quitarPromocionSchema = z.object({
-  id: z.coerce.number().int('El ID del lote debe ser un número entero').positive('El ID del lote debe ser positivo'),
-});
+// Schema para quitar promoción (sin body, solo params: id del lote)
+export const quitarPromocionSchema = idParamsSchema;
 
-// Schema para obtener promoción activa
-export const getPromocionActivaSchema = z.object({
-  id: z.coerce.number().int('El ID del lote debe ser un número entero').positive('El ID del lote debe ser positivo'),
-});
+// Schema para obtener promoción activa (params: id del lote)
+export const getPromocionActivaSchema = idParamsSchema;
 
 
 

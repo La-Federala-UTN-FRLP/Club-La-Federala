@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { idParamsSchema } from './params.validation';
 
 // **Schemas de validacion para Lote**
 
@@ -37,10 +38,8 @@ export const createLoteSchema = baseLoteSchema.extend({
 // Para actualizar un Lote (todos los campos opcionales y sin defaults: lo no enviado no se toca)
 export const updateLoteSchema = baseLoteSchema.partial();
 
-// Para obtener un Lote por ID
-export const getLoteSchema = z.object({
-  id: z.coerce.number().int('El ID del lote debe ser un número entero').positive('El ID del lote debe ser positivo'),
-});
+// Para obtener un Lote por ID (política común de IDs de path)
+export const getLoteSchema = idParamsSchema;
 
 // Para eliminar un Lote por ID (igual que obtener)
 export const deleteLoteSchema = getLoteSchema;

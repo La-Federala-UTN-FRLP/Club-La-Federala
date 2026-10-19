@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { idParamsSchema } from './params.validation';
 
 // Schemas base reutilizables
 const estadoVentaEnum = z.enum(['INICIADA', 'CON_BOLETO', 'ESCRITURADO', 'CANCELADA']);
@@ -115,9 +116,8 @@ export const updateVentaSchema = z.object({
 // para CANCELADA) no se exigen acá: en un update parcial pueden estar ya persistidos.
 // Los valida updateVenta con assertCamposObligatoriosPorEstado sobre DB + payload.
 
-export const getVentaSchema = z.object({
-    id: z.coerce.number().int('El ID de la venta debe ser un número entero').positive('El ID de la venta debe ser un número positivo'),
-});
+// Params /:id de Venta (política común de IDs de path)
+export const getVentaSchema = idParamsSchema;
 
 export const deleteVentaSchema = getVentaSchema;
 export const patchVentaParamsSchema = getVentaSchema;

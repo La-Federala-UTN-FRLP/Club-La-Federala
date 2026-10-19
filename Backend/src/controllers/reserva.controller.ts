@@ -14,6 +14,8 @@ import {
   ReservasListQuery,
 } from '../services/reserva.service';
 import { EstadoReserva } from '../types/interfacesCCLF';
+import { validatedParams } from '../middlewares/validation.middleware';
+import { getReservaParamsSchema, deleteReservaParamsSchema, patchReservaParamsSchema } from '../validations/reserva.validation';
 
 // ==============================
 // Obtener todas las reservas
@@ -44,7 +46,7 @@ export async function getAllReservasController(req: Request, res: Response, next
 // Valida permisos: INMOBILIARIA solo puede ver sus propias reservas.
 export async function getReservaByIdController(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = Number(req.params.id);
+    const { id } = validatedParams(req, getReservaParamsSchema);
     const user = req.user; // Usuario autenticado desde el middleware
     const data = await getReservaById(id, user);
     res.json({ success: true, data });
@@ -55,7 +57,7 @@ export async function getReservaByIdController(req: Request, res: Response, next
 
 export async function getAllReservasByInmobiliariaController(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = parseInt(req.params.id, 10);
+    const { id } = validatedParams(req, getReservaParamsSchema);
     const user = req.user;
     const data = await getReservaByImmobiliariaId(id, user);
     res.json({ success: true, data });
@@ -95,7 +97,7 @@ export async function createReservaController(req: Request, res: Response, next:
 // Body parcial validado.
 export async function updateReservaController(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = Number(req.params.id);
+    const { id } = validatedParams(req, getReservaParamsSchema);
     const user = req.user;
     const data = await updateReserva(id, req.body, user);
     res.json({ success: true, message: 'Reserva actualizada exitosamente', data });
@@ -109,7 +111,7 @@ export async function updateReservaController(req: Request, res: Response, next:
 // ==============================
 export async function deleteReservaController(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = Number(req.params.id);
+    const { id } = validatedParams(req, deleteReservaParamsSchema);
     const user = req.user;
     const data = await eliminarReserva(id, user);
     res.json({ success: true, message: 'Reserva eliminada exitosamente', data });
@@ -120,7 +122,7 @@ export async function deleteReservaController(req: Request, res: Response, next:
 
 export async function eliminarReservaController(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = Number(req.params.id);
+    const { id } = validatedParams(req, patchReservaParamsSchema);
     const user = req.user;
     const data = await eliminarReserva(id, user);
     res.json({ success: true, message: 'Reserva eliminada exitosamente', data });
@@ -131,7 +133,7 @@ export async function eliminarReservaController(req: Request, res: Response, nex
 
 export async function reactivarReservaController(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = Number(req.params.id);
+    const { id } = validatedParams(req, patchReservaParamsSchema);
     const user = req.user;
     const data = await reactivarReserva(id, user);
     res.json({ success: true, message: 'Reserva reactivada exitosamente', data });
@@ -144,7 +146,7 @@ export async function reactivarReservaController(req: Request, res: Response, ne
 // ==============================
 export async function getOfertasController(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = Number(req.params.id);
+    const { id } = validatedParams(req, getReservaParamsSchema);
     const user = req.user;
     const data = await getOfertasByReservaId(id, user);
     res.json({ success: true, data });
@@ -158,7 +160,7 @@ export async function getOfertasController(req: Request, res: Response, next: Ne
 // ==============================
 export async function createOfertaController(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = Number(req.params.id);
+    const { id } = validatedParams(req, getReservaParamsSchema);
     const user = req.user;
     const data = await createOfertaReserva(id, req.body, user);
     res.status(201).json({ success: true, message: 'Oferta registrada', data });

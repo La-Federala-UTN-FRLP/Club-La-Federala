@@ -1,6 +1,8 @@
 //src/controllers/venta.controller.ts
 import { Request, Response, NextFunction } from 'express';
 import * as ventaService from '../services/venta.service';
+import { validatedParams } from '../middlewares/validation.middleware';
+import { getVentaSchema, patchVentaParamsSchema } from '../validations/venta.validation';
 
 // ========================
 // Obtener todas las ventas
@@ -30,7 +32,7 @@ export async function obtenerTodos(req: Request, res: Response, next: NextFuncti
 
 export async function obtenerVentasPorInmobiliaria(req: Request, res: Response, next: NextFunction) {
     try {
-        const inmobiliariaId = parseInt(req.params.id);
+        const { id: inmobiliariaId } = validatedParams(req, getVentaSchema);
         const query = req.query as { estadoOperativo?: string };
         const result = await ventaService.getVentasByInmobiliaria(inmobiliariaId, query, req.user);
         res.json({ success: true, data: result });
@@ -45,7 +47,7 @@ export async function obtenerVentasPorInmobiliaria(req: Request, res: Response, 
 
 export async function obtenerVentaPorId(req: Request, res: Response, next: NextFunction) {
     try {
-        const id = parseInt(req.params.id);
+        const { id } = validatedParams(req, getVentaSchema);
         const result = await ventaService.getVentaById(id);
         res.json({success: true,data:result});
     } catch (error) {
@@ -74,8 +76,7 @@ export async function crearVenta(req: Request, res: Response, next: NextFunction
 
 export async function actualizarVenta(req: Request, res: Response, next: NextFunction) {
     try {
-        // id validado por getVentaSchema (z.coerce.number): Number() da el mismo valor; parseInt no.
-        const id = Number(req.params.id);
+        const { id } = validatedParams(req, getVentaSchema);
         const result = await ventaService.updateVenta(id, req.body);
         res.json({success: true,message: "Venta actualizada exitosamente",data:result});
     } catch (error) {
@@ -89,7 +90,8 @@ export async function actualizarVenta(req: Request, res: Response, next: NextFun
 
 export async function eliminarVenta(req: Request, res: Response, next: NextFunction) {
     try {
-        const id = parseInt(req.params.id);
+        // Atiende DELETE /:id y PATCH /:id/eliminar: ambas rutas validan con alias de getVentaSchema.
+        const { id } = validatedParams(req, getVentaSchema);
         const user = req.user;
         const result = await ventaService.eliminarVenta(id, user);
         res.json({success: true, message: "Venta eliminada exitosamente", data: result});
@@ -100,7 +102,7 @@ export async function eliminarVenta(req: Request, res: Response, next: NextFunct
 
 export async function reactivarVenta(req: Request, res: Response, next: NextFunction) {
     try {
-        const id = parseInt(req.params.id);
+        const { id } = validatedParams(req, patchVentaParamsSchema);
         const user = req.user;
         const result = await ventaService.reactivarVenta(id, user);
         res.json({success: true, message: "Venta reactivada exitosamente", data: result});

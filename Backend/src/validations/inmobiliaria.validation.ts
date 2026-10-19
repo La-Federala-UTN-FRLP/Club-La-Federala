@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { idParamsSchema } from './params.validation';
 
 // Definimos el enum una vez para reusarlo
 const EstadoInmobiliariaEnum = z.enum(['OPERATIVO', 'ELIMINADO']);
@@ -34,10 +35,8 @@ export const updateInmobiliariaSchema = z.object({
 })
 .refine((d) => Object.keys(d).length > 0, { message: 'Debe enviar al menos un campo para actualizar' });
 
-// params: /:id
-export const idParamSchema = z.object({
-    id: z.coerce.number().int().positive(),
-});
+// params: /:id (política común de IDs de path)
+export const idParamSchema = idParamsSchema;
 
 // GET query params
 export const queryInmobiliariaSchema = z.object({

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { idParamsSchema } from "./params.validation";
 
 const calleEnum = z.enum([
   'Reinamora',
@@ -26,11 +27,8 @@ export const updateUbicacionSchema = z.object({
   numero: z.coerce.number().int().min(1, "El número de ubicación es requerido").optional(),
 });
 
-export const getUbicacionSchema = z.object({
-  id: z.string().regex(/^\d+$/, 'ID debe ser un número').transform(Number),
-});
+// Params /:id de Ubicación (política común de IDs de path)
+export const getUbicacionSchema = idParamsSchema;
 
-export const deleteUbicacionSchema = z.object({
-  id: z.string().regex(/^\d+$/, 'ID debe ser un número').transform(Number),
-});
+export const deleteUbicacionSchema = getUbicacionSchema;
 
