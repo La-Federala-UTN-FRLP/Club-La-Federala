@@ -222,24 +222,24 @@ describe('updateVentaSchema', () => {
 });
 
 describe('getVentaSchema', () => {
-    test('acepta id válido y coerce string', () => {
-        expect(getVentaSchema.safeParse({ id: 1 }).success).toBe(true);
-        const coerced = getVentaSchema.safeParse({ id: '5' });
-        expect(coerced.success).toBe(true);
-        if (coerced.success) expect(coerced.data.id).toBe(5);
+    test('acepta id válido y lo convierte a number', () => {
+        expect(getVentaSchema.safeParse({ id: '1' }).success).toBe(true);
+        const parsed = getVentaSchema.safeParse({ id: '5' });
+        expect(parsed.success).toBe(true);
+        if (parsed.success) expect(parsed.data.id).toBe(5);
     });
 
     test('rechaza id negativo, cero o no entero', () => {
-        expect(getVentaSchema.safeParse({ id: -1 }).success).toBe(false);
-        expect(getVentaSchema.safeParse({ id: 0 }).success).toBe(false);
-        expect(getVentaSchema.safeParse({ id: 1.5 }).success).toBe(false);
+        expect(getVentaSchema.safeParse({ id: '-1' }).success).toBe(false);
+        expect(getVentaSchema.safeParse({ id: '0' }).success).toBe(false);
+        expect(getVentaSchema.safeParse({ id: '1.5' }).success).toBe(false);
     });
 });
 
 describe('deleteVentaSchema', () => {
     test('comparte reglas de id con getVentaSchema', () => {
-        expect(deleteVentaSchema.safeParse({ id: 2 }).success).toBe(true);
-        expect(deleteVentaSchema.safeParse({ id: 0 }).success).toBe(false);
+        expect(deleteVentaSchema.safeParse({ id: '2' }).success).toBe(true);
+        expect(deleteVentaSchema.safeParse({ id: '0' }).success).toBe(false);
     });
 });
 

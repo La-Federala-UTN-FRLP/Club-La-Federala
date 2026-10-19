@@ -169,7 +169,7 @@ describe('updateUsuarioSchema', () => {
 describe('getUsuarioSchema', () => {
     test('debe validar correctamente un ID válido', () => {
         // ARRANGE
-        const validParams = { id: 1 };
+        const validParams = { id: '1' };
 
         // ACT & ASSERT
         expect(() => getUsuarioSchema.parse(validParams)).not.toThrow();
@@ -177,7 +177,7 @@ describe('getUsuarioSchema', () => {
 
     test('debe rechazar un ID negativo', () => {
         // ARRANGE
-        const invalidParams = { id: -1 };
+        const invalidParams = { id: '-1' };
 
         // ACT & ASSERT
         expect(() => getUsuarioSchema.parse(invalidParams)).toThrow();
@@ -196,7 +196,7 @@ describe('getUsuarioSchema', () => {
 describe('deleteUsuarioSchema', () => {
     test('debe validar correctamente un ID válido para eliminar', () => {
         // ARRANGE
-        const validParams = { id: 1 };
+        const validParams = { id: '1' };
 
         // ACT & ASSERT
         expect(() => deleteUsuarioSchema.parse(validParams)).not.toThrow();
@@ -204,7 +204,7 @@ describe('deleteUsuarioSchema', () => {
 
     test('debe rechazar un ID inválido para eliminar', () => {
         // ARRANGE
-        const invalidParams = { id: 0 };
+        const invalidParams = { id: '0' };
 
         // ACT & ASSERT
         expect(() => deleteUsuarioSchema.parse(invalidParams)).toThrow();
