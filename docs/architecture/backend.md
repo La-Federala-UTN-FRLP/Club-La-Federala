@@ -36,6 +36,20 @@ Proceso distinto al web. No sirve HTTP, no usa `PORT` y no importa Express. Cont
 
 Las rutas privadas usan `authenticate` y `authorize`. Los roles son `ADMINISTRADOR`, `GESTOR`, `INMOBILIARIA` y `TECNICO`. Las validaciones ocurren antes del controlador y `handleError` centraliza errores.
 
+## Validación de requests
+
+Middlewares de `src/middlewares/validation.middleware.ts`; un dato inválido responde `400` con `{ success: false, message: 'Datos inválidos', errors: [{ field, message }] }`.
+
+- `validate(schema)`: reemplaza `req.body` por el resultado de Zod.
+- `validateParams(schema)`: en las rutas que lo usan, Zod valida y transforma los params y el resultado se conserva en `req.validated.params`. `req.params` sigue siendo el input HTTP crudo (strings). Los controllers migrados leen los params con `validatedParams(req, schema)`, con el mismo schema que la ruta; si la ruta no validó params o usó otro schema, lanza.
+- `validateQuery(schema)`: valida `req.query`, pero todavía no conserva de forma fiable el resultado transformado de Zod: Express 5 no permite reemplazar `req.query` y la mutación que intenta el middleware no persiste. Hoy algunos controllers reconstruyen el DTO de la query localmente (reservas, ventas, prioridades, inmobiliarias, personas) y otros consumen `req.query` crudo (`GET /lotes` y `GET /ventas/inmobiliaria/:id`). Migrar la query a `req.validated` con esta misma infraestructura queda para un PR posterior.
+
+### Política de IDs de path
+
+Los IDs numéricos de las rutas con `validateParams()` (`/:id`, `/:ventaId`, `/:miembroId`, …) siguen una única política, `positiveIntString` en `src/validations/params.validation.ts`: entero decimal positivo canónico dentro de int4 (`1` a `2147483647`). `0`, `-1`, `007`, `+5`, `1e2`, `0x10`, `1.5` o `2147483648` responden `400`.
+
+La política no cubre rutas que no usan `validateParams()`; por ejemplo `PUT /api/files/:id` todavía interpreta su `:id` en el controller.
+
 ## Variables relevantes
 
 La configuración se valida con Zod en `src/config/env.ts`. Contratos separados:

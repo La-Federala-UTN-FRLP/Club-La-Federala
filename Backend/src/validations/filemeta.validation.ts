@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { positiveIntString } from './params.validation';
+import { idParamsSchema, positiveIntString, ventaIdParamsSchema } from './params.validation';
 
 // Mismos valores que el enum TiposArchivos de Prisma
 const tipoArchivoEnum = z.enum(['BOLETO', 'ESCRITURA', 'PLANO', 'IMAGEN', 'OTRO']);
@@ -30,9 +30,9 @@ export const deleteFileMetadataSchema = z.object({
     id: z.number().int().positive("El ID del archivo debe ser un número entero positivo")
 });
 
-// Params de las rutas activas de /api/files
-export const fileIdParamsSchema = z.object({ id: positiveIntString });
-export const fileVentaParamsSchema = z.object({ ventaId: positiveIntString });
+// Params de las rutas activas de /api/files (política común de IDs de path)
+export const fileIdParamsSchema = idParamsSchema;
+export const fileVentaParamsSchema = ventaIdParamsSchema;
 export const fileLoteParamsSchema = z.object({ idLoteAsociado: positiveIntString });
 
 // Query de GET /api/files/venta/:ventaId (el controller lee tipo e includeDeleted como texto)

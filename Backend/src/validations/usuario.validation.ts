@@ -1,4 +1,5 @@
 import {email, z} from 'zod';
+import { idParamsSchema } from './params.validation';
 
 // Normalización antes de validar: username y email se recortan (email además en minúsculas,
 // igual que se busca en el login). La password es una secuencia exacta: no se recorta.
@@ -11,9 +12,8 @@ export const createUsuarioSchema = z.object({
 
 export const updateUsuarioSchema = createUsuarioSchema.partial();
 
-export const getUsuarioSchema = z.object({
-    id: z.coerce.number().int('El ID del usuario debe ser un número entero').positive('El ID del usuario debe ser un número positivo'),
-});                     
+// Params /:id de Usuario (política común de IDs de path)
+export const getUsuarioSchema = idParamsSchema;
 
 export const deleteUsuarioSchema = getUsuarioSchema;
 

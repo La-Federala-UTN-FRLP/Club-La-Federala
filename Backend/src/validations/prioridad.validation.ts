@@ -1,5 +1,6 @@
 // src/validations/prioridad.validation.ts
 import { z } from 'zod';
+import { idParamsSchema } from './params.validation';
 
 // Helpers reutilizables
 const idInt = z.coerce.number().int('El id debe ser entero').positive('El id debe ser positivo');
@@ -71,11 +72,9 @@ export const updatePrioridadSchema = z.object({
 );
 
 // ==============================
-// Parámetros comunes (/:id)
+// Parámetros comunes (/:id) — política común de IDs de path
 // ==============================
-export const getPrioridadParamsSchema = z.object({
-  id: idInt,
-});
+export const getPrioridadParamsSchema = idParamsSchema;
 
 // ==============================
 // Query del listado (GET /prioridades)
@@ -111,6 +110,4 @@ export const queryPrioridadesSchema = z.object({
 // ==============================
 // Parámetros para eliminar/reactivar (PATCH /prioridades/:id/eliminar o /reactivar)
 // ==============================
-export const patchPrioridadParamsSchema = z.object({
-  id: idInt,
-});
+export const patchPrioridadParamsSchema = getPrioridadParamsSchema;

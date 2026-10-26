@@ -27,7 +27,7 @@ import request from 'supertest';
 import app from '../../../src/app';
 import * as FileService from '../../../src/services/file.service';
 import prisma from '../../../src/config/prisma';
-import { authHeader, useTestWebEnv } from '../../support/http';
+import { authHeader, INVALID_PATH_IDS, useTestWebEnv } from '../../support/http';
 
 const service = FileService as unknown as Record<string, jest.Mock>;
 const archivosFindUnique = prisma.archivos.findUnique as jest.Mock;
@@ -71,11 +71,9 @@ const RUTAS: Ruta[] = [
     ['GET /lote/:idLoteAsociado', (id) => request(app).get(`/api/files/lote/${id}`), () => service.listByLote],
 ];
 
-const IDS_INVALIDOS = ['abc', '5abc', '1.5', '-1', '1e2', '0x10', '0'];
-
 describe.each(RUTAS)('%s — id inválido', (_nombre, build, target) => {
-    test.each(IDS_INVALIDOS)('"%s" responde 400 sin llegar al service ni a Prisma', async (id) => {
-        const res = await build(id).set(ADMIN);
+    test.each(INVALID_PATH_IDS)('%j responde 400 sin llegar al service ni a Prisma', async (id) => {
+        const res = await build(encodeURIComponent(id)).set(ADMIN);
         expect(res.status).toBe(400);
         expect(target()).not.toHaveBeenCalled();
     });
@@ -103,6 +101,28 @@ describe('ids válidos llegan como números', () => {
         const res = await RUTAS[5][1]('7').set(ADMIN);
         expect(res.status).toBe(200);
         expect(service.sustituirArchivo).toHaveBeenCalledWith(7, expect.any(Buffer), 'doc.pdf', 'test@example.com', 'test@example.com');
+    });
+
+    test('POST /:id/url', async () => {
+        service.getOperativeFileRaw.mockResolvedValue({ id: 7, linkArchivo: 'lotes/7/plano.pdf', tipo: 'PLANO', ventaId: null });
+        const res = await request(app).post('/api/files/7/url').set(ADMIN);
+        expect(res.status).toBe(200);
+        expect(service.getOperativeFileRaw).toHaveBeenCalledWith(7);
+    });
+
+    test('POST /:id/restore', async () => {
+        await request(app).post('/api/files/7/restore').set(ADMIN);
+        expect(service.restoreFileById).toHaveBeenCalledWith(7);
+    });
+
+    test('DELETE /:id/purge', async () => {
+        await request(app).delete('/api/files/7/purge').set(ADMIN);
+        expect(archivosFindUnique).toHaveBeenCalledWith({ where: { id: 7 } });
+    });
+
+    test('PATCH /:id/aprobaciones', async () => {
+        await RUTAS[4][1]('7').set(ADMIN);
+        expect(service.updateAprobacionPlano).toHaveBeenCalledWith(7, 'COMISION', 'APROBADO', 'test@example.com', 'ADMINISTRADOR', undefined);
     });
 });
 

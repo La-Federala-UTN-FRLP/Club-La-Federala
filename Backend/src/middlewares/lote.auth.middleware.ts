@@ -23,12 +23,7 @@ export const checkLoteStatusForTecnico = async (req: Request, res: Response, nex
             if (req.method === 'DELETE') {
                 return next(new AppError('Los técnicos no pueden eliminar lotes', 403));
             }
-
-            const loteId = parseInt(req.params.id, 10);
-            if (Number.isNaN(loteId)) {
-                return next(new AppError('Identificador de lote inválido', 400));
-            }
-
+            // El id ya lo validó validateParams(getLoteSchema) antes de este middleware.
         }
         return next();
     } catch (error) {

@@ -488,6 +488,70 @@ GCP Secret Manager, Cloud Run, docker-compose productivo, CI dummy URLs, fronten
 - `docs/development/setup-local.md`
 - `AI-DECISIONS.md`
 
+### AI-009 — Contrato de validación de path params e IDs HTTP
+
+**Fecha:** 2026-10-18
+**Área:** Backend / Validación / Contratos HTTP
+**Herramientas:** ChatGPT + Claude + Grok
+
+#### Problema
+
+`validateParams()` validaba y transformaba con Zod pero descartaba el output. Los controllers volvían a interpretar `req.params` mediante `parseInt`, `Number` o nuevos parses, pudiendo validar un ID y operar sobre otro. Ejemplo reproducido: `DELETE /api/lotes/1e2`; Zod validaba `100`, mientras `parseInt("1e2")` producía `1`. También coexistían varias políticas de IDs.
+
+#### Prompt / intención
+
+Auditar todas las rutas con `validateParams`, definir una política única de IDs HTTP y diseñar una migración gradual compatible con Express 5 sin modificar directamente `req.params` ni mezclar todavía queries.
+
+#### Propuesta generada por IA
+
+- Decimal positivo canónico dentro de int4.
+- `positiveIntString` como política única.
+- `req.validated.params` para conservar el output de Zod.
+- Accessor tipado `validatedParams(req, schema)`.
+- Comprobación de identidad del schema.
+- Migración de las 62 rutas activas con `validateParams`.
+- Eliminación de las conversiones redundantes posteriores.
+- `validateQuery` fuera de scope.
+
+#### Validación humana
+
+- Se decidió separar params y queries en dos PRs.
+- Se aceptó deliberadamente rechazar formatos como `007`, `+5`, `1e2` y `0x10`.
+- Se decidió no mutar `req.params`.
+- Claude implementó el cambio.
+- Grok realizó una revisión READ-ONLY independiente/adversarial.
+- La revisión confirmó 62/62 rutas sin discrepancias y ningún blocker funcional.
+
+#### Decisión adoptada
+
+- IDs de las rutas con `validateParams`: decimal positivo canónico, `1..2147483647`.
+- Output de Zod en `req.validated.params`.
+- Los controllers consumen `validatedParams`.
+- `req.params` permanece raw.
+- Los aliases de schemas comparten objetos comunes.
+- `remap` eliminado.
+- Queries quedan para un PR separado.
+
+#### Resultado
+
+- 62 rutas activas migradas; 61 handlers distintos.
+- 35 suites, **1684** tests PASS.
+- typecheck PASS.
+- build PASS.
+- `git diff --check` PASS.
+- Revisión independiente: `READY WITH MINOR NOTES`, sin bloqueantes.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/middlewares/validation.middleware.ts`
+- `Backend/src/validations/params.validation.ts`
+- Controllers migrados
+- `Backend/tests/unit/middlewares/validation.middleware.test.ts`
+- `Backend/tests/unit/routes/params.contract.routes.test.ts`
+- `Backend/tests/unit/validations/params.validation.test.ts`
+- `docs/architecture/backend.md`
+- `AI-DECISIONS.md`
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.

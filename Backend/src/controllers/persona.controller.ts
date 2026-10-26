@@ -3,6 +3,7 @@ import { PersonaService, PersonaView } from '../services/persona.service';
 import { createPersonaSchema, updatePersonaSchema, getPersonaSchema, deletePersonaSchema, miembroFamiliarParamsSchema, CreateMiembroFamiliarInput } from '../validations/persona.validation';
 import { GetPersonasResponse, PostPersonaResponse, GetPersonaResponse, PutPersonaResponse, DeletePersonaResponse, PostPersonaRequest, PutPersonaRequest } from '../types/interfacesCCLF';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import { validatedParams } from '../middlewares/validation.middleware';
 
 const personaService = new PersonaService();
 
@@ -117,7 +118,7 @@ async obtenerTodas(req: Request, res: Response) {
 
 async obtenerPersonaPorId(req: Request, res: Response) {
     try {
-        const { id } = getPersonaSchema.parse(req.params);
+        const { id } = validatedParams(req, getPersonaSchema);
       const user = (req as any).user; // Del middleware de auth
 
       const persona = await personaService.findById(id, user);
@@ -150,7 +151,7 @@ async obtenerPersonaPorId(req: Request, res: Response) {
 
 async actualizarPersona(req: Request, res: Response) {
     try {
-        const { id } = getPersonaSchema.parse(req.params);
+        const { id } = validatedParams(req, getPersonaSchema);
         const validatedData = updatePersonaSchema.parse(req.body);
 
       // Construir UpdatePersonaDto: solo incluir campos que vienen en el request
@@ -197,7 +198,7 @@ async actualizarPersona(req: Request, res: Response) {
 
   async desactivarPersona(req: Request, res: Response) {
     try {
-      const { id } = deletePersonaSchema.parse(req.params);
+      const { id } = validatedParams(req, deletePersonaSchema);
       const response: DeletePersonaResponse = await personaService.desactivarPersona(id);
 
       res.status(200).json({
@@ -215,7 +216,7 @@ async actualizarPersona(req: Request, res: Response) {
 
   async reactivarPersona(req: Request, res: Response) {
     try {
-      const { id } = deletePersonaSchema.parse(req.params);
+      const { id } = validatedParams(req, deletePersonaSchema);
       const response: PutPersonaResponse = await personaService.reactivarPersona(id);
 
       res.status(200).json({
@@ -233,7 +234,7 @@ async actualizarPersona(req: Request, res: Response) {
 
 async eliminarPersona(req: Request, res: Response) {
     try {
-        const { id } = deletePersonaSchema.parse(req.params);
+        const { id } = validatedParams(req, deletePersonaSchema);
       const response: DeletePersonaResponse = await personaService.deletePersonaDefinitivo(id);
 
         res.status(200).json({
@@ -290,7 +291,7 @@ async obtenerPersonaPorCuil(req: Request, res: Response) {
 
   async obtenerGrupoFamiliar(req: Request, res: Response) {
     try {
-      const { id } = getPersonaSchema.parse(req.params);
+      const { id } = validatedParams(req, getPersonaSchema);
       const grupo = await personaService.getGrupoFamiliar(id);
 
       res.status(200).json({
@@ -308,7 +309,7 @@ async obtenerPersonaPorCuil(req: Request, res: Response) {
 
   async crearMiembroFamiliar(req: Request, res: Response) {
     try {
-      const { id } = getPersonaSchema.parse(req.params);
+      const { id } = validatedParams(req, getPersonaSchema);
       // Body validado y normalizado por createMiembroFamiliarSchema en la ruta
       const { nombre, apellido, identificadorTipo, identificadorValor } = req.body as CreateMiembroFamiliarInput;
 
@@ -335,8 +336,8 @@ async obtenerPersonaPorCuil(req: Request, res: Response) {
 
   async eliminarMiembroFamiliar(req: Request, res: Response) {
     try {
-      // Params ya validados en la ruta como enteros positivos decimales
-      const { id: titularId, miembroId } = miembroFamiliarParamsSchema.parse(req.params);
+      // Params ya validados y convertidos en la ruta (miembroFamiliarParamsSchema)
+      const { id: titularId, miembroId } = validatedParams(req, miembroFamiliarParamsSchema);
 
       await personaService.eliminarMiembroFamiliar(titularId, miembroId);
 

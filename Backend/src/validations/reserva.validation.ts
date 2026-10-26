@@ -1,6 +1,7 @@
 // src/validations/reserva.validation.ts
 import { z } from 'zod';
-/* 
+import { idParamsSchema } from './params.validation';
+/*
   Helpers reutilizables
   ------------------------
   - No son obligatorios, pero mas adelante queremos hacer algunos cambios o agregar cosas que utilicen las mismas
@@ -61,13 +62,12 @@ export const updateReservaSchema = z.object({
   message: 'Debes enviar al menos un campo para actualizar',
 });
 
-/*  Parametros comunes (/:idReserva)
+/*  Parametros comunes (/:id)
   -------------------------------
   - GET detalle, PUT, DELETE usan el mismo parametros q es el idReserva.
+  - Política común de IDs de path (no usa idInt: en el path no se aceptan "1e2", "007", etc.).
 */
-export const getReservaParamsSchema = z.object({
-  id: idInt,
-});
+export const getReservaParamsSchema = idParamsSchema;
 
 /*  Parametros para eliminar, usa el mismo que el de arriba del obtener */
 export const deleteReservaParamsSchema = getReservaParamsSchema;

@@ -1,5 +1,6 @@
 // src/validations/pago.validation.ts
 import { z } from 'zod';
+import { ventaIdParamsSchema } from './params.validation';
 
 // Helpers reutilizables (mismo estilo que reserva.validation.ts)
 const idInt = z.coerce.number().int('El id debe ser entero').positive('El id debe ser positivo');
@@ -19,10 +20,8 @@ const monedaEnum = z.enum(['ARS', 'USD']);
 const tipoCuotaEnum = z.enum(['ANTICIPO', 'CUOTA', 'OTRO']);
 const medioPagoEnum = z.enum(['EFECTIVO', 'TRANSFERENCIA', 'DEPOSITO', 'CHEQUE', 'OTRO']);
 
-// Params: ventaId
-export const ventaIdParamSchema = z.object({
-  ventaId: idInt,
-});
+// Params: ventaId (política común de IDs de path)
+export const ventaIdParamSchema = ventaIdParamsSchema;
 
 // Cuota dentro del body de creación de plan
 const cuotaInputSchema = z.object({

@@ -165,29 +165,29 @@ describe('updateReservaSchema', () => {
 
 describe('getReservaParamsSchema', () => {
     test('acepta id entero positivo', () => {
-        expect(getReservaParamsSchema.safeParse({ id: 1 }).success).toBe(true);
+        expect(getReservaParamsSchema.safeParse({ id: '1' }).success).toBe(true);
     });
 
-    test('coerce id desde string', () => {
+    test('convierte el id del path a number', () => {
         const result = getReservaParamsSchema.safeParse({ id: '5' });
         expect(result.success).toBe(true);
         if (result.success) expect(result.data.id).toBe(5);
     });
 
     test('rechaza id negativo o cero', () => {
-        expect(getReservaParamsSchema.safeParse({ id: -1 }).success).toBe(false);
-        expect(getReservaParamsSchema.safeParse({ id: 0 }).success).toBe(false);
+        expect(getReservaParamsSchema.safeParse({ id: '-1' }).success).toBe(false);
+        expect(getReservaParamsSchema.safeParse({ id: '0' }).success).toBe(false);
     });
 
     test('rechaza id no entero', () => {
-        expect(getReservaParamsSchema.safeParse({ id: 1.5 }).success).toBe(false);
+        expect(getReservaParamsSchema.safeParse({ id: '1.5' }).success).toBe(false);
     });
 });
 
 describe('deleteReservaParamsSchema', () => {
     test('comparte reglas con getReservaParamsSchema', () => {
-        expect(deleteReservaParamsSchema.safeParse({ id: 3 }).success).toBe(true);
-        expect(deleteReservaParamsSchema.safeParse({ id: 0 }).success).toBe(false);
+        expect(deleteReservaParamsSchema.safeParse({ id: '3' }).success).toBe(true);
+        expect(deleteReservaParamsSchema.safeParse({ id: '0' }).success).toBe(false);
     });
 });
 

@@ -12,6 +12,8 @@ import {
   reactivarPrioridad,
   PrioridadesListQuery,
 } from '../services/prioridad.service';
+import { validatedParams } from '../middlewares/validation.middleware';
+import { getPrioridadParamsSchema, patchPrioridadParamsSchema } from '../validations/prioridad.validation';
 
 // Filtros que viajan como texto (enums y fechas ISO ya validados por queryPrioridadesSchema)
 const PRIORIDADES_TEXT_FILTERS = [
@@ -46,7 +48,7 @@ export async function getAllPrioridadesController(req: Request, res: Response, n
 // ==============================
 export async function getPrioridadByIdController(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = Number(req.params.id);
+    const { id } = validatedParams(req, getPrioridadParamsSchema);
     const user = req.user; // Usuario autenticado desde el middleware
     const data = await getPrioridadById(id, user);
     res.json({ success: true, data });
@@ -73,7 +75,7 @@ export async function createPrioridadController(req: Request, res: Response, nex
 // ==============================
 export async function updatePrioridadController(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = Number(req.params.id);
+    const { id } = validatedParams(req, getPrioridadParamsSchema);
     const user = req.user;
     const data = await updatePrioridad(id, req.body, user);
     res.json({ success: true, message: 'Prioridad actualizada exitosamente', data });
@@ -87,7 +89,7 @@ export async function updatePrioridadController(req: Request, res: Response, nex
 // ==============================
 export async function cancelPrioridadController(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = Number(req.params.id);
+    const { id } = validatedParams(req, getPrioridadParamsSchema);
     const user = req.user; // Usuario autenticado desde el middleware
     const data = await cancelPrioridad(id, user);
     res.json({ success: true, message: 'Prioridad cancelada exitosamente', data });
@@ -101,7 +103,7 @@ export async function cancelPrioridadController(req: Request, res: Response, nex
 // ==============================
 export async function finalizePrioridadController(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = Number(req.params.id);
+    const { id } = validatedParams(req, getPrioridadParamsSchema);
     const user = req.user; // Usuario autenticado desde el middleware
     const data = await finalizePrioridad(id, user);
     res.json({ success: true, message: 'Prioridad finalizada exitosamente', data });
@@ -127,7 +129,7 @@ export async function expirePrioridadesController(req: Request, res: Response, n
 // ==============================
 export async function eliminarPrioridadController(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = Number(req.params.id);
+    const { id } = validatedParams(req, patchPrioridadParamsSchema);
     const user = req.user;
     const data = await eliminarPrioridad(id, user);
     res.json({ success: true, message: 'Prioridad eliminada exitosamente', data });
@@ -141,7 +143,7 @@ export async function eliminarPrioridadController(req: Request, res: Response, n
 // ==============================
 export async function reactivarPrioridadController(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = Number(req.params.id);
+    const { id } = validatedParams(req, patchPrioridadParamsSchema);
     const user = req.user;
     const data = await reactivarPrioridad(id, user);
     res.json({ success: true, message: 'Prioridad reactivada exitosamente', data });

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { positiveIntString } from "./params.validation";
+import { idParamsSchema, positiveIntString } from "./params.validation";
 
 const identificadorTipoEnum = z.enum(["DNI", "CUIT", "CUIL", "PASAPORTE", "OTRO"]);
 
@@ -163,13 +163,10 @@ export const updatePersonaSchema = z.object({
   return data;
 });
 
-export const getPersonaSchema = z.object({
-  id: z.string().regex(/^\d+$/, "ID debe ser un numero").transform(Number),
-});
+// Params /:id de Persona (política común de IDs de path)
+export const getPersonaSchema = idParamsSchema;
 
-export const deletePersonaSchema = z.object({
-  id: z.string().regex(/^\d+$/, "ID debe ser un numero").transform(Number),
-});
+export const deletePersonaSchema = getPersonaSchema;
 
 // Body: alta de miembro de grupo familiar. Mismas reglas de formato y normalización
 // del identificador que el alta de Persona.
