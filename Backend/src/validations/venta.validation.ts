@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { idParamsSchema } from './params.validation';
+import { idParamsSchema, positiveIntString } from './params.validation';
 
 // Schemas base reutilizables
 const estadoVentaEnum = z.enum(['INICIADA', 'CON_BOLETO', 'ESCRITURADO', 'CANCELADA']);
@@ -122,12 +122,15 @@ export const getVentaSchema = idParamsSchema;
 export const deleteVentaSchema = getVentaSchema;
 export const patchVentaParamsSchema = getVentaSchema;
 
+// Query de GET /ventas y GET /ventas/inmobiliaria/:id. IDs con la política común de IDs HTTP
+// (positiveIntString). El schema acepta más filtros de los que los services usan: cada controller
+// arma el DTO permitido a partir del resultado validado.
 export const queryVentaSchema = z.object({
     estado: estadoVentaEnum.optional(),
     estadoOperativo: estadoOperativoEnum.optional(),
-    compradorId: z.coerce.number().int('El ID del comprador debe ser un número entero').positive('El ID del comprador debe ser un número positivo').optional(),
-    vendedorId: z.coerce.number().int('El ID del vendedor debe ser un número entero').positive('El ID del vendedor debe ser un número positivo').optional(),
-    loteId: z.coerce.number().int('El ID del lote debe ser un número entero').positive('El ID del lote debe ser un número positivo').optional(),
+    compradorId: positiveIntString.optional(),
+    vendedorId: positiveIntString.optional(),
+    loteId: positiveIntString.optional(),
     fechaVentaFrom: fechaISO.optional(),
     fechaVentaTo: fechaISO.optional(),
     montoMin: z.coerce.number().min(0, 'El monto mínimo no puede ser negativo').optional(),

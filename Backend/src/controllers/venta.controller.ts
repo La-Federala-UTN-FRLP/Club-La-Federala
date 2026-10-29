@@ -1,8 +1,8 @@
 //src/controllers/venta.controller.ts
 import { Request, Response, NextFunction } from 'express';
 import * as ventaService from '../services/venta.service';
-import { validatedParams } from '../middlewares/validation.middleware';
-import { getVentaSchema, patchVentaParamsSchema } from '../validations/venta.validation';
+import { validatedParams, validatedQuery } from '../middlewares/validation.middleware';
+import { getVentaSchema, patchVentaParamsSchema, queryVentaSchema } from '../validations/venta.validation';
 
 // ========================
 // Obtener todas las ventas
@@ -12,13 +12,13 @@ export async function obtenerTodos(req: Request, res: Response, next: NextFuncti
        try {
            // Llamo al servicio para obtener todas las Ventas
            const user = req.user;
-           // validateQuery valida pero en Express 5 no reemplaza req.query (llega como string):
-           // se arma la query tipada a mano solo con los filtros soportados.
-           const { estadoOperativo, estado, loteId } = req.query;
+           // La query ya viene validada y convertida en la ruta (loteId es number). El schema acepta
+           // más filtros de los que el service usa: solo se toman los soportados.
+           const { estadoOperativo, estado, loteId } = validatedQuery(req, queryVentaSchema);
            const query: ventaService.VentasListQuery = {};
-           if (estadoOperativo !== undefined) query.estadoOperativo = estadoOperativo as ventaService.VentasListQuery['estadoOperativo'];
+           if (estadoOperativo !== undefined) query.estadoOperativo = estadoOperativo;
            if (estado !== undefined) query.estado = estado as ventaService.VentasListQuery['estado'];
-           if (loteId !== undefined) query.loteId = Number(loteId);
+           if (loteId !== undefined) query.loteId = loteId;
            const result = await ventaService.getAllVentas(query, user);
            res.json({success: true,data:result});
        } catch (error) {
@@ -33,7 +33,9 @@ export async function obtenerTodos(req: Request, res: Response, next: NextFuncti
 export async function obtenerVentasPorInmobiliaria(req: Request, res: Response, next: NextFunction) {
     try {
         const { id: inmobiliariaId } = validatedParams(req, getVentaSchema);
-        const query = req.query as { estadoOperativo?: string };
+        // Este endpoint solo filtra por estadoOperativo (el schema es el del listado).
+        const { estadoOperativo } = validatedQuery(req, queryVentaSchema);
+        const query = estadoOperativo !== undefined ? { estadoOperativo } : {};
         const result = await ventaService.getVentasByInmobiliaria(inmobiliariaId, query, req.user);
         res.json({ success: true, data: result });
     } catch (error) {

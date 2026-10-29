@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import * as inmobiliariaService from '../services/inmobiliaria.service';
-import { validatedParams } from '../middlewares/validation.middleware';
-import { getInmobiliariaSchema, deleteInmobiliariaSchema, idParamSchema } from '../validations/inmobiliaria.validation';
+import { validatedParams, validatedQuery } from '../middlewares/validation.middleware';
+import { getInmobiliariaSchema, deleteInmobiliariaSchema, idParamSchema, listInmobiliariasQuerySchema } from '../validations/inmobiliaria.validation';
 import {
     PostInmobiliariaRequest,
     // PutInmobiliariaRequest // No se estaba usando explícitamente en el código anterior, pero está bien tenerlo
@@ -12,10 +12,10 @@ import {
 // ==============================
 export async function getAllInmobiliariasController(req: Request, res: Response, next: NextFunction) {
     try {
-        // validateQuery valida la query pero en Express 5 no reemplaza req.query: se arma el
-        // filtro a mano. El listado solo filtra por estadoOperativo; el resto se ignora.
-        const { estadoOperativo } = req.query;
-        const filters = estadoOperativo !== undefined ? { estadoOperativo: estadoOperativo as string } : {};
+        // El listado solo filtra por estadoOperativo, ya validado en la ruta; el resto de los
+        // parámetros (el frontend manda estado y pageSize) se descarta.
+        const { estadoOperativo } = validatedQuery(req, listInmobiliariasQuerySchema);
+        const filters = estadoOperativo !== undefined ? { estadoOperativo } : {};
 
         // Pasamos los filtros al servicio
         const result = await inmobiliariaService.getAllInmobiliarias(filters);
