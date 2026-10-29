@@ -9,6 +9,7 @@ import {
     fileVentaParamsSchema,
     fileLoteParamsSchema,
     filesByVentaQuerySchema,
+    filesByLoteQuerySchema,
 } from '../validations/filemeta.validation';
 import * as fileController from '../controllers/file.controller';
 
@@ -37,6 +38,7 @@ router.get(
     authenticate,
     authorize('ADMINISTRADOR', 'GESTOR', 'TECNICO', 'INMOBILIARIA'),
     validateParams(fileLoteParamsSchema),
+    validateQuery(filesByLoteQuerySchema),
     fileController.getAllFilesController);
 
 //GET /api/files/:id

@@ -12,8 +12,8 @@ import {
   reactivarPrioridad,
   PrioridadesListQuery,
 } from '../services/prioridad.service';
-import { validatedParams } from '../middlewares/validation.middleware';
-import { getPrioridadParamsSchema, patchPrioridadParamsSchema } from '../validations/prioridad.validation';
+import { validatedParams, validatedQuery } from '../middlewares/validation.middleware';
+import { getPrioridadParamsSchema, patchPrioridadParamsSchema, queryPrioridadesSchema } from '../validations/prioridad.validation';
 
 // Filtros que viajan como texto (enums y fechas ISO ya validados por queryPrioridadesSchema)
 const PRIORIDADES_TEXT_FILTERS = [
@@ -24,18 +24,19 @@ const PRIORIDADES_TEXT_FILTERS = [
 // ==============================
 // Obtener todas las prioridades
 // ==============================
-// validateQuery valida la query pero en Express 5 no reemplaza req.query: los valores
-// llegan como string, por eso se arma la query tipada a mano (mismo patrón que reservas/ventas).
-// Solo se toman los filtros del schema; cualquier otro parámetro se ignora.
+// La query ya viene validada y convertida en la ruta (loteId e inmobiliariaId son number).
+// Se arma el DTO permitido (mismo patrón que reservas/ventas) con los filtros que usa el service.
 export async function getAllPrioridadesController(req: Request, res: Response, next: NextFunction) {
   try {
     const user = req.user; // Usuario autenticado desde el middleware
+    const filters = validatedQuery(req, queryPrioridadesSchema);
     const query: PrioridadesListQuery = {};
     for (const key of PRIORIDADES_TEXT_FILTERS) {
-      if (req.query[key] !== undefined) query[key] = req.query[key] as string;
+      const value = filters[key];
+      if (value !== undefined) query[key] = value;
     }
-    if (req.query.loteId !== undefined) query.loteId = Number(req.query.loteId);
-    if (req.query.inmobiliariaId !== undefined) query.inmobiliariaId = Number(req.query.inmobiliariaId);
+    if (filters.loteId !== undefined) query.loteId = filters.loteId;
+    if (filters.inmobiliariaId !== undefined) query.inmobiliariaId = filters.inmobiliariaId;
     const data = await getAllPrioridades(query, user);
     res.json({ success: true, data });
   } catch (error) {

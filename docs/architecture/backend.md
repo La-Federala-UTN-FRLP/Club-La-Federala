@@ -40,15 +40,41 @@ Las rutas privadas usan `authenticate` y `authorize`. Los roles son `ADMINISTRAD
 
 Middlewares de `src/middlewares/validation.middleware.ts`; un dato inválido responde `400` con `{ success: false, message: 'Datos inválidos', errors: [{ field, message }] }`.
 
+Estado final por parte del request:
+
+| Parte | Middleware | Dónde queda el resultado de Zod | Cómo lo lee el controller |
+|---|---|---|---|
+| Body | `validate(schema)` | `req.body` (se reemplaza por el output de Zod) | `req.body` |
+| Params | `validateParams(schema)` | `req.validated.params` (`req.params` sigue crudo) | `validatedParams(req, schema)` |
+| Query | `validateQuery(schema)` | `req.validated.query` (`req.query` sigue crudo) | `validatedQuery(req, schema)` |
+
 - `validate(schema)`: reemplaza `req.body` por el resultado de Zod.
 - `validateParams(schema)`: en las rutas que lo usan, Zod valida y transforma los params y el resultado se conserva en `req.validated.params`. `req.params` sigue siendo el input HTTP crudo (strings). Los controllers migrados leen los params con `validatedParams(req, schema)`, con el mismo schema que la ruta; si la ruta no validó params o usó otro schema, lanza.
-- `validateQuery(schema)`: valida `req.query`, pero todavía no conserva de forma fiable el resultado transformado de Zod: Express 5 no permite reemplazar `req.query` y la mutación que intenta el middleware no persiste. Hoy algunos controllers reconstruyen el DTO de la query localmente (reservas, ventas, prioridades, inmobiliarias, personas) y otros consumen `req.query` crudo (`GET /lotes` y `GET /ventas/inmobiliaria/:id`). Migrar la query a `req.validated` con esta misma infraestructura queda para un PR posterior.
+- `validateQuery(schema)`: igual que `validateParams`, pero para la query; el resultado se conserva en `req.validated.query` y los controllers lo leen con `validatedQuery(req, schema)`. En Express 5 `req.query` es un getter que re-parsea la URL en cada acceso, así que no se puede reemplazar ni mutar: el middleware anterior validaba pero el controller seguía viendo strings crudos y claves que el schema no declaraba. `req.validated.params` y `req.validated.query` conviven en el mismo request (`GET /ventas/inmobiliaria/:id` usa ambos).
 
-### Política de IDs de path
+Los controllers no reinterpretan los valores transformados (`Number(...)`, `parseInt(...)`, `=== 'true'`, casts) ni leen `req.query` directamente: lo verifica `tests/unit/architecture/controllers.query.guard.test.ts`, que falla si algún controller vuelve a contener `req.query`. Quien agregue una ruta con `validateQuery` debe leerla con `validatedQuery` y el mismo objeto de schema; si la ruta no validó query, o la validó con otro schema, lanza.
 
-Los IDs numéricos de las rutas con `validateParams()` (`/:id`, `/:ventaId`, `/:miembroId`, …) siguen una única política, `positiveIntString` en `src/validations/params.validation.ts`: entero decimal positivo canónico dentro de int4 (`1` a `2147483647`). `0`, `-1`, `007`, `+5`, `1e2`, `0x10`, `1.5` o `2147483648` responden `400`.
+### Política de IDs HTTP (path y query)
 
-La política no cubre rutas que no usan `validateParams()`; por ejemplo `PUT /api/files/:id` todavía interpreta su `:id` en el controller.
+Los IDs numéricos de las rutas con `validateParams()` (`/:id`, `/:ventaId`, `/:miembroId`, …), los IDs de query que representan PKs reales (`propietarioId`, `ubicacionId`, `loteId`, `clienteId`, `inmobiliariaId`, `compradorId`) y los campos históricos con semántica de identificador que siguen declarados en los schemas aunque sean filtros legacy no implementados (`vendedorId`) siguen una única política, `positiveIntString` en `src/validations/params.validation.ts`: entero decimal positivo canónico dentro de int4 (`1` a `2147483647`), con output `number`. `0`, `-1`, `007`, `+5`, `1e2`, `0x10`, `1.5`, `" 12"` o `2147483648` responden `400`.
+
+La política no cubre rutas que no usan `validateParams()`; por ejemplo `PUT /api/files/:id` todavía interpreta su `:id` en el controller. Tampoco cubre los decimales de query (`superficieMin/Max`, `sena`, `montoMin/Max`, que usan `z.coerce.number()`) ni los IDs de body (`idInt`).
+
+### Contrato de query params
+
+- **Claves desconocidas**: se descartan en silencio (sin `400`) y no llegan al controller ni al service. Los schemas de query no usan `.strict()` porque el frontend manda parámetros que el backend no declara (por ejemplo `estado` y `pageSize` a `/inmobiliarias`). Con el parser `simple` de Express 5, `foo[]=1` y `foo[bar]=1` son claves literales desconocidas, no arrays ni objetos.
+- **Query repetida**: `?id=1&id=2` llega como array y ningún filtro admite varios valores, así que responde `400`.
+- **Booleanos**: `booleanQuery` (`src/validations/query.validation.ts`) acepta únicamente `"true"` y `"false"` en minúscula y entrega un `boolean` (`deudor`, `includeInactive`, `includeDeleted`). `1`, `0`, `yes`, `TRUE`, `""` y los arrays responden `400`. No usar `z.coerce.boolean()`: convierte `"false"` en `true`.
+- **Qué recibe el service**: el schema de una ruta puede aceptar más filtros de los que el service usa. En `GET /lotes` el controller entrega al service el objeto validado por `queryLoteSchema`, y el service usa solo los filtros que implementa: los campos históricos que el schema todavía declara (`superficieMin/Max`, `fechaCreacionFrom/To`) se ignoran y siguen como deuda documentada abajo, fuera de #255; reservas, ventas y prioridades conservan un DTO explícito con los filtros soportados.
+
+### Deuda conocida de query (fuera del contrato actual)
+
+- Filtros que el schema acepta y valida pero ningún service usa: lotes (`superficieMin`, `superficieMax`, `fechaCreacionFrom`, `fechaCreacionTo`), reservas (`desde`, `hasta`, `clienteId`, `inmobiliariaId`, `sena`, `fechaFinReservaDesde`, `fechaFinReservaHasta`) y ventas (`compradorId`, `vendedorId`, `fechaVentaFrom`, `fechaVentaTo`, `montoMin`, `montoMax`). Pendiente decidir, por filtro, implementarlo o quitarlo del schema. `inmobiliariaId` de reservas no debe pasar a ser filtro real sin revisar el aislamiento por tenant.
+- `GET /ventas/inmobiliaria/:id` reutiliza `queryVentaSchema` pero solo filtra por `estadoOperativo`.
+- `GET /reservas/filtrarPorEstado` es inalcanzable: `/:id` la captura antes y responde `400`. Su controller lee la query validada, pero la ruta sigue pendiente de eliminar.
+- `deudor` no se restringe por rol: un `TECNICO` puede filtrar por `deudor` aunque el campo `deuda` se le oculte en la respuesta.
+- `personas.limit` no tiene un máximo funcional.
+- `queryInmobiliariaSchema` y `queryUsuarioSchema` no se usan en ninguna ruta.
 
 ## Variables relevantes
 
