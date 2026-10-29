@@ -2,9 +2,10 @@
 import { z, ZodError, ZodType } from 'zod';
 import { Request, Response, NextFunction } from 'express';
 
-// Partes del request cuyo resultado validado se conserva. El saneamiento de queries
-// sumará 'query' con el mismo mecanismo.
-type ValidatedSource = 'params';
+// Partes del request cuyo resultado validado se conserva. En Express 5 req.params y req.query
+// no se pueden reemplazar de forma fiable (req.query es un getter que re-parsea la URL en cada
+// acceso), así que el resultado de Zod vive en req.validated y el input HTTP queda crudo.
+type ValidatedSource = 'params' | 'query';
 
 // El resultado se guarda junto al schema que lo produjo: el accessor exige ese mismo schema
 // para que el controller no lea algo distinto de lo que validó su ruta.
@@ -77,18 +78,16 @@ export function validatedParams<S extends ZodType>(req: Request, schema: S): z.o
   return readValidated(req, 'params', schema);
 }
 
-//Lo que hace esto es validar los query params
-export const validateQuery = (schema: ZodType) => {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const parsed = await schema.parseAsync(req.query);
-      const q = req.query as any;
-      for (const k of Object.keys(q)) delete q[k]; // limpio query
-      Object.assign(q, parsed); // reasigno los valores parseados
-      next();
-    } catch (e) {
-      if (e instanceof ZodError) return sendZodError(res, e);
-      next(e);
-    }
-  };
-};
+// Valida la query de la ruta. req.query queda crudo (strings, arrays si el parámetro se repite):
+// el controller lee el resultado de Zod con validatedQuery(req, schema). Las claves que el
+// schema no declara se descartan en silencio (no hay 400 por parámetros desconocidos).
+export const validateQuery = (schema: ZodType) => validateSource('query', schema);
+
+/**
+ * Query ya validada y transformada por validateQuery(schema) en la ruta.
+ * Recibe el mismo schema que la ruta; si la ruta no validó query, o la validó con otro schema,
+ * es un error de programación y lanza.
+ */
+export function validatedQuery<S extends ZodType>(req: Request, schema: S): z.output<S> {
+  return readValidated(req, 'query', schema);
+}
