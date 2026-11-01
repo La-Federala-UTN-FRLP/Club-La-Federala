@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { idParamsSchema } from './params.validation';
+import { idParamsSchema, positiveIntString } from './params.validation';
+import { booleanQuery } from './query.validation';
 
 // **Schemas de validacion para Lote**
 
@@ -44,14 +45,18 @@ export const getLoteSchema = idParamsSchema;
 // Para eliminar un Lote por ID (igual que obtener)
 export const deleteLoteSchema = getLoteSchema;
 
-// Para filtrar lotes por varios parámetros
+// Para filtrar lotes por varios parámetros (GET /api/lotes).
+// El controller pasa el resultado validado al service, así que lo que el service lee tiene que
+// estar declarado acá: Zod descarta las claves que el schema no declara. IDs con la política
+// común (positiveIntString) y deudor como booleano estricto ("true" | "false").
 export const queryLoteSchema = z.object({
   estado: z.enum(['Disponible', 'Reservado', 'Vendido', 'No Disponible', 'En Promoción']).optional(), // ALQUILADO removido
   subestado: z.enum(['En Construccion', 'No Construido', 'Construido']).optional(),
   tipo: z.enum(['Lote Venta', 'Espacio Comun']).optional(),
   ocupacion: z.enum(['ALQUILADO', 'NO_ALQUILADO']).optional(), // Nuevo filtro de ocupación
-  propietarioId: z.coerce.number().int('El ID del propietario debe ser un número entero').positive('El ID del propietario debe ser positivo').optional(),
-  ubicacionId: z.coerce.number().int('El ID de la ubicación debe ser un número entero').positive('El ID de la ubicación debe ser positivo').optional(),
+  propietarioId: positiveIntString.optional(),
+  ubicacionId: positiveIntString.optional(),
+  deudor: booleanQuery.optional(),
   fechaCreacionFrom: z.string().refine((date) => !isNaN(Date.parse(date)), { message: 'Fecha de creación "from" inválida' }).optional(),
   fechaCreacionTo: z.string().refine((date) => !isNaN(Date.parse(date)), { message: 'Fecha de creación "to" inválida' }).optional(),
   superficieMin: z.coerce.number().min(0, 'La superficie mínima no puede ser negativa').optional(),

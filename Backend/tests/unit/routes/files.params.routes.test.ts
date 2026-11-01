@@ -138,14 +138,101 @@ describe('GET /api/files/venta/:ventaId — query', () => {
         expect(service.listByVenta).toHaveBeenCalledWith(12, undefined, false);
     });
 
-    test.each([['tipo=FOO'], ['tipo=boleto'], ['includeDeleted=yes'], ['tipo=BOLETO&tipo=OTRO']])(
-        'query inválida (%s) responde 400 sin llamar al service',
-        async (qs) => {
-            const res = await request(app).get(`/api/files/venta/12?${qs}`).set(ADMIN);
-            expect(res.status).toBe(400);
-            expect(service.listByVenta).not.toHaveBeenCalled();
+    test('includeDeleted=false llega como boolean false', async () => {
+        await request(app).get('/api/files/venta/12?includeDeleted=false').set(ADMIN);
+        expect(service.listByVenta).toHaveBeenCalledWith(12, undefined, false);
+    });
+
+    test.each([
+        ['tipo=FOO'],
+        ['tipo=boleto'],
+        ['includeDeleted=yes'],
+        ['includeDeleted=1'],
+        ['includeDeleted=0'],
+        ['includeDeleted=TRUE'],
+        ['includeDeleted='],
+        ['includeDeleted=true&includeDeleted=false'],
+        ['tipo=BOLETO&tipo=OTRO'],
+    ])('query inválida (%s) responde 400 sin llamar al service', async (qs) => {
+        const res = await request(app).get(`/api/files/venta/12?${qs}`).set(ADMIN);
+        expect(res.status).toBe(400);
+        expect(service.listByVenta).not.toHaveBeenCalled();
+    });
+
+    test('claves desconocidas no afectan la consulta', async () => {
+        const res = await request(app).get('/api/files/venta/12?tipo=PLANO&foo=bar&page=2').set(ADMIN);
+        expect(res.status).toBe(200);
+        expect(service.listByVenta).toHaveBeenCalledWith(12, 'PLANO', false);
+    });
+
+    test('includeDeleted=true solo aplica a ADMINISTRADOR y GESTOR', async () => {
+        await request(app).get('/api/files/venta/12?includeDeleted=true').set(authHeader('TECNICO'));
+        expect(service.listByVenta).toHaveBeenCalledWith(12, undefined, false);
+    });
+});
+
+// GET /lote/:idLoteAsociado no tenía validateQuery: el controller leía req.query.includeDeleted
+// crudo, y "yes", "1" o "TRUE" respondían 200 con includeDeleted=false en silencio.
+describe('GET /api/files/lote/:idLoteAsociado — query', () => {
+    const lote = (qs = '', auth: Record<string, string> = ADMIN) => request(app).get(`/api/files/lote/3${qs}`).set(auth);
+    const ADMIN_USER = expect.objectContaining({ role: 'ADMINISTRADOR' });
+
+    test('sin query lista sin eliminados', async () => {
+        const res = await lote();
+        expect(res.status).toBe(200);
+        expect(service.listByLote).toHaveBeenCalledWith(3, false, ADMIN_USER);
+    });
+
+    test('includeDeleted=true llega como boolean true (ADMINISTRADOR)', async () => {
+        const res = await lote('?includeDeleted=true');
+        expect(res.status).toBe(200);
+        expect(service.listByLote).toHaveBeenCalledWith(3, true, ADMIN_USER);
+    });
+
+    test('includeDeleted=false llega como boolean false', async () => {
+        await lote('?includeDeleted=false');
+        expect(service.listByLote).toHaveBeenCalledWith(3, false, ADMIN_USER);
+    });
+
+    test.each([['GESTOR', true], ['TECNICO', false], ['INMOBILIARIA', false]])(
+        'includeDeleted=true con rol %s se resuelve a %s (permiso sin cambios)',
+        async (role, esperado) => {
+            await lote('?includeDeleted=true', authHeader(role, 5));
+            expect(service.listByLote).toHaveBeenCalledWith(3, esperado, expect.objectContaining({ role }));
         },
     );
+
+    test.each([
+        ['includeDeleted=yes'],
+        ['includeDeleted=1'],
+        ['includeDeleted=0'],
+        ['includeDeleted=TRUE'],
+        ['includeDeleted='],
+        ['includeDeleted=true&includeDeleted=false'],
+    ])('query inválida (%s) responde 400 sin llamar al service', async (qs) => {
+        const res = await lote(`?${qs}`);
+        expect(res.status).toBe(400);
+        expect(res.body.errors).toEqual([expect.objectContaining({ field: 'includeDeleted' })]);
+        expect(service.listByLote).not.toHaveBeenCalled();
+    });
+
+    test('includeDeleted[] es una clave desconocida bajo el parser simple: se descarta', async () => {
+        const res = await lote('?includeDeleted[]=true');
+        expect(res.status).toBe(200);
+        expect(service.listByLote).toHaveBeenCalledWith(3, false, ADMIN_USER);
+    });
+
+    test('claves desconocidas no afectan la consulta', async () => {
+        const res = await lote('?tipo=PLANO&foo=bar');
+        expect(res.status).toBe(200);
+        expect(service.listByLote).toHaveBeenCalledWith(3, false, ADMIN_USER);
+    });
+
+    test('el id de path se valida antes que la query', async () => {
+        const res = await request(app).get('/api/files/lote/abc?includeDeleted=yes').set(ADMIN);
+        expect(res.status).toBe(400);
+        expect(res.body.errors).toEqual([expect.objectContaining({ field: 'idLoteAsociado' })]);
+    });
 });
 
 describe('RBAC sin cambios', () => {

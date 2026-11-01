@@ -1,17 +1,20 @@
 // src/controllers/lote.controller.ts
 import { Request, Response, NextFunction } from 'express';
 import * as loteService from '../services/lote.service';
-import { validatedParams } from '../middlewares/validation.middleware';
-import { getLoteSchema, deleteLoteSchema } from '../validations/lote.validation';
+import { validatedParams, validatedQuery } from '../middlewares/validation.middleware';
+import { getLoteSchema, deleteLoteSchema, queryLoteSchema } from '../validations/lote.validation';
 import { Lote } from '../types/interfacesCCLF';
 
 //Obtener todos los lotes
+// El service lee exactamente los filtros que declara queryLoteSchema (incluido deudor), así que
+// recibe el resultado validado completo: IDs como number, deudor como boolean, sin claves ajenas.
 
 export async function obtenerTodos(req: Request, res: Response, next: NextFunction) {
     try {
         // @ts-ignore
         const user = req.user;
-        const data = await loteService.getAllLotes(req.query, user?.role);
+        const query = validatedQuery(req, queryLoteSchema);
+        const data = await loteService.getAllLotes(query, user?.role);
         res.json({success: true,data});
     } catch (error) {
         next(error); // Paso el error al middleware de manejo

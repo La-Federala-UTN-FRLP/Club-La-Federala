@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { idParamsSchema, positiveIntString } from "./params.validation";
+import { booleanQuery } from "./query.validation";
 
 const identificadorTipoEnum = z.enum(["DNI", "CUIT", "CUIL", "PASAPORTE", "OTRO"]);
 
@@ -194,12 +195,12 @@ export const miembroFamiliarParamsSchema = z.object({
   miembroId: positiveIntString,
 });
 
-// Query: GET /personas. Solo lo que lee el controller; validateQuery no conserva
-// transforms, así que se valida la representación HTTP y el controller convierte.
+// Query: GET /personas. Solo lo que lee el controller, que consume el resultado validado
+// (includeInactive ya es boolean y limit ya es number).
 export const queryPersonasSchema = z.object({
   view: z.enum(["ALL", "PROPIETARIOS", "INQUILINOS", "CLIENTES", "MIS_CLIENTES"]).optional(),
   q: z.string().optional(),
-  includeInactive: z.enum(["true", "false"]).optional(),
+  includeInactive: booleanQuery.optional(),
   estado: z.enum(["OPERATIVO", "ELIMINADO"]).optional(),
   limit: positiveIntString.optional(),
 });

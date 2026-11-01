@@ -552,6 +552,85 @@ Auditar todas las rutas con `validateParams`, definir una política única de ID
 - `docs/architecture/backend.md`
 - `AI-DECISIONS.md`
 
+### AI-010 — Contrato de validación de query params
+
+**Fecha:** 2026-10-28
+**Área:** Backend / Validación / Contratos HTTP
+**Herramientas:** ChatGPT + Claude + Grok
+
+#### Problema
+
+`validateQuery()` validaba con Zod pero intentaba conservar el resultado mutando `req.query` (`delete` + `Object.assign`). En Express 5 `req.query` es un getter que re-parsea la URL en cada acceso, así que la mutación no persistía (medido: el objeto devuelto cambia de identidad en cada lectura). Cada controller reinterpretaba la query cruda a su manera: DTO manual, casts, `Number(...)`, `=== 'true'` o pasar `req.query` entero al service.
+
+Consecuencias reproducidas sobre la app real con los services mockeados:
+
+- `GET /api/lotes` pasaba `req.query` crudo al service: los IDs llegaban como string y las claves que el schema no declaraba viajaban sin validar.
+- `deudor` es leído por el service pero no estaba declarado en `queryLoteSchema`: `deudor=true` y `deudor=false` funcionaban solo por accidente, y `yes`, `1`, `0`, `""`, `TRUE` o repetido respondían `200` con todos los lotes, sin filtrar.
+- Los IDs de query usaban `z.coerce.number()`: `1e2`, `007`, `0x10` y ` 12` se aceptaban, y `2147483648` (fuera de int4) pasaba Zod y llegaba al service.
+- `GET /api/files/lote/:id` leía `includeDeleted` sin schema: `yes`, `1` o `TRUE` respondían `200` con `includeDeleted=false` en silencio.
+
+#### Prompt / intención
+
+Auditar todos los usos de `validateQuery` (9 endpoints), el flujo schema → controller → service y el consumo del frontend; luego extender a query la infraestructura de AI-009 (`req.validated`) para que la query validada sea la que usa el controller y la que se envía al service según el DTO permitido, sin tocar services ni expandir el alcance.
+
+#### Propuesta generada por IA
+
+- Reutilizar `validateSource` / `readValidated` con `'query'`: `req.validated.query` y `validatedQuery(req, schema)`, sin mutar `req.query` y sin un sistema paralelo.
+- Declarar `deudor` en `queryLoteSchema` y entregar el resultado validado completo a `getAllLotes` (el service ya acepta boolean).
+- Helper `booleanQuery` estricto (`"true"` / `"false"` en minúscula → boolean) en lugar de `z.coerce.boolean()` (que convierte `"false"` en `true`).
+- IDs de query con `positiveIntString`, la misma política que los IDs de path.
+- Mantener el DTO explícito en reservas, ventas y prioridades: sus schemas aceptan filtros que el service no usa y no deben llegar a él.
+- Agregar `validateQuery` a `GET /files/lote/:id`.
+- Guard estático que falla si algún controller vuelve a leer `req.query`.
+- Prototipo del diseño y sondas de comportamiento fuera del repo antes de implementar.
+
+#### Validación humana
+
+- Las decisiones se cerraron antes de implementar: IDs de query con `positiveIntString` (actualizando solo los fixtures históricos que pasaban numbers a schemas de query), `booleanQuery` estricto, `validateQuery` en files/lote, migrar `filtrarPorEstado` sin eliminarla ni reordenar rutas, y dejar fuera los 17 filtros que los schemas aceptan y los services no usan.
+- Se acotó el alcance: sin cambios en services, RBAC, frontend, CORS, Auth ni Prisma.
+- ChatGPT participó en el análisis del scope y en las decisiones técnicas.
+- Claude realizó la auditoría, la implementación y los tests de regresión.
+- Grok realizó una revisión READ-ONLY independiente/adversarial.
+- La revisión dio `READY WITH MINOR NOTES`, sin blockers funcionales; confirmó las 10 rutas y consideró correcto el endurecimiento de los IDs legacy.
+- La decisión final de integración corresponde a validación humana.
+
+#### Decisión adoptada
+
+- `validateQuery(schema)` conserva el output de Zod en `req.validated.query`; los controllers lo leen con `validatedQuery(req, schema)` y el mismo schema que la ruta (si la ruta no validó query, o usó otro schema, lanza). `req.query` permanece crudo.
+- Claves desconocidas: se descartan en silencio (sin `.strict()`, porque el frontend manda parámetros que el backend no declara). Query repetida: `400`.
+- Booleanos de query: `booleanQuery`, solo `"true"` / `"false"` (`deudor`, `includeInactive`, `includeDeleted`).
+- IDs de query que representan PKs reales, y campos históricos con semántica de identificador que siguen declarados en los schemas aunque sean filtros legacy no implementados (`vendedorId`): `positiveIntString` (`1..2147483647`, canónico); `1e2`, `007`, `0x10`, `+5`, `" 12"` y `2147483648` responden `400`. Los decimales de query (superficie, monto, seña) y los IDs de body no cambian.
+- `deudor` se declara con `booleanQuery.optional()`. Antes: valores no booleanos respondían `200` sin filtro; ahora responden `400`.
+- `GET /files/lote/:id` valida `includeDeleted` con `filesByLoteQuerySchema`.
+- `GET /reservas/filtrarPorEstado` sigue inalcanzable (`/:id` la captura antes); solo su lectura de query migró a `validatedQuery`. Su eliminación queda para el saneamiento legacy.
+- Ningún controller lee `req.query`; lo garantiza `tests/unit/architecture/controllers.query.guard.test.ts`.
+- Deuda explícita (documentada en `docs/architecture/backend.md`): 17 filtros aceptados por los schemas y no usados por los services, `deudor` sin restricción por rol (`TECNICO`), `personas.limit` sin tope, y schemas sin uso (`queryInmobiliariaSchema`, `queryUsuarioSchema`).
+
+#### Resultado
+
+- RED previo a implementar: 95 tests fallaban en la corrida focalizada (middleware, rutas de lotes, listados, files, schemas y guard); p. ej. `deudor=true` llegaba al service como `"true"` y el guard señalaba exactamente los 7 controllers que leían `req.query`.
+- 10 rutas con `validateQuery` (9 previas + files/lote) y 10 lecturas con `validatedQuery`; 7 controllers migrados.
+- 39 suites, **1885** tests PASS.
+- typecheck PASS.
+- build PASS.
+- `git diff --check` PASS.
+- Revisión independiente: `READY WITH MINOR NOTES`, sin bloqueantes.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/middlewares/validation.middleware.ts`
+- `Backend/src/validations/query.validation.ts`
+- `Backend/src/validations/lote.validation.ts`, `reserva.validation.ts`, `venta.validation.ts`, `prioridad.validation.ts`, `persona.validation.ts`, `filemeta.validation.ts`
+- `Backend/src/routes/files.routes.ts`
+- Controllers migrados (lote, reserva, venta, prioridad, inmobiliaria, persona, file)
+- `Backend/tests/unit/middlewares/validation.middleware.test.ts`
+- `Backend/tests/unit/routes/lotes.query.routes.test.ts`, `listado.query.routes.test.ts`, `files.params.routes.test.ts`, `personas.contracts.routes.test.ts`
+- `Backend/tests/unit/validations/query.validation.test.ts`, `lote.validation.test.ts`, `reserva.validation.test.ts`, `venta.validation.test.ts`
+- `Backend/tests/unit/controllers/reserva.filtrarPorEstado.controller.test.ts`
+- `Backend/tests/unit/architecture/controllers.query.guard.test.ts`
+- `docs/architecture/backend.md`
+- `AI-DECISIONS.md`
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.

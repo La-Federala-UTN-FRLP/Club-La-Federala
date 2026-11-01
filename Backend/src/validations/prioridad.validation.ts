@@ -1,6 +1,6 @@
 // src/validations/prioridad.validation.ts
 import { z } from 'zod';
-import { idParamsSchema } from './params.validation';
+import { idParamsSchema, positiveIntString } from './params.validation';
 
 // Helpers reutilizables
 const idInt = z.coerce.number().int('El id debe ser entero').positive('El id debe ser positivo');
@@ -77,14 +77,15 @@ export const updatePrioridadSchema = z.object({
 export const getPrioridadParamsSchema = idParamsSchema;
 
 // ==============================
-// Query del listado (GET /prioridades)
+// Query del listado (GET /prioridades). IDs con la política común de IDs HTTP (positiveIntString);
+// idInt es solo del body.
 // ==============================
 export const queryPrioridadesSchema = z.object({
   estado: z.enum(['ACTIVA', 'CANCELADA', 'FINALIZADA', 'EXPIRADA']).optional(),
   estadoOperativo: z.enum(['OPERATIVO', 'ELIMINADO']).optional(),
   ownerType: z.enum(['INMOBILIARIA', 'CCLF']).optional(),
-  inmobiliariaId: idInt.optional(),
-  loteId: idInt.optional(),
+  inmobiliariaId: positiveIntString.optional(),
+  loteId: positiveIntString.optional(),
   fechaInicioDesde: z.string().refine((v) => !Number.isNaN(Date.parse(v)), 'Fecha "desde" inválida').optional(),
   fechaInicioHasta: z.string().refine((v) => !Number.isNaN(Date.parse(v)), 'Fecha "hasta" inválida').optional(),
   fechaFinDesde: z.string().refine((v) => !Number.isNaN(Date.parse(v)), 'Fecha de fin "desde" inválida').optional(),

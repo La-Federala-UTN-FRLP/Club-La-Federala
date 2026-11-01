@@ -248,19 +248,23 @@ describe('queryVentaSchema', () => {
         expect(queryVentaSchema.safeParse({}).success).toBe(true);
     });
 
+    // Los IDs de query llegan como string desde la URL (positiveIntString); los montos son decimales.
     test('acepta filtros válidos', () => {
         const result = queryVentaSchema.safeParse({
             estado: 'INICIADA',
             estadoOperativo: 'OPERATIVO',
-            compradorId: 10,
-            vendedorId: 5,
-            loteId: 1,
+            compradorId: '10',
+            vendedorId: '5',
+            loteId: '1',
             fechaVentaFrom: '2025-01-01T00:00:00.000Z',
             fechaVentaTo: '2025-12-31T23:59:59.000Z',
             montoMin: 50_000,
             montoMax: 200_000,
         });
         expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data).toEqual(expect.objectContaining({ compradorId: 10, vendedorId: 5, loteId: 1 }));
+        }
     });
 
     test('rechaza estado inválido', () => {
@@ -269,8 +273,14 @@ describe('queryVentaSchema', () => {
     });
 
     test('rechaza compradorId negativo', () => {
-        const result = queryVentaSchema.safeParse({ compradorId: -1 });
+        const result = queryVentaSchema.safeParse({ compradorId: '-1' });
         expectFailedAt(result, ['compradorId']);
+    });
+
+    test.each([['compradorId'], ['vendedorId'], ['loteId']])('rechaza %s no canónico', (campo) => {
+        for (const valor of ['007', '+5', '1e2', '0x10', ' 12', '2147483648']) {
+            expectFailedAt(queryVentaSchema.safeParse({ [campo]: valor }), [campo]);
+        }
     });
 
     test('rechaza fechaVentaFrom inválida', () => {
@@ -292,7 +302,7 @@ describe('queryVentaSchema', () => {
         if (result.success) expect(result.data.loteId).toBe(25);
     });
 
-    test.each(['abc', '0', '-1', '25.5', ''])('rechaza loteId=%p', (loteId) => {
+    test.each(['abc', '0', '-1', '25.5', '', '007', '1e2', '2147483648'])('rechaza loteId=%p', (loteId) => {
         const result = queryVentaSchema.safeParse({ loteId });
         expectFailedAt(result, ['loteId']);
     });

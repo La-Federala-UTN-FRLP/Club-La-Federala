@@ -196,18 +196,22 @@ describe('queryReservasSchema', () => {
         expect(queryReservasSchema.safeParse({}).success).toBe(true);
     });
 
+    // Los IDs de query llegan como string desde la URL (positiveIntString); sena es un decimal.
     test('acepta filtros válidos', () => {
         const result = queryReservasSchema.safeParse({
             desde: '2025-01-01T00:00:00.000Z',
             hasta: '2025-12-31T23:59:59.000Z',
             estado: 'ACTIVA',
             estadoOperativo: 'OPERATIVO',
-            loteId: 1,
-            clienteId: 10,
-            inmobiliariaId: 5,
+            loteId: '1',
+            clienteId: '10',
+            inmobiliariaId: '5',
             sena: 5000,
         });
         expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data).toEqual(expect.objectContaining({ loteId: 1, clienteId: 10, inmobiliariaId: 5 }));
+        }
     });
 
     test('rechaza rango desde > hasta', () => {
@@ -263,9 +267,23 @@ describe('queryReservasSchema', () => {
         if (result.success) expect(result.data.loteId).toBe(25);
     });
 
-    test.each(['abc', '0', '-1', '25.5', ''])('rechaza loteId=%p', (loteId) => {
+    test.each(['abc', '0', '-1', '25.5', '', '007', '+5', '1e2', '0x10', ' 12', '2147483648'])('rechaza loteId=%p', (loteId) => {
         const result = queryReservasSchema.safeParse({ loteId });
         expectFailedAt(result, ['loteId']);
+    });
+
+    test.each([['clienteId'], ['inmobiliariaId']])('rechaza %s no canónico', (campo) => {
+        expectFailedAt(queryReservasSchema.safeParse({ [campo]: '007' }), [campo]);
+        expectFailedAt(queryReservasSchema.safeParse({ [campo]: '1e2' }), [campo]);
+    });
+
+    test('acepta el ID máximo de int4 y lo entrega como number', () => {
+        const result = queryReservasSchema.parse({ loteId: '2147483647' });
+        expect(result.loteId).toBe(2147483647);
+    });
+
+    test('una query repetida (array) no es un ID válido', () => {
+        expectFailedAt(queryReservasSchema.safeParse({ loteId: ['1', '2'] }), ['loteId']);
     });
 
     test('rechaza estado en minúscula', () => {

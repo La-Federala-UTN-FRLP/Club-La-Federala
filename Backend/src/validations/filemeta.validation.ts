@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { idParamsSchema, positiveIntString, ventaIdParamsSchema } from './params.validation';
+import { booleanQuery } from './query.validation';
 
 // Mismos valores que el enum TiposArchivos de Prisma
 const tipoArchivoEnum = z.enum(['BOLETO', 'ESCRITURA', 'PLANO', 'IMAGEN', 'OTRO']);
@@ -35,10 +36,15 @@ export const fileIdParamsSchema = idParamsSchema;
 export const fileVentaParamsSchema = ventaIdParamsSchema;
 export const fileLoteParamsSchema = z.object({ idLoteAsociado: positiveIntString });
 
-// Query de GET /api/files/venta/:ventaId (el controller lee tipo e includeDeleted como texto)
+// Query de GET /api/files/venta/:ventaId (includeDeleted ya sale como boolean)
 export const filesByVentaQuerySchema = z.object({
     tipo: tipoArchivoEnum.optional(),
-    includeDeleted: z.enum(['true', 'false']).optional(),
+    includeDeleted: booleanQuery.optional(),
+});
+
+// Query de GET /api/files/lote/:idLoteAsociado: solo includeDeleted (no hay filtro por tipo)
+export const filesByLoteQuerySchema = z.object({
+    includeDeleted: booleanQuery.optional(),
 });
 
 export const updateAprobacionSchema = z.object({

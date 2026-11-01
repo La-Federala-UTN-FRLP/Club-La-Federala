@@ -1,6 +1,6 @@
 // src/validations/reserva.validation.ts
 import { z } from 'zod';
-import { idParamsSchema } from './params.validation';
+import { idParamsSchema, positiveIntString } from './params.validation';
 /*
   Helpers reutilizables
   ------------------------
@@ -73,15 +73,20 @@ export const getReservaParamsSchema = idParamsSchema;
 export const deleteReservaParamsSchema = getReservaParamsSchema;
 export const patchReservaParamsSchema = getReservaParamsSchema;
 
-/*  Query del listado (GET /reservas) */
+/*  Query del listado (GET /reservas)
+  -------------------------------
+  - Los IDs de query siguen la política común de IDs HTTP (positiveIntString, como los de path); no
+    usan idInt, que es del body. El schema acepta más filtros de los que el service usa: el controller
+    arma el DTO permitido (loteId, estado, estadoOperativo) a partir del resultado validado.
+*/
 export const queryReservasSchema = z.object({
   desde: z.string().refine((v) => !Number.isNaN(Date.parse(v)), 'Fecha "desde" inválida').optional(),
   hasta: z.string().refine((v) => !Number.isNaN(Date.parse(v)), 'Fecha "hasta" inválida').optional(),
   estado: z.enum(['ACTIVA', 'CANCELADA', 'ACEPTADA', 'RECHAZADA', 'CONTRAOFERTA', 'EXPIRADA']).optional(),
   estadoOperativo: z.enum(['OPERATIVO', 'ELIMINADO']).optional(),
-  loteId: idInt.optional(),
-  clienteId: idInt.optional(),
-  inmobiliariaId: idInt.optional(),
+  loteId: positiveIntString.optional(),
+  clienteId: positiveIntString.optional(),
+  inmobiliariaId: positiveIntString.optional(),
   sena: dinero.optional(),
   fechaFinReservaDesde: z.string().refine((v) => !Number.isNaN(Date.parse(v)), 'Fecha de fin de reserva "desde" inválida').optional(),
   fechaFinReservaHasta: z.string().refine((v) => !Number.isNaN(Date.parse(v)), 'Fecha de fin de reserva "hasta" inválida').optional(),

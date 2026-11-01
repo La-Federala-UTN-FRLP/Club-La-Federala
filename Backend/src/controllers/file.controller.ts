@@ -5,8 +5,14 @@ import { isInmobiliaria, canUserAccessArchivo, canUseIncludeDeleted } from "../u
 import { validateUploadFile } from "../utils/file.upload.validation";
 import { ensureVentaPerteneceALote } from "../utils/file.validation.utils";
 import prisma from "../config/prisma";
-import { validatedParams } from "../middlewares/validation.middleware";
-import { fileIdParamsSchema, fileLoteParamsSchema, fileVentaParamsSchema } from "../validations/filemeta.validation";
+import { validatedParams, validatedQuery } from "../middlewares/validation.middleware";
+import {
+    fileIdParamsSchema,
+    fileLoteParamsSchema,
+    fileVentaParamsSchema,
+    filesByLoteQuerySchema,
+    filesByVentaQuerySchema,
+} from "../validations/filemeta.validation";
 
 const TIPOS_REQUIEREN_VENTA: TipoFile[] = ["BOLETO", "ESCRITURA", "OTRO"];
 const TIPOS_PROHIBEN_VENTA: TipoFile[] = ["PLANO", "IMAGEN"];
@@ -111,8 +117,8 @@ export class fileController {
 export const getAllFilesController = async (req: Request, res: Response) => {
     try {
         const { idLoteAsociado: idLote } = validatedParams(req, fileLoteParamsSchema);
-        let includeDeleted = req.query.includeDeleted === "true";
-        if (!canUseIncludeDeleted(req.user)) includeDeleted = false;
+        const { includeDeleted: requested = false } = validatedQuery(req, filesByLoteQuerySchema);
+        const includeDeleted = requested && canUseIncludeDeleted(req.user);
         const files = await FileService.listByLote(idLote, includeDeleted, req.user);
         res.status(200).json(files);
     } catch (error) {
@@ -132,9 +138,8 @@ export const getAllFilesByVentaController = async (req: Request, res: Response) 
                 return res.status(404).json({ message: "No encontrado" });
             }
         }
-        const tipo = req.query.tipo as TipoFile | undefined;
-        let includeDeleted = req.query.includeDeleted === "true";
-        if (!canUseIncludeDeleted(req.user)) includeDeleted = false;
+        const { tipo, includeDeleted: requested = false } = validatedQuery(req, filesByVentaQuerySchema);
+        const includeDeleted = requested && canUseIncludeDeleted(req.user);
         const files = await FileService.listByVenta(ventaId, tipo, includeDeleted);
         res.status(200).json(files);
     } catch (error) {

@@ -14,24 +14,24 @@ import {
   ReservasListQuery,
 } from '../services/reserva.service';
 import { EstadoReserva } from '../types/interfacesCCLF';
-import { validatedParams } from '../middlewares/validation.middleware';
-import { getReservaParamsSchema, deleteReservaParamsSchema, patchReservaParamsSchema } from '../validations/reserva.validation';
+import { validatedParams, validatedQuery } from '../middlewares/validation.middleware';
+import { getReservaParamsSchema, deleteReservaParamsSchema, patchReservaParamsSchema, queryReservasSchema } from '../validations/reserva.validation';
 
 // ==============================
 // Obtener todas las reservas
 // ==============================
-// validateQuery valida la query pero en Express 5 no reemplaza req.query:
-// los valores llegan como string, por eso se arma la query tipada a mano.
-// Solo se toman estadoOperativo, estado y loteId; el resto del schema se ignora.
+// La query ya viene validada y convertida en la ruta (loteId es number). El schema acepta más
+// filtros de los que el service usa: solo se toman estadoOperativo, estado y loteId; el resto
+// del schema no se envía al service.
 // Si el usuario es INMOBILIARIA, solo devuelve sus reservas.
 export async function getAllReservasController(req: Request, res: Response, next: NextFunction) {
   try {
     const user = req.user; // Usuario autenticado desde el middleware
-    const { estadoOperativo, estado, loteId } = req.query;
+    const { estadoOperativo, estado, loteId } = validatedQuery(req, queryReservasSchema);
     const query: ReservasListQuery = {};
-    if (estadoOperativo !== undefined) query.estadoOperativo = estadoOperativo as ReservasListQuery['estadoOperativo'];
+    if (estadoOperativo !== undefined) query.estadoOperativo = estadoOperativo;
     if (estado !== undefined) query.estado = estado as ReservasListQuery['estado'];
-    if (loteId !== undefined) query.loteId = Number(loteId);
+    if (loteId !== undefined) query.loteId = loteId;
     const data = await getAllReservas(query, user);
     res.json({ success: true, data });
   } catch (error) {
@@ -66,9 +66,12 @@ export async function getAllReservasByInmobiliariaController(req: Request, res: 
   }
 }
 
+// LEGACY: la ruta GET /reservas/filtrarPorEstado es inalcanzable (/:id la captura antes), pero su
+// controller lee la query validada como el resto. La eliminación de la ruta queda para el
+// saneamiento legacy.
 export async function getAllReservasByEstadoController(req: Request, res: Response, next: NextFunction) {
   try {
-    const estadoR = req.query.estado as EstadoReserva;
+    const estadoR = validatedQuery(req, queryReservasSchema).estado as EstadoReserva;
     const user = req.user;
     const data = await getReservaByEstado(estadoR, user);
     res.json({ success: true, data });

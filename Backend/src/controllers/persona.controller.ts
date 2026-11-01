@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
-import { PersonaService, PersonaView } from '../services/persona.service';
-import { createPersonaSchema, updatePersonaSchema, getPersonaSchema, deletePersonaSchema, miembroFamiliarParamsSchema, CreateMiembroFamiliarInput } from '../validations/persona.validation';
+import { PersonaService } from '../services/persona.service';
+import { createPersonaSchema, updatePersonaSchema, getPersonaSchema, deletePersonaSchema, miembroFamiliarParamsSchema, queryPersonasSchema, CreateMiembroFamiliarInput } from '../validations/persona.validation';
 import { GetPersonasResponse, PostPersonaResponse, GetPersonaResponse, PutPersonaResponse, DeletePersonaResponse, PostPersonaRequest, PutPersonaRequest } from '../types/interfacesCCLF';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
-import { validatedParams } from '../middlewares/validation.middleware';
+import { validatedParams, validatedQuery } from '../middlewares/validation.middleware';
 
 const personaService = new PersonaService();
 
@@ -82,19 +82,15 @@ async obtenerTodas(req: Request, res: Response) {
     try {
       const user = (req as any).user; // Del middleware de auth
       
-      // Query params
-      const view = (req.query.view as PersonaView) || 'ALL';
-      const q = req.query.q as string | undefined;
-      const includeInactive = req.query.includeInactive === 'true';
-      const estado = req.query.estado as 'OPERATIVO' | 'ELIMINADO' | undefined;
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      // Query ya validada y convertida en la ruta: includeInactive es boolean y limit es number.
+      const query = validatedQuery(req, queryPersonasSchema);
 
       const result = await personaService.findAll(user, {
-        view,
-        q,
-        includeInactive,
-        estadoOperativo: estado,
-        limit,
+        view: query.view ?? 'ALL',
+        q: query.q,
+        includeInactive: query.includeInactive ?? false,
+        estadoOperativo: query.estado,
+        limit: query.limit,
       });
 
         const response: GetPersonasResponse = {

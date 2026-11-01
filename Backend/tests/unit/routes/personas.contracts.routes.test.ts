@@ -131,9 +131,18 @@ describe('GET /api/personas — query', () => {
         ['estado=FOO'],
         ['view=XYZ'],
         ['includeInactive=yes'],
+        ['includeInactive=1'],
+        ['includeInactive=0'],
+        ['includeInactive='],
+        ['includeInactive=TRUE'],
+        ['includeInactive=true&includeInactive=false'],
         ['limit=abc'],
         ['limit=0'],
         ['limit=1.5'],
+        ['limit=1e2'],
+        ['limit=010'],
+        ['limit=2147483648'],
+        ['limit=10&limit=20'],
         ['q=a&q=b'],
     ])('query inválida (%s) responde 400 sin llamar al service', async (qs) => {
         const res = await request(app).get(`/api/personas?${qs}`).set(ADMIN);
@@ -152,6 +161,27 @@ describe('GET /api/personas — query', () => {
             includeInactive: true,
             estadoOperativo: 'ELIMINADO',
             limit: 20,
+        });
+    });
+
+    test('includeInactive=false llega como boolean false y limit como number', async () => {
+        const res = await request(app).get('/api/personas?includeInactive=false&limit=2147483647').set(ADMIN);
+        expect(res.status).toBe(200);
+        const query = findAllSpy.mock.calls[0][1] as { includeInactive: unknown; limit: unknown };
+        expect(query.includeInactive).toBe(false);
+        expect(query.limit).toBe(2147483647);
+        expect(typeof query.limit).toBe('number');
+    });
+
+    test('claves desconocidas no llegan al service (el contrato del controller no cambia)', async () => {
+        const res = await request(app).get('/api/personas?view=CLIENTES&page=2&pageSize=10&sortBy=nombre&foo[]=1').set(ADMIN);
+        expect(res.status).toBe(200);
+        expect(findAllSpy).toHaveBeenCalledWith(expect.anything(), {
+            view: 'CLIENTES',
+            q: undefined,
+            includeInactive: false,
+            estadoOperativo: undefined,
+            limit: undefined,
         });
     });
 
