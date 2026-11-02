@@ -37,15 +37,6 @@ export interface NewFileMetadata {
     ventaId?: number | null;
 }
 
-export interface UpdateFileMetadata {
-    filename?: string;
-    url?: string;
-    tipo?: TipoFile;
-    uploadedBy?: string | null;
-    idLoteAsociado?: number;
-    ventaId?: number | null;
-}
-
 export interface DeleteFileMetadata {
     id: number;
 }

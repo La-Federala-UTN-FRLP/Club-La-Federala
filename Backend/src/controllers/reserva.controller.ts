@@ -8,21 +8,18 @@ import {
   eliminarReserva,
   reactivarReserva,
   getReservaByImmobiliariaId,
-  getReservaByEstado,
   getOfertasByReservaId,
   createOfertaReserva,
   ReservasListQuery,
 } from '../services/reserva.service';
-import { EstadoReserva } from '../types/interfacesCCLF';
 import { validatedParams, validatedQuery } from '../middlewares/validation.middleware';
 import { getReservaParamsSchema, deleteReservaParamsSchema, patchReservaParamsSchema, queryReservasSchema } from '../validations/reserva.validation';
 
 // ==============================
 // Obtener todas las reservas
 // ==============================
-// La query ya viene validada y convertida en la ruta (loteId es number). El schema acepta más
-// filtros de los que el service usa: solo se toman estadoOperativo, estado y loteId; el resto
-// del schema no se envía al service.
+// La query ya viene validada y convertida en la ruta (loteId es number). El schema declara solo
+// los filtros que el service implementa: estadoOperativo, estado y loteId.
 // Si el usuario es INMOBILIARIA, solo devuelve sus reservas.
 export async function getAllReservasController(req: Request, res: Response, next: NextFunction) {
   try {
@@ -60,20 +57,6 @@ export async function getAllReservasByInmobiliariaController(req: Request, res: 
     const { id } = validatedParams(req, getReservaParamsSchema);
     const user = req.user;
     const data = await getReservaByImmobiliariaId(id, user);
-    res.json({ success: true, data });
-  } catch (error) {
-    next(error);
-  }
-}
-
-// LEGACY: la ruta GET /reservas/filtrarPorEstado es inalcanzable (/:id la captura antes), pero su
-// controller lee la query validada como el resto. La eliminación de la ruta queda para el
-// saneamiento legacy.
-export async function getAllReservasByEstadoController(req: Request, res: Response, next: NextFunction) {
-  try {
-    const estadoR = validatedQuery(req, queryReservasSchema).estado as EstadoReserva;
-    const user = req.user;
-    const data = await getReservaByEstado(estadoR, user);
     res.json({ success: true, data });
   } catch (error) {
     next(error);

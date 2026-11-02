@@ -2,7 +2,7 @@
 import { Request, Response, NextFunction } from 'express';
 import * as ventaService from '../services/venta.service';
 import { validatedParams, validatedQuery } from '../middlewares/validation.middleware';
-import { getVentaSchema, patchVentaParamsSchema, queryVentaSchema } from '../validations/venta.validation';
+import { getVentaSchema, patchVentaParamsSchema, queryVentaSchema, queryVentasPorInmobiliariaSchema } from '../validations/venta.validation';
 
 // ========================
 // Obtener todas las ventas
@@ -12,8 +12,8 @@ export async function obtenerTodos(req: Request, res: Response, next: NextFuncti
        try {
            // Llamo al servicio para obtener todas las Ventas
            const user = req.user;
-           // La query ya viene validada y convertida en la ruta (loteId es number). El schema acepta
-           // más filtros de los que el service usa: solo se toman los soportados.
+           // La query ya viene validada y convertida en la ruta (loteId es number). El schema
+           // declara solo los filtros que el service implementa.
            const { estadoOperativo, estado, loteId } = validatedQuery(req, queryVentaSchema);
            const query: ventaService.VentasListQuery = {};
            if (estadoOperativo !== undefined) query.estadoOperativo = estadoOperativo;
@@ -33,8 +33,8 @@ export async function obtenerTodos(req: Request, res: Response, next: NextFuncti
 export async function obtenerVentasPorInmobiliaria(req: Request, res: Response, next: NextFunction) {
     try {
         const { id: inmobiliariaId } = validatedParams(req, getVentaSchema);
-        // Este endpoint solo filtra por estadoOperativo (el schema es el del listado).
-        const { estadoOperativo } = validatedQuery(req, queryVentaSchema);
+        // Este endpoint solo filtra por estadoOperativo (schema propio, no el del listado).
+        const { estadoOperativo } = validatedQuery(req, queryVentasPorInmobiliariaSchema);
         const query = estadoOperativo !== undefined ? { estadoOperativo } : {};
         const result = await ventaService.getVentasByInmobiliaria(inmobiliariaId, query, req.user);
         res.json({ success: true, data: result });

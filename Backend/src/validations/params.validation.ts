@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 // Máximo de un Int de Postgres: ids mayores no existen y Prisma los rechaza con error 500.
-const INT4_MAX = 2_147_483_647;
+export const INT4_MAX = 2_147_483_647;
 
 /**
  * ID HTTP de una PK numérica: entero positivo en notación decimal canónica ("12"), dentro

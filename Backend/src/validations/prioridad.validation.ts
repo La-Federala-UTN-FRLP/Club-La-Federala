@@ -1,9 +1,7 @@
 // src/validations/prioridad.validation.ts
 import { z } from 'zod';
 import { idParamsSchema, positiveIntString } from './params.validation';
-
-// Helpers reutilizables
-const idInt = z.coerce.number().int('El id debe ser entero').positive('El id debe ser positivo');
+import { idDelBody, tieneAlgunCampo, ACTUALIZAR_SIN_CAMPOS } from './body.validation';
 
 // Acepto que venga tipo Date o string y lo normalizo a ISO
 const isoDate = z
@@ -18,12 +16,12 @@ const isoDate = z
 // ==============================
 export const createPrioridadSchema = z.object({
   numero: z.string().min(1, 'El número de prioridad es obligatorio').trim(),
-  loteId: idInt,
+  loteId: idDelBody('del lote'),
   fechaInicio: isoDate,
   fechaFin: isoDate,
   // Permitir ownerType e inmobiliariaId opcionales para ADMIN/GESTOR
   ownerType: z.enum(['INMOBILIARIA', 'CCLF']).optional(),
-  inmobiliariaId: idInt.optional().nullable(),
+  inmobiliariaId: idDelBody('de la inmobiliaria').optional().nullable(),
 }).refine(
   (data) => {
     const fechaInicioDate = new Date(data.fechaInicio);
@@ -51,14 +49,9 @@ export const createPrioridadSchema = z.object({
 // ==============================
 export const updatePrioridadSchema = z.object({
   numero: z.string().min(1, 'El número de prioridad es obligatorio').trim().optional(),
-  inmobiliariaId: idInt.optional().nullable(),
+  inmobiliariaId: idDelBody('de la inmobiliaria').optional().nullable(),
   fechaFin: isoDate.optional(),
-}).refine((data) => {
-  // Asegurar que al menos un campo está presente
-  return Object.keys(data).length > 0;
-}, {
-  message: 'Debes enviar al menos un campo para actualizar',
-}).refine(
+}).refine(tieneAlgunCampo, ACTUALIZAR_SIN_CAMPOS).refine(
   (data) => {
     if (!data.fechaFin) return true;
     const fechaFinDate = new Date(data.fechaFin);
@@ -78,7 +71,7 @@ export const getPrioridadParamsSchema = idParamsSchema;
 
 // ==============================
 // Query del listado (GET /prioridades). IDs con la política común de IDs HTTP (positiveIntString);
-// idInt es solo del body.
+// idDelBody es solo del body.
 // ==============================
 export const queryPrioridadesSchema = z.object({
   estado: z.enum(['ACTIVA', 'CANCELADA', 'FINALIZADA', 'EXPIRADA']).optional(),

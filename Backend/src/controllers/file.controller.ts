@@ -1,12 +1,13 @@
 import { Request, Response } from "express";
 import * as FileService from "../services/file.service";
-import { UpdateFileMetadata, TipoFile } from "../types/files.types";
+import { TipoFile } from "../types/files.types";
 import { isInmobiliaria, canUserAccessArchivo, canUseIncludeDeleted } from "../utils/file.auth.utils";
 import { validateUploadFile } from "../utils/file.upload.validation";
 import { ensureVentaPerteneceALote } from "../utils/file.validation.utils";
 import prisma from "../config/prisma";
 import { validatedParams, validatedQuery } from "../middlewares/validation.middleware";
 import {
+    CreateFileMetadataInput,
     fileIdParamsSchema,
     fileLoteParamsSchema,
     fileVentaParamsSchema,
@@ -41,39 +42,34 @@ async function verifyInmobiliariaArchivoAccess(
 export class fileController {
     static async upload(req: Request, res: Response) {
         const file = req.file as Express.Multer.File;
-        const body = req.body as { tipo: TipoFile; idLoteAsociado: string; ventaId?: string };
-        const idLoteAsociado = parseInt(body.idLoteAsociado, 10);
-        const ventaIdRaw = body.ventaId;
-        const ventaId = ventaIdRaw ? parseInt(ventaIdRaw, 10) : undefined;
+        // Body ya validado en la ruta (createFileMetadataSchema): los IDs del multipart llegan como
+        // number (o ventaId undefined), así que acá no se vuelve a parsear ningún string.
+        const { idLoteAsociado, ventaId, tipo } = req.body as CreateFileMetadataInput;
 
         if (!file) {
             return res.status(400).json({ message: "No se subió ningún archivo" });
         }
-        if (!idLoteAsociado || isNaN(idLoteAsociado)) {
-            return res.status(400).json({ message: "idLoteAsociado es obligatorio" });
-        }
 
-        const tipo = body.tipo as TipoFile;
         if (!tipo || !["BOLETO", "ESCRITURA", "PLANO", "IMAGEN", "OTRO"].includes(tipo)) {
             return res.status(400).json({ message: "tipo inválido" });
         }
 
         if (TIPOS_REQUIEREN_VENTA.includes(tipo)) {
-            if (!ventaId || isNaN(ventaId)) {
+            if (ventaId === undefined) {
                 return res.status(400).json({
                     message: `Para tipo ${tipo} se requiere ventaId`,
                 });
             }
         }
         if (TIPOS_PROHIBEN_VENTA.includes(tipo)) {
-            if (ventaId != null && !isNaN(ventaId)) {
+            if (ventaId !== undefined) {
                 return res.status(400).json({
                     message: `Para tipo ${tipo} no se permite ventaId`,
                 });
             }
         }
 
-        if (ventaId != null && !isNaN(ventaId)) {
+        if (ventaId !== undefined) {
             try {
                 await ensureVentaPerteneceALote(ventaId, idLoteAsociado);
             } catch (err: any) {
@@ -165,7 +161,7 @@ export const sustituirArchivoController = async (req: Request, res: Response) =>
         );
         res.status(200).json({ message: "Archivo sustituido", data: newFile });
     } catch (error: any) {
-        const status = error.statusCode ?? (error.message?.includes("encontrado") || error.message?.includes("eliminado") ? 400 : 500);
+        const status = error.statusCode ?? 500;
         res.status(status).json({ message: error.message || "Error al sustituir archivo" });
     }
 };
@@ -208,21 +204,6 @@ export const getFileByIdController = async (req: Request, res: Response) => {
     }
 };
 
-export const updateFileController = async (req: Request, res: Response) => {
-    const id = parseInt(req.params.id, 10);
-    const updates: UpdateFileMetadata = req.body;
-    try {
-        const updatedFile = await FileService.updateFileMetadata(id, updates);
-        if (!updatedFile) {
-            return res.status(404).json({ message: "Archivo no encontrado" });
-        }
-        res.status(200).json(updatedFile);
-    } catch (error: any) {
-        const status = error.message?.includes("eliminado") ? 400 : 500;
-        res.status(status).json({ message: error.message || "Error al actualizar metadata del archivo" });
-    }
-};
-
 export const deleteFileController = async (req: Request, res: Response) => {
     const { id } = validatedParams(req, fileIdParamsSchema);
     try {
@@ -240,7 +221,7 @@ export const restoreFileController = async (req: Request, res: Response) => {
         const file = await FileService.restoreFileById(id);
         res.status(200).json({ message: "Archivo restaurado", data: file });
     } catch (error: any) {
-        const status = error.message?.includes("encontrado") || error.message?.includes("eliminados") ? 400 : 500;
+        const status = error.statusCode ?? 500;
         res.status(status).json({ message: error.message || "Error al restaurar archivo" });
     }
 };

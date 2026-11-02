@@ -5,31 +5,18 @@ import { booleanQuery } from './query.validation';
 // Mismos valores que el enum TiposArchivos de Prisma
 const tipoArchivoEnum = z.enum(['BOLETO', 'ESCRITURA', 'PLANO', 'IMAGEN', 'OTRO']);
 
-export const fileMetadataSchema = z.object({
-    filename: z.string().min(1, "El nombre del archivo es obligatorio"),
-    url: z.string().url("La URL debe ser válida"),
-    idLoteAsociado: z.number().int().positive("El ID del lote asociado debe ser un número entero positivo"),
-    uploadedBy: z.string().nullable(),
-    uploadedAt: z.date().default(() => new Date())
-});
-
+// Body de POST /api/files (multipart/form-data): todo campo de texto llega como string, así que
+// los IDs usan la política de string decimal canónico (positiveIntString, la misma de path y query)
+// y no la de JSON. Number()/parseInt() aceptaban "1e2" (100), "0x10" (16) y "007" (7).
+// ventaId vacío ("") se toma como ausente: es el comportamiento previo del form.
+// Las reglas de dominio (qué tipos exigen o prohíben venta) siguen en el controller.
 export const createFileMetadataSchema = z.object({
-    idLoteAsociado: z.preprocess((val) => Number(val), z.number().int().positive()),
+    idLoteAsociado: positiveIntString,
     tipo: tipoArchivoEnum,
-    ventaId: z.preprocess((val) => (val === '' || val === undefined ? undefined : Number(val)), z.number().int().positive().optional()),
+    ventaId: z.union([z.literal('').transform(() => undefined), positiveIntString]).optional(),
 });
 
-export const updateFileMetadataSchema = z.object({
-    filename: z.string().min(1, "El nombre del archivo es obligatorio").optional(),
-    url: z.string().url("La URL debe ser válida").optional(),   
-    idLoteAsociado: z.number().int().positive("El ID del lote asociado debe ser un número entero positivo").optional(),
-    uploadedBy: z.string().nullable().optional(),
-    uploadedAt: z.date().optional()
-});
-
-export const deleteFileMetadataSchema = z.object({
-    id: z.number().int().positive("El ID del archivo debe ser un número entero positivo")
-});
+export type CreateFileMetadataInput = z.output<typeof createFileMetadataSchema>;
 
 // Params de las rutas activas de /api/files (política común de IDs de path)
 export const fileIdParamsSchema = idParamsSchema;

@@ -15,14 +15,8 @@ export async function aplicarPromocion(req: Request, res: Response, next: NextFu
       message: 'Promoción aplicada exitosamente',
       data: promocion,
     });
-  } catch (error: any) {
-    // Mapear errores de Prisma para que el middleware los maneje correctamente
-    const statusCode = error?.statusCode || error?.status || 500;
-    const message = error?.message || 'Error al aplicar promoción';
-    return res.status(statusCode).json({
-      success: false,
-      message,
-    });
+  } catch (error) {
+    next(error);
   }
 }
 
@@ -36,14 +30,8 @@ export async function quitarPromocion(req: Request, res: Response, next: NextFun
       message: 'Promoción quitada exitosamente',
       data: promocion,
     });
-  } catch (error: any) {
-    // Mapear errores de Prisma para que el middleware los maneje correctamente
-    const statusCode = error?.statusCode || error?.status || 500;
-    const message = error?.message || 'Error al quitar promoción';
-    return res.status(statusCode).json({
-      success: false,
-      message,
-    });
+  } catch (error) {
+    next(error);
   }
 }
 

@@ -39,19 +39,8 @@ export async function obtenerFraccionPorId(req: Request, res: Response, next: Ne
             message: 'Fracción obtenida exitosamente'
         };
         res.status(200).json({success: true,...response});
-    } catch (error: any) {
-        if (error.errors) {
-            res.status(400).json({
-                success: false,
-                message: 'Error de validación',
-                errors: error.errors
-            });
-        } else {
-            res.status(500).json({
-                success: false,
-                message: error.message || 'Error al obtener la fracción'
-            });
-        }
+    } catch (error) {
+        next(error);
     }
 }
 

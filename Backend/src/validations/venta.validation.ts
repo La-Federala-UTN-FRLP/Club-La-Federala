@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { idParamsSchema, positiveIntString } from './params.validation';
+import { idDelBody, numeroDelBody, tieneAlgunCampo, ACTUALIZAR_SIN_CAMPOS } from './body.validation';
 
 // Schemas base reutilizables
 const estadoVentaEnum = z.enum(['INICIADA', 'CON_BOLETO', 'ESCRITURADO', 'CANCELADA']);
@@ -10,23 +11,10 @@ const fechaISO = z.string().refine((date) => !isNaN(Date.parse(date)), {
     message: 'Fecha inválida' 
 });
 
-// Números del body: number finito o string en notación decimal ("10", " 10.5 ", "-1").
-// Reemplaza z.coerce.number(), que convertía null, "", "   ", false y [] en 0 y true en 1.
+// Números e IDs del body: política compartida en body.validation.ts (antes vivía acá, #252).
 // Las reglas propias de cada campo (min, int, positive) se aplican después sobre el número.
-const numeroDelBody = (mensaje: string) =>
-    z.union([z.number(), z.string().trim().regex(/^-?\d+(\.\d+)?$/)], { message: mensaje })
-        .transform(Number);
-
 const montoSchema = numeroDelBody('El monto debe ser un número')
     .pipe(z.number().min(0, 'El monto no puede ser negativo'));
-
-// IDs del body (los params y la query mantienen su propio schema)
-const idDelBody = (entidad: string) =>
-    numeroDelBody(`El ID ${entidad} debe ser un número`).pipe(
-        z.number()
-            .int(`El ID ${entidad} debe ser un número entero`)
-            .positive(`El ID ${entidad} debe ser un número positivo`),
-    );
 
 const compradorInputSchema = z.object({
     personaId: idDelBody('de la persona'),
@@ -47,7 +35,7 @@ export const createVentaSchema = z.object({
 
     compradores: z.array(compradorInputSchema).min(1, 'Debe especificar al menos un comprador').optional(),
     inmobiliariaId: idDelBody('de la inmobiliaria').optional(),
-    reservaId: z.number().int('El ID de la reserva debe ser un número entero').positive('El ID de la reserva debe ser un número positivo').optional().nullable(),
+    reservaId: idDelBody('de la reserva').optional().nullable(),
     numero: z.string().trim().min(3, 'El número de venta es obligatorio').max(30, 'El número de venta es demasiado largo'),
 }).refine((data) => {
     // Debe venir compradores[] O compradorId (al menos uno)
@@ -102,7 +90,7 @@ export const updateVentaSchema = z.object({
     compradores: z.array(compradorInputSchema).min(1, 'Debe especificar al menos un comprador').optional(),
     inmobiliariaId: idDelBody('de la inmobiliaria').optional(),
     numero: z.string().trim().min(3, 'El número de venta es obligatorio').max(30, 'El número de venta es demasiado largo').optional(),
-}).refine((data) => {
+}).refine(tieneAlgunCampo, ACTUALIZAR_SIN_CAMPOS).refine((data) => {
     // Si se envía compradores[], debe tener al menos 1
     if (data.compradores !== undefined && data.compradores.length === 0) {
         return false;
@@ -122,17 +110,16 @@ export const getVentaSchema = idParamsSchema;
 export const deleteVentaSchema = getVentaSchema;
 export const patchVentaParamsSchema = getVentaSchema;
 
-// Query de GET /ventas y GET /ventas/inmobiliaria/:id. IDs con la política común de IDs HTTP
-// (positiveIntString). El schema acepta más filtros de los que los services usan: cada controller
-// arma el DTO permitido a partir del resultado validado.
+// Query de GET /ventas: solo los filtros que el service implementa (estado, estadoOperativo y
+// loteId; este con la política común de IDs HTTP, positiveIntString). Cualquier otro parámetro es
+// una clave desconocida: Zod la descarta y no llega al service.
 export const queryVentaSchema = z.object({
     estado: estadoVentaEnum.optional(),
     estadoOperativo: estadoOperativoEnum.optional(),
-    compradorId: positiveIntString.optional(),
-    vendedorId: positiveIntString.optional(),
     loteId: positiveIntString.optional(),
-    fechaVentaFrom: fechaISO.optional(),
-    fechaVentaTo: fechaISO.optional(),
-    montoMin: z.coerce.number().min(0, 'El monto mínimo no puede ser negativo').optional(),
-    montoMax: z.coerce.number().min(0, 'El monto máximo no puede ser negativo').optional(),
-})
+});
+
+// Query de GET /ventas/inmobiliaria/:id: el service solo filtra por estadoOperativo.
+export const queryVentasPorInmobiliariaSchema = z.object({
+    estadoOperativo: estadoOperativoEnum.optional(),
+});

@@ -3,7 +3,7 @@ import * as ventaController from '../controllers/venta.controller';
 import * as pagoController from '../controllers/pago.controller';
 import { validate, validateParams, validateQuery } from '../middlewares/validation.middleware';
 import { authenticate, authorize } from '../middlewares/auth.middleware';
-import { createVentaSchema, updateVentaSchema, getVentaSchema, deleteVentaSchema, queryVentaSchema, patchVentaParamsSchema } from '../validations/venta.validation';
+import { createVentaSchema, updateVentaSchema, getVentaSchema, deleteVentaSchema, queryVentaSchema, queryVentasPorInmobiliariaSchema, patchVentaParamsSchema } from '../validations/venta.validation';
 import {
   ventaIdParamSchema,
   createPlanPagoSchema,
@@ -29,7 +29,7 @@ router.get(
     authenticate,
     authorize('ADMINISTRADOR', 'GESTOR', 'INMOBILIARIA'),
     validateParams(getVentaSchema),
-    validateQuery(queryVentaSchema),
+    validateQuery(queryVentasPorInmobiliariaSchema),
     ventaController.obtenerVentasPorInmobiliaria);
 
 // GET /api/Ventas/:id

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { idParamsSchema, positiveIntString } from "./params.validation";
 import { booleanQuery } from "./query.validation";
+import { idDelBody, tieneAlgunCampo, ACTUALIZAR_SIN_CAMPOS } from "./body.validation";
 
 const identificadorTipoEnum = z.enum(["DNI", "CUIT", "CUIL", "PASAPORTE", "OTRO"]);
 
@@ -35,26 +36,6 @@ const validateIdentificadorFormat = (tipo: string, valor: string): boolean => {
   return false;
 };
 
-// Schema para identificador
-const identificadorSchema = z
-  .object({
-    tipo: identificadorTipoEnum,
-    valor: z.string().min(1, "El valor del identificador es requerido"),
-  })
-  .refine(
-    (data) => {
-      return validateIdentificadorFormat(data.tipo, data.valor);
-    },
-    {
-      message: "Valor de identificador no coincide con el tipo especificado",
-      path: ["valor"],
-    }
-  )
-  .transform((data) => ({
-    tipo: data.tipo,
-    valor: normalizeIdentificadorValor(data.tipo, data.valor),
-  }));
-
 // Schema base para crear persona
 const baseCreatePersonaSchema = z.object({
   identificadorTipo: identificadorTipoEnum,
@@ -75,9 +56,10 @@ const baseCreatePersonaSchema = z.object({
     .optional(),
   email: z.string().email("Email invalido").optional(),
   // Relaciones
-  jefeDeFamiliaId: z.number().int().positive().optional(),
+  // IDs del body: política compartida (number o string decimal canónico, 1..int4, entrega number).
+  jefeDeFamiliaId: idDelBody("del jefe de familia").optional(),
   // inmobiliariaId: opcional, solo para ADMIN/GESTOR
-  inmobiliariaId: z.number().int().positive().nullable().optional(),
+  inmobiliariaId: idDelBody("de la inmobiliaria").nullable().optional(),
 })
 .refine(
   (data) => {
@@ -107,6 +89,8 @@ const baseCreatePersonaSchema = z.object({
 }));
 
 export const createPersonaSchema = baseCreatePersonaSchema;
+// Body ya validado y normalizado por la ruta (lo que el controller recibe en req.body).
+export type CreatePersonaInput = z.output<typeof createPersonaSchema>;
 
 export const updatePersonaSchema = z.object({
   identificadorTipo: identificadorTipoEnum.optional(),
@@ -120,10 +104,11 @@ export const updatePersonaSchema = z.object({
   razonSocial: z.string().max(200).optional(),
   telefono: z.union([z.number().int().positive(), z.null()]).optional(),
   email: z.union([z.string().email("Email invalido"), z.null()]).optional(),
-  jefeDeFamiliaId: z.number().int().positive().optional(),
+  jefeDeFamiliaId: idDelBody("del jefe de familia").optional(),
   estado: z.enum(["OPERATIVO", "ELIMINADO"]).optional(),
-  inmobiliariaId: z.number().int().positive().nullable().optional(),
+  inmobiliariaId: idDelBody("de la inmobiliaria").nullable().optional(),
 })
+.refine(tieneAlgunCampo, ACTUALIZAR_SIN_CAMPOS)
 .refine(
   (data) => {
     // Si viene identificadorTipo, debe venir identificadorValor y viceversa
@@ -164,8 +149,21 @@ export const updatePersonaSchema = z.object({
   return data;
 });
 
+export type UpdatePersonaInput = z.output<typeof updatePersonaSchema>;
+
 // Params /:id de Persona (política común de IDs de path)
 export const getPersonaSchema = idParamsSchema;
+
+// Params GET /personas/cuil/:cuil. El CUIL es un identificador, no un ID de PK: se mantiene como
+// string (un number perdería el contrato de "11 dígitos") y sale normalizado, sin separadores.
+// Acepta los mismos separadores que PersonaService.getPersonaByCuil ya toleraba (guiones, puntos
+// y espacios), así que "20-12345678-3" y "20.12345678.3" llegan como "20123456783".
+export const cuilParamsSchema = z.object({
+  cuil: z
+    .string()
+    .transform((valor) => valor.replace(/[-.\s]/g, ""))
+    .pipe(z.string().regex(/^\d{11}$/, "El CUIL debe tener 11 dígitos")),
+});
 
 export const deletePersonaSchema = getPersonaSchema;
 

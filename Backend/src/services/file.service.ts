@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { createClient } from "@supabase/supabase-js";
-import type { FileMetadata, TipoFile, NewFileMetadata, UpdateFileMetadata, EstadoAprobacion, TargetAprobacion } from "../types/files.types";
+import type { FileMetadata, TipoFile, NewFileMetadata, EstadoAprobacion, TargetAprobacion } from "../types/files.types";
 import {
   isInmobiliaria,
   canUserAccessArchivo,
@@ -259,12 +259,16 @@ export async function deleteFileById(id: number, deletedByEmail?: string): Promi
   });
 }
 
+// Error de negocio con status HTTP explícito: el controller usa error.statusCode, no el texto del mensaje.
+const errorHttp = (message: string, statusCode: number): Error =>
+  Object.assign(new Error(message), { statusCode });
+
 /** Restaurar archivo eliminado: OPERATIVO, limpia fechaBaja y deletedBy */
 export async function restoreFileById(id: number): Promise<FileMetadata> {
   const file = await prisma.archivos.findUnique({ where: { id }, include: { venta: { select: { numero: true } } } });
-  if (!file) throw new Error("Archivo no encontrado");
+  if (!file) throw errorHttp("Archivo no encontrado", 404);
   if (file.estadoOperativo !== "ELIMINADO") {
-    throw new Error("Solo se pueden restaurar archivos eliminados");
+    throw errorHttp("Solo se pueden restaurar archivos eliminados", 400);
   }
   const updated = await prisma.archivos.update({
     where: { id },
@@ -290,28 +294,6 @@ export async function purgeFileById(id: number): Promise<void> {
   await prisma.archivos.delete({ where: { id } });
 }
 
-export async function updateFileMetadata(id: number, updates: UpdateFileMetadata): Promise<FileMetadata> {
-  const existingFile = await prisma.archivos.findUnique({ where: { id } });
-  if (!existingFile) throw new Error("File not found");
-  if (existingFile.estadoOperativo === "ELIMINADO") {
-    throw new Error("No se puede modificar un archivo eliminado");
-  }
-
-  const updatedFile = await prisma.archivos.update({
-    where: { id },
-    data: {
-      nombreArchivo: updates.filename || existingFile.nombreArchivo,
-      linkArchivo: updates.url || existingFile.linkArchivo,
-      tipo: updates.tipo || (existingFile.tipo as TipoFile),
-      idLoteAsociado: updates.idLoteAsociado || existingFile.idLoteAsociado,
-      ventaId: updates.ventaId !== undefined ? updates.ventaId : existingFile.ventaId,
-      uploadedBy: updates.uploadedBy !== undefined ? updates.uploadedBy : existingFile.uploadedBy,
-    },
-  });
-
-  return toFileMetadata(updatedFile);
-}
-
 // Busca un archivo operativo por ID y devuelve el registro crudo (para signed URL)
 export async function getOperativeFileRaw(id: number) {
   const file = await prisma.archivos.findUnique({ where: { id } });
@@ -331,15 +313,16 @@ export async function sustituirArchivo(
   deletedByEmail?: string
 ): Promise<FileMetadata> {
   const oldFile = await prisma.archivos.findUnique({ where: { id } });
-  if (!oldFile) throw new Error("Archivo no encontrado");
+  if (!oldFile) throw errorHttp("Archivo no encontrado", 404);
   if (oldFile.estadoOperativo === "ELIMINADO") {
-    throw new Error("No se puede sustituir un archivo eliminado");
+    throw errorHttp("No se puede sustituir un archivo eliminado", 400);
   }
   const tipo = oldFile.tipo as TipoFile;
   const tiposSustituibles: TipoFile[] = ["BOLETO", "ESCRITURA", "OTRO", "PLANO"];
   if (!tiposSustituibles.includes(tipo)) {
-    throw new Error(
-      `No se puede sustituir archivos de tipo ${tipo}. Solo BOLETO, ESCRITURA, OTRO o PLANO.`
+    throw errorHttp(
+      `No se puede sustituir archivos de tipo ${tipo}. Solo BOLETO, ESCRITURA, OTRO o PLANO.`,
+      400
     );
   }
 
