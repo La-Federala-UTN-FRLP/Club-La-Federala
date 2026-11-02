@@ -121,7 +121,7 @@ describe('GET /api/reservas — query del listado', () => {
         expect(getAllReservasMock.mock.calls[0][0]).toEqual({ loteId: 2147483647 });
     });
 
-    test('filtros que el service no usa no llegan aunque el schema los acepte (DTO explícito)', async () => {
+    test('filtros que el service no implementa no llegan (claves desconocidas descartadas)', async () => {
         await request(app)
             .get('/api/reservas?loteId=25&inmobiliariaId=9&clienteId=3&sena=100&desde=2020-01-01&hasta=2021-01-01')
             .set(auth('ADMINISTRADOR'));
@@ -181,8 +181,8 @@ describe('GET /api/ventas — query del listado', () => {
 });
 
 // Combina validateParams + validateQuery en el mismo request: el path id y la query validada
-// conviven en req.validated. Reusa queryVentaSchema (el del listado) pero el service solo lee
-// estadoOperativo: el controller conserva su allowlist y no pasa el schema entero.
+// conviven en req.validated. Usa su propio schema (queryVentasPorInmobiliariaSchema): el service solo
+// lee estadoOperativo, así que loteId, estado y el resto son claves desconocidas.
 describe('GET /api/ventas/inmobiliaria/:id — params + query', () => {
     test('el path id llega como number y estadoOperativo validado; foo no llega', async () => {
         const res = await request(app)
@@ -207,7 +207,7 @@ describe('GET /api/ventas/inmobiliaria/:id — params + query', () => {
         expect(user).toEqual(expect.objectContaining({ role: 'INMOBILIARIA', inmobiliariaId: 5 }));
     });
 
-    test('allowlist: filtros del schema de listado que este endpoint no soporta no llegan al service', async () => {
+    test('los filtros de GET /ventas que este endpoint no soporta no llegan al service', async () => {
         await request(app)
             .get('/api/ventas/inmobiliaria/5?estadoOperativo=OPERATIVO&loteId=3&estado=INICIADA&compradorId=4&montoMin=10')
             .set(auth('ADMINISTRADOR'));
@@ -217,8 +217,6 @@ describe('GET /api/ventas/inmobiliaria/:id — params + query', () => {
     test.each([
         ['estadoOperativo=FOO'],
         ['estadoOperativo=OPERATIVO&estadoOperativo=ELIMINADO'],
-        ['loteId=1e2'],
-        ['compradorId=007'],
     ])('query inválida (%s) responde 400 sin llamar al service', async (qs) => {
         const res = await request(app).get(`/api/ventas/inmobiliaria/5?${qs}`).set(auth('ADMINISTRADOR'));
         expect(res.status).toBe(400);

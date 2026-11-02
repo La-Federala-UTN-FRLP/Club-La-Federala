@@ -196,64 +196,37 @@ describe('queryReservasSchema', () => {
         expect(queryReservasSchema.safeParse({}).success).toBe(true);
     });
 
-    // Los IDs de query llegan como string desde la URL (positiveIntString); sena es un decimal.
+    // El ID de query llega como string desde la URL (positiveIntString). Solo se declaran los
+    // filtros que el service implementa; los filtros legacy son claves desconocidas y se descartan.
     test('acepta filtros válidos', () => {
         const result = queryReservasSchema.safeParse({
-            desde: '2025-01-01T00:00:00.000Z',
-            hasta: '2025-12-31T23:59:59.000Z',
             estado: 'ACTIVA',
             estadoOperativo: 'OPERATIVO',
             loteId: '1',
-            clienteId: '10',
-            inmobiliariaId: '5',
-            sena: 5000,
         });
         expect(result.success).toBe(true);
         if (result.success) {
-            expect(result.data).toEqual(expect.objectContaining({ loteId: 1, clienteId: 10, inmobiliariaId: 5 }));
+            expect(result.data).toEqual({ estado: 'ACTIVA', estadoOperativo: 'OPERATIVO', loteId: 1 });
         }
     });
 
-    test('rechaza rango desde > hasta', () => {
+    test('los filtros legacy eliminados se descartan sin validarse (incluido desde > hasta)', () => {
         const result = queryReservasSchema.safeParse({
             desde: '2025-12-31T23:59:59.000Z',
             hasta: '2025-01-01T00:00:00.000Z',
+            clienteId: 'abc',
+            inmobiliariaId: 'abc',
+            sena: -1,
+            fechaFinReservaDesde: 'no-es-fecha',
+            fechaFinReservaHasta: 'no-es-fecha',
         });
-        expect(result.success).toBe(false);
-        if (!result.success) {
-            expect(result.error.issues.some((i) => i.path.includes('hasta'))).toBe(true);
-        }
-    });
-
-    test('rechaza fecha desde inválida', () => {
-        const result = queryReservasSchema.safeParse({ desde: 'fecha-invalida' });
-        expectFailedAt(result, ['desde']);
-    });
-
-    test('rechaza seña negativa en query', () => {
-        const result = queryReservasSchema.safeParse({ sena: -1 });
-        expectFailedAt(result, ['sena']);
+        expect(result.success).toBe(true);
+        if (result.success) expect(result.data).toEqual({});
     });
 
     test('rechaza estado de reserva inválido', () => {
         const result = queryReservasSchema.safeParse({ estado: 'NO_EXISTE' });
         expectFailedAt(result, ['estado']);
-    });
-
-    test.each([
-        ['fechaFinReservaDesde', '2025-06-01T00:00:00.000Z'],
-        ['fechaFinReservaHasta', '2025-12-31T23:59:59.000Z'],
-    ] as const)('acepta %s con fecha válida', (field, value) => {
-        const result = queryReservasSchema.safeParse({ [field]: value });
-        expect(result.success).toBe(true);
-    });
-
-    test.each([
-        ['fechaFinReservaDesde', 'no-es-fecha'],
-        ['fechaFinReservaHasta', 'no-es-fecha'],
-    ] as const)('rechaza %s con fecha inválida', (field, value) => {
-        const result = queryReservasSchema.safeParse({ [field]: value });
-        expectFailedAt(result, [field]);
     });
 
     // Query strings llegan como string desde la URL
@@ -270,11 +243,6 @@ describe('queryReservasSchema', () => {
     test.each(['abc', '0', '-1', '25.5', '', '007', '+5', '1e2', '0x10', ' 12', '2147483648'])('rechaza loteId=%p', (loteId) => {
         const result = queryReservasSchema.safeParse({ loteId });
         expectFailedAt(result, ['loteId']);
-    });
-
-    test.each([['clienteId'], ['inmobiliariaId']])('rechaza %s no canónico', (campo) => {
-        expectFailedAt(queryReservasSchema.safeParse({ [campo]: '007' }), [campo]);
-        expectFailedAt(queryReservasSchema.safeParse({ [campo]: '1e2' }), [campo]);
     });
 
     test('acepta el ID máximo de int4 y lo entrega como number', () => {

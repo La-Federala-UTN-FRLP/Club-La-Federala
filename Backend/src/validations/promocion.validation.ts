@@ -1,11 +1,15 @@
 import { z } from 'zod';
 import { idParamsSchema } from './params.validation';
+import { numeroDelBody } from './body.validation';
 
 // Schema para aplicar promoción
 export const aplicarPromocionSchema = z.object({
-  precioPromocional: z.coerce.number()
-    .positive('El precio promocional debe ser positivo')
-    .min(0.01, 'El precio promocional debe ser mayor a cero'),
+  // Política compartida de números del body: sin z.coerce (true valía 1, [5] valía 5, "1e2" valía 100).
+  precioPromocional: numeroDelBody('El precio promocional debe ser un número').pipe(
+    z.number()
+      .positive('El precio promocional debe ser positivo')
+      .min(0.01, 'El precio promocional debe ser mayor a cero'),
+  ),
   fin: z
     .union([
       z.string().transform((val) => {

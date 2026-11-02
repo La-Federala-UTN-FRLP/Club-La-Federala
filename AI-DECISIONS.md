@@ -631,6 +631,83 @@ Auditar todos los usos de `validateQuery` (9 endpoints), el flujo schema → con
 - `docs/architecture/backend.md`
 - `AI-DECISIONS.md`
 
+### AI-011 — Consolidación de contratos HTTP y deuda legacy
+
+**Fecha:** 2026-11-02
+**Área:** Backend / Validación / Contratos HTTP
+**Herramientas:** ChatGPT + Astra + Claude
+
+#### Problema
+
+Después de #252, #254 y #256 todavía quedaban excepciones legacy en el contrato HTTP del backend:
+
+- Rutas muertas: `GET /reservas/filtrarPorEstado` era inalcanzable (`/:id` la capturaba antes) y `PUT /files/:id` no validaba nada y leía `req.params` en el controller.
+- Params sin validar: `GET /personas/cuil/:cuil` era la última ruta con path params sin `validateParams`.
+- Coerciones peligrosas de body: `z.coerce.number()` convertía `null`, `""`, `false` y `[]` en `0`, `true` en `1` y `"1e2"` o `"0x10"` en números; el multipart usaba `Number()` y `parseInt()` sobre strings ambiguos. Además, valores mayores a int4 en columnas `Int` terminaban en `500` de Prisma.
+- Filtros declarados y no implementados: 17 filtros de query (lotes, reservas, ventas) que los schemas validaban y ningún service usaba.
+- Updates vacíos: un `PUT` con `{}` o solo claves desconocidas pasaba la validación en la mayoría de los recursos.
+- Schemas y código HTTP muerto: `user.validation.ts`, `queryUsuarioSchema`, `queryInmobiliariaSchema`, `fileMetadataSchema`, `identificadorSchema`, `updateFileController` y `getReservaByEstado`.
+- Fracciones rota de punta a punta: `numero` se validaba como string pero Prisma lo define como `Int @unique`; el `PUT` escribía además un `updatedAt` que el modelo no tiene.
+- Errores HTTP concretos incorrectos: una fracción inexistente respondía `500` y un número duplicado `400`; un campo multipart inesperado respondía `500`; restaurar o sustituir un archivo inexistente respondía `400` por detección de texto en el mensaje; los catches locales de Promociones devolvían `500` para `P2002` y `P2025` y exponían mensajes internos.
+
+#### Prompt / intención
+
+Cerrar el saneamiento de contratos HTTP en un solo Issue ejecutado por bloques con checkpoint humano entre cada uno: eliminar lo muerto en lugar de convertirlo en features, unificar la política de IDs y números de body, exigir al menos un campo en los updates parciales, reparar Fracciones y corregir los status concretos de Files y Promociones. Sin tocar RBAC, Auth, CORS, tenant ni el diseño global de errores.
+
+#### Propuesta generada por IA
+
+- Una auditoría global READ-ONLY inicial (Astra) y una implementación en cuatro bloques regression-first (Claude): primero el test que demuestra el bug (RED), después el cambio.
+- `body.validation.ts` como política compartida del body JSON (`idDelBody`, `enteroPositivoDelBody`, `numeroDelBody`, `INT4_MAX`) y `tieneAlgunCampo` / `ACTUALIZAR_SIN_CAMPOS` para los updates.
+- Eliminar los 17 filtros no implementados, los schemas HTTP muertos y las dos rutas legacy.
+- Guards estáticos para que ninguna ruta con `:param` quede sin `validateParams` y ningún controller lea `req.params`.
+- Una rama acotada de `MulterError` en el middleware de errores y `statusCode` explícito en `file.service` y `fraccion.service`.
+
+#### Validación humana
+
+- El alcance de cada bloque se definió antes de implementar y se aprobó bloque por bloque (1 a 4); los hallazgos intermedios (`precio: null`, `capacidad` entero, topes int4) se resolvieron con decisiones explícitas antes de cerrar el Bloque 2.
+- Se decidió eliminar los filtros legacy en lugar de implementarlos, mantener el CUIL como string normalizado, normalizar `comxventa: null` a `0` de forma explícita y dejar fuera de este Issue todo lo que no fuera contrato HTTP.
+- ChatGPT participó en la definición del alcance, la arquitectura y los checkpoints; Astra realizó la auditoría global READ-ONLY inicial; Claude realizó la implementación regression-first y las verificaciones.
+- La revisión adversarial independiente queda como validación posterior, antes del PR.
+- La decisión final de integración corresponde a validación humana.
+
+#### Decisión adoptada
+
+- **Rutas eliminadas:** `GET /reservas/filtrarPorEstado` y `PUT /files/:id` (con su controller, service y tipos).
+- **Params:** toda ruta con `:param` usa `validateParams()` y su controller lee `validatedParams()`. El CUIL tiene su propio schema (`cuilParamsSchema`): sigue siendo `string`, sin guiones, puntos ni espacios, de 11 dígitos.
+- **Body:** política compartida para IDs y números. Los IDs son number o string decimal canónico, entero positivo int4, con output `number`; los números generales aceptan solo notación decimal explícita y cada schema conserva su dominio. Los valores persistidos en columnas `Int` tienen tope int4 (`capacidad`, `numPartido`, número de lote, número de calle, cuotas, `maxPrioridadesActivas`, `Fraccion.numero`).
+- **`comxventa`:** `null` pasa a `0` de forma explícita en el schema (antes ocurría por accidente con `z.coerce`).
+- **Multipart:** `idLoteAsociado` y `ventaId` se validan como strings canónicos con `positiveIntString` antes del controller; el controller ya no usa `Number()` ni `parseInt()`.
+- **Updates parciales:** `PUT` sigue siendo un update parcial, pero un body sin ningún campo válido (`{}` o solo claves desconocidas) responde `400`. No se usa `.strict()`: las claves desconocidas siguen descartándose.
+- **Query:** se eliminan los 17 filtros no implementados en lugar de convertirlos en features. Los contratos reales quedan: `GET /lotes` (`estado`, `subestado`, `tipo`, `ocupacion`, `propietarioId`, `ubicacionId`, `deudor`), `GET /reservas` y `GET /ventas` (`estado`, `estadoOperativo`, `loteId`) y `GET /ventas/inmobiliaria/:id` (`estadoOperativo`, con schema propio).
+- **Schemas muertos:** se eliminan `user.validation.ts`, `queryUsuarioSchema`, `queryInmobiliariaSchema`, `fileMetadataSchema` e `identificadorSchema`.
+- **Fracciones:** `numero` es un entero positivo int4 con output `number`; ya no se escribe `updatedAt`; inexistente responde `404` y duplicado `409`.
+- **Files y Multer:** un `MulterError` causado por input inválido responde `400` (`LIMIT_FILE_SIZE` conserva su contrato y los errores internos siguen en `500`). `restore` y `sustituir` de un archivo inexistente responden `404` con `statusCode` explícito desde el service, no por texto del mensaje.
+- **Promociones:** `aplicar` y `quitar` delegan en el middleware de errores con `next(error)`. Ese middleware identifica `P2002` (`409`), `P2003` (`409`) y `P2025` (`404`) con `instanceof Prisma.PrismaClientKnownRequestError` del cliente generado en `src/generated/prisma`. Un error inesperado sigue en `500` genérico, sin el mensaje interno. La clase homónima de `@prisma/client/runtime/library` no es la que produce el runtime y no se usa para esta detección.
+- **Fuera de alcance (PRs posteriores):** RBAC, `TECNICO`/deudor, CORS (#236), Auth/JWT/password, error handler global, 404 JSON global, tenant hardening, `take:10` / paginación, nullable general y Cloud.
+
+#### Resultado
+
+- RED previo a implementar, con causa registrada por bloque; por ejemplo, el Bloque 3 tuvo 2 suites y 48 tests fallando y el Bloque 4 tuvo 3 suites y 34 tests fallando (Fracciones, Files y Promociones).
+- 50 suites, **2658** tests PASS; 0 omitidos, 0 enfocados, sin snapshots.
+- typecheck PASS.
+- build PASS.
+- `git diff --check` PASS.
+- Índice de Git vacío al cerrar la ejecución.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/validations/body.validation.ts`, `params.validation.ts`, `fraccion.validation.ts`, `filemeta.validation.ts`, `lote.validation.ts`, `venta.validation.ts`, `reserva.validation.ts`, `inmobiliaria.validation.ts`, `persona.validation.ts`
+- `Backend/src/routes/files.routes.ts`, `reserva.routes.ts`, `persona.routes.ts`, `ventas.routes.ts`
+- `Backend/src/controllers/file.controller.ts`, `fraccion.controller.ts`, `promocion.controller.ts`, `persona.controller.ts`
+- `Backend/src/services/fraccion.service.ts`, `file.service.ts`
+- `Backend/src/middlewares/error.middleware.ts`
+- `Backend/tests/unit/validations/body.validation.test.ts`
+- `Backend/tests/unit/routes/body.empty.routes.test.ts`, `body.numbers.routes.test.ts`, `legacy.filters.routes.test.ts`, `reservas.legacy.routes.test.ts`, `fracciones.contracts.routes.test.ts`, `files.errors.routes.test.ts`, `promociones.errors.routes.test.ts`
+- `Backend/tests/unit/architecture/routes.params.guard.test.ts`, `controllers.params.guard.test.ts`, `controllers.query.guard.test.ts`
+- `Backend/documents/documentacionApi.yaml`
+- `docs/architecture/backend.md`
+- `AI-DECISIONS.md`
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.

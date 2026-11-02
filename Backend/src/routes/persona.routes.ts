@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { PersonaController } from '../controllers/persona.controller';
 import { authenticate, authorize } from '../middlewares/auth.middleware';
-import { createPersonaSchema, getPersonaSchema, deletePersonaSchema, createMiembroFamiliarSchema, miembroFamiliarParamsSchema, queryPersonasSchema } from '../validations/persona.validation';
+import { createPersonaSchema, updatePersonaSchema, getPersonaSchema, cuilParamsSchema, deletePersonaSchema, createMiembroFamiliarSchema, miembroFamiliarParamsSchema, queryPersonasSchema } from '../validations/persona.validation';
 import { validate, validateParams, validateQuery } from '../middlewares/validation.middleware';
 
 const router = Router();
@@ -19,10 +19,12 @@ router.get(
 );
 
 // GET /api/personas/cuil/:cuil
+// El CUIL llega normalizado como string de 11 dígitos (acepta guiones, puntos y espacios).
 router.get(
     '/cuil/:cuil',
     authenticate,
     authorize('ADMINISTRADOR', 'GESTOR', 'TECNICO'),
+    validateParams(cuilParamsSchema),
     personaController.obtenerPersonaPorCuil
 );
 
@@ -47,12 +49,12 @@ router.post(
 );
 
 // PUT /api/personas/:id
-// El body lo valida el controller con updatePersonaSchema (manejo de errores propio de Persona).
 router.put(
     '/:id', 
     authenticate,
     authorize('ADMINISTRADOR', 'GESTOR'),
     validateParams(getPersonaSchema),
+    validate(updatePersonaSchema),
     personaController.actualizarPersona
 );
 

@@ -104,15 +104,6 @@ router.post(
     validate(createFileMetadataSchema), 
     fileController.fileController.upload);
 
-//PUT /api/files/:id
-router.put(
-    '/:id',
-    authenticate,
-    authorize('ADMINISTRADOR', 'GESTOR'),
-    //validateParams(deleteFileMetadataSchema),
-    //validate(updateFileMetadataSchema),
-    fileController.updateFileController);
-
 //DELETE /api/files/:id
 router.delete(
     '/:id',

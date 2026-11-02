@@ -1,11 +1,12 @@
 // src/validations/pago.validation.ts
 import { z } from 'zod';
-import { ventaIdParamsSchema } from './params.validation';
+import { ventaIdParamsSchema, INT4_MAX } from './params.validation';
+import { idDelBody, numeroDelBody } from './body.validation';
 
-// Helpers reutilizables (mismo estilo que reserva.validation.ts)
-const idInt = z.coerce.number().int('El id debe ser entero').positive('El id debe ser positivo');
-const dineroPositivo = z.coerce.number().positive('El monto debe ser mayor a 0');
-const dinero = z.coerce.number().min(0, 'El monto no puede ser negativo');
+// Helpers reutilizables (mismo estilo que reserva.validation.ts). Política compartida de
+// body.validation.ts: sin z.coerce.number(), que convertía null, "", false, true y "1e2" en 0, 1 o 100.
+const dineroPositivo = numeroDelBody('El monto debe ser un número').pipe(z.number().positive('El monto debe ser mayor a 0'));
+const dinero = numeroDelBody('El monto debe ser un número').pipe(z.number().min(0, 'El monto no puede ser negativo'));
 
 const isoDate = z
   .union([
@@ -25,7 +26,10 @@ export const ventaIdParamSchema = ventaIdParamsSchema;
 
 // Cuota dentro del body de creación de plan
 const cuotaInputSchema = z.object({
-  numeroCuota: z.coerce.number().int('El número de cuota debe ser entero').positive('El número de cuota debe ser positivo'),
+  // Contador de cuota dentro del plan: no es una PK, conserva sus reglas de entero positivo.
+  numeroCuota: numeroDelBody('El número de cuota debe ser un número').pipe(
+    z.number().int('El número de cuota debe ser entero').positive('El número de cuota debe ser positivo').max(INT4_MAX, 'El número de cuota es demasiado grande'),
+  ),
   tipoCuota: tipoCuotaEnum,
   fechaVencimiento: isoDate,
   montoOriginal: dineroPositivo,
@@ -36,7 +40,9 @@ const cuotaInputSchema = z.object({
 const planPagoCuotasBodyShape = {
   nombre: z.string().min(1, 'El nombre del plan es obligatorio').max(100, 'El nombre del plan es demasiado largo').trim(),
   tipoFinanciacion: tipoFinanciacionEnum,
-  cantidadCuotas: z.coerce.number().int('La cantidad de cuotas debe ser un entero').positive('La cantidad de cuotas debe ser positiva'),
+  cantidadCuotas: numeroDelBody('La cantidad de cuotas debe ser un número').pipe(
+    z.number().int('La cantidad de cuotas debe ser un entero').positive('La cantidad de cuotas debe ser positiva').max(INT4_MAX, 'La cantidad de cuotas es demasiado grande'),
+  ),
   fechaInicio: isoDate,
   cuotas: z.array(cuotaInputSchema).min(1, 'Debe incluir al menos una cuota'),
   descripcion: z.string().trim().optional(),
@@ -145,7 +151,7 @@ export const reemplazarPlanPagoSchema = planPagoCuotasBaseSchema.safeExtend({
 
 // Body: registrar pago sobre una cuota
 export const registrarPagoSchema = z.object({
-  cuotaId: idInt,
+  cuotaId: idDelBody('de la cuota'),
   fechaPago: isoDate,
   monto: dineroPositivo,
   medioPago: medioPagoEnum,
@@ -155,6 +161,6 @@ export const registrarPagoSchema = z.object({
 
 // Body: aplicar recargo manual (importe final acumulativo sobre la cuota)
 export const aplicarRecargoSchema = z.object({
-  cuotaId: idInt,
+  cuotaId: idDelBody('de la cuota'),
   montoRecargo: dineroPositivo,
 });

@@ -11,6 +11,10 @@ const toFraccion = (f: PrismaFraccion & { lotes?: any[] }): Fraccion => {
     } as unknown as Fraccion;
 }
 
+// Error de negocio con status HTTP explícito: el middleware global lo respeta (404/409).
+const errorHttp = (message: string, statusCode: number): Error =>
+    Object.assign(new Error(message), { statusCode });
+
 export interface CreateFraccionDto {
     numero: number;
 }
@@ -40,7 +44,7 @@ export async function getFraccionById(id: number): Promise<Fraccion> {
         where: { id: id },
         include: { lotes: true }
     });
-    if (!fraccion) throw new Error('Fracción no encontrada');
+    if (!fraccion) throw errorHttp('Fracción no encontrada', 404);
     return toFraccion(fraccion);
 }
 
@@ -50,11 +54,7 @@ export async function createFraccion(data: CreateFraccionDto): Promise<Fraccion>
     const exists = await prisma.fraccion.findUnique({
         where: { numero: data.numero }
     });
-    if (exists) {
-        const error = new Error('La fracción ya existe') as any;
-        error.statusCode = 400;
-        throw error;
-    }
+    if (exists) throw errorHttp('La fracción ya existe', 409);
     // Crear la fracción
     const newFraccion = await prisma.fraccion.create({
         data: {
@@ -76,27 +76,22 @@ export async function updateFraccion(id: number, data: UpdateFraccionDto): Promi
             error.statusCode = 404;
             throw error;
         }
-        const updateData: any = {
-            updatedAt: new Date()
-        };
-
-        if (data.numero !== exists.numero) {
+        // numero es opcional en el update: sin número no hay nada que comparar ni que escribir.
+        if (data.numero !== undefined && data.numero !== exists.numero) {
             // Verificar si el nuevo número ya existe en otra fracción
             const numeroExists = await prisma.fraccion.findUnique({
                 where: { numero: data.numero }
             });
             if (numeroExists) {
-                const error = new Error('El número de fracción ya existe') as any;
-                error.statusCode = 400;
-                throw error;
+                throw errorHttp('El número de fracción ya existe', 409);
             }
         }
         // Actualizar la fracción
         const updatedFraccion = await prisma.fraccion.update({
             where: { id },
+            // Fraccion no tiene updatedAt: Prisma rechaza claves que el modelo no declara.
             data: {
-                numero: data.numero,
-                ...updateData
+                numero: data.numero
             }
         });
         return toFraccion(updatedFraccion);

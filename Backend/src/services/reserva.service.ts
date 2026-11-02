@@ -204,22 +204,6 @@ export async function getReservaByImmobiliariaId(id: number, user: ReservaActor 
   return row; // devolvemos el registro tal cual viene de Prisma
 }
 
-// Buscar reservas por estado -- Nuevo
-export async function getReservaByEstado(estadoR: EstadoReserva, user: ReservaActor | undefined): Promise<any> {
-  const actor = requireReservaActor(user);
-  const where =
-    actor.role === 'INMOBILIARIA'
-      ? { estado: estadoR, inmobiliariaId: requireInmobiliariaContext(actor) }
-      : { estado: estadoR };
-  const row = await prisma.reserva.findMany({ where });
-  if (row.length === 0) {
-    const err: any = new Error('No se encontraron reservas con ese estado');
-    err.status = 404;
-    throw err;
-  }
-  return row; // devolvemos el registro tal cual viene de Prisma
-}
-
 // ==============================
 // Crear reserva
 // ==============================

@@ -24,11 +24,7 @@ export async function obtenerUbicacionPorId(req: Request, res: Response, next: N
     const response: GetUbicacionResponse = { ubicacion: data, message: 'Ubicación obtenida exitosamente' };
     res.status(200).json({ success: true, ...response });
   } catch (error: any) {
-    if (error.errors) {
-      res.status(400).json({ success: false, message: 'Error de validación', errors: error.errors });
-    } else {
-      res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Error al obtener la ubicación' });
-    }
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Error al obtener la ubicación' });
   }
 }
 

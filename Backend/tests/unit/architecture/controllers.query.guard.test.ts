@@ -5,13 +5,9 @@
 // sobre otro" (strings crudos, claves que el schema no declara).
 import * as fs from 'fs';
 import * as path from 'path';
+import { stripComments } from '../../support/sourceGuards';
 
 const CONTROLLERS_DIR = path.resolve(__dirname, '../../../src/controllers');
-
-// Sin comentarios: algunos explican por qué ya no se lee req.query.
-function stripComments(source: string): string {
-    return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
-}
 
 // req.query, request.query, req?.query, req['query'] y la desestructuración { query } = req.
 const READS_REQ_QUERY = /\b(?:req|request)\s*(?:\??\.\s*query\b|\[\s*['"]query['"]\s*\])|\{[^}]*\bquery\b[^}]*\}\s*=\s*(?:req|request)(?![\w.[?])/;

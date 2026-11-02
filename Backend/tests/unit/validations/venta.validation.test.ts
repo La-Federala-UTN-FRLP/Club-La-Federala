@@ -248,23 +248,31 @@ describe('queryVentaSchema', () => {
         expect(queryVentaSchema.safeParse({}).success).toBe(true);
     });
 
-    // Los IDs de query llegan como string desde la URL (positiveIntString); los montos son decimales.
+    // El ID de query llega como string desde la URL (positiveIntString). Solo se declaran los filtros
+    // que el service implementa; los filtros legacy son claves desconocidas y se descartan.
     test('acepta filtros válidos', () => {
         const result = queryVentaSchema.safeParse({
             estado: 'INICIADA',
             estadoOperativo: 'OPERATIVO',
-            compradorId: '10',
-            vendedorId: '5',
             loteId: '1',
-            fechaVentaFrom: '2025-01-01T00:00:00.000Z',
-            fechaVentaTo: '2025-12-31T23:59:59.000Z',
-            montoMin: 50_000,
-            montoMax: 200_000,
         });
         expect(result.success).toBe(true);
         if (result.success) {
-            expect(result.data).toEqual(expect.objectContaining({ compradorId: 10, vendedorId: 5, loteId: 1 }));
+            expect(result.data).toEqual({ estado: 'INICIADA', estadoOperativo: 'OPERATIVO', loteId: 1 });
         }
+    });
+
+    test('los filtros legacy eliminados se descartan sin validarse', () => {
+        const result = queryVentaSchema.safeParse({
+            compradorId: 'abc',
+            vendedorId: 'abc',
+            fechaVentaFrom: 'fecha-invalida',
+            fechaVentaTo: 'fecha-invalida',
+            montoMin: 'abc',
+            montoMax: -1,
+        });
+        expect(result.success).toBe(true);
+        if (result.success) expect(result.data).toEqual({});
     });
 
     test('rechaza estado inválido', () => {
@@ -272,27 +280,10 @@ describe('queryVentaSchema', () => {
         expectFailedAt(result, ['estado']);
     });
 
-    test('rechaza compradorId negativo', () => {
-        const result = queryVentaSchema.safeParse({ compradorId: '-1' });
-        expectFailedAt(result, ['compradorId']);
-    });
-
-    test.each([['compradorId'], ['vendedorId'], ['loteId']])('rechaza %s no canónico', (campo) => {
+    test('rechaza loteId no canónico', () => {
         for (const valor of ['007', '+5', '1e2', '0x10', ' 12', '2147483648']) {
-            expectFailedAt(queryVentaSchema.safeParse({ [campo]: valor }), [campo]);
+            expectFailedAt(queryVentaSchema.safeParse({ loteId: valor }), ['loteId']);
         }
-    });
-
-    test('rechaza fechaVentaFrom inválida', () => {
-        const result = queryVentaSchema.safeParse({
-            fechaVentaFrom: 'fecha-invalida',
-        });
-        expectFailedAt(result, ['fechaVentaFrom']);
-    });
-
-    test('rechaza montoMin negativo', () => {
-        const result = queryVentaSchema.safeParse({ montoMin: -1 });
-        expectFailedAt(result, ['montoMin']);
     });
 
     // Query strings llegan como string desde la URL

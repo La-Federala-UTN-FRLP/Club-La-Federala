@@ -24,7 +24,6 @@ import {
     eliminarReserva,
     getAllReservas,
     getOfertasByReservaId,
-    getReservaByEstado,
     getReservaById,
     getReservaByImmobiliariaId,
     reactivarReserva,
@@ -370,45 +369,6 @@ describe('getReservaByImmobiliariaId', () => {
     test('user undefined no lista por inmobiliaria', async () => {
         prismaMock.reserva.findMany.mockResolvedValue([buildReservaRow()]);
         await expectStatus(() => getReservaByImmobiliariaId(5, undefined), 403);
-        expect(prismaMock.reserva.findMany).not.toHaveBeenCalled();
-    });
-});
-
-describe('getReservaByEstado', () => {
-    test('devuelve reservas del estado pedido', async () => {
-        const rows = [buildReservaRow({ estado: 'ACTIVA' })];
-        prismaMock.reserva.findMany.mockResolvedValue(rows);
-        await expect(getReservaByEstado('ACTIVA', buildUser('ADMINISTRADOR'))).resolves.toEqual(rows);
-        expect(prismaMock.reserva.findMany).toHaveBeenCalledWith({ where: { estado: 'ACTIVA' } });
-    });
-
-    test('lista vacía lanza 404', async () => {
-        prismaMock.reserva.findMany.mockResolvedValue([]);
-        await expectStatus(() => getReservaByEstado('EXPIRADA', buildUser('ADMINISTRADOR')), 404);
-    });
-
-    test('INMOBILIARIA solo ve reservas de su tenant en ese estado', async () => {
-        prismaMock.reserva.findMany.mockResolvedValue([
-            buildReservaRow({ estado: 'ACTIVA', inmobiliariaId: 5 }),
-        ]);
-        await getReservaByEstado('ACTIVA', buildUser('INMOBILIARIA', 5));
-        expect(prismaMock.reserva.findMany).toHaveBeenCalledWith({
-            where: { estado: 'ACTIVA', inmobiliariaId: 5 },
-        });
-    });
-
-    test('INMOBILIARIA sin inmobiliariaId no filtra por estado', async () => {
-        prismaMock.reserva.findMany.mockResolvedValue([buildReservaRow({ estado: 'ACTIVA' })]);
-        await expectStatus(
-            () => getReservaByEstado('ACTIVA', buildUser('INMOBILIARIA', null)),
-            403,
-        );
-        expect(prismaMock.reserva.findMany).not.toHaveBeenCalled();
-    });
-
-    test('user undefined no filtra por estado', async () => {
-        prismaMock.reserva.findMany.mockResolvedValue([buildReservaRow({ estado: 'ACTIVA' })]);
-        await expectStatus(() => getReservaByEstado('ACTIVA', undefined), 403);
         expect(prismaMock.reserva.findMany).not.toHaveBeenCalled();
     });
 });

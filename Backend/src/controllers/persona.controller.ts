@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { PersonaService } from '../services/persona.service';
-import { createPersonaSchema, updatePersonaSchema, getPersonaSchema, deletePersonaSchema, miembroFamiliarParamsSchema, queryPersonasSchema, CreateMiembroFamiliarInput } from '../validations/persona.validation';
+import { getPersonaSchema, cuilParamsSchema, deletePersonaSchema, miembroFamiliarParamsSchema, queryPersonasSchema, CreateMiembroFamiliarInput, CreatePersonaInput, UpdatePersonaInput } from '../validations/persona.validation';
 import { GetPersonasResponse, PostPersonaResponse, GetPersonaResponse, PutPersonaResponse, DeletePersonaResponse, PostPersonaRequest, PutPersonaRequest } from '../types/interfacesCCLF';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { validatedParams, validatedQuery } from '../middlewares/validation.middleware';
@@ -27,15 +27,9 @@ function mapPrismaError(e: unknown): any {
 export class PersonaController {
     async create(req: Request, res: Response) {
     try {
-        const validatedData = createPersonaSchema.parse(req.body);
+      // Body ya validado y normalizado por createPersonaSchema en la ruta (IDs ya son number).
+      const validatedData = req.body as CreatePersonaInput;
       const user = (req as any).user; // Del middleware de auth
-
-      // Tomar jefeDeFamiliaId si viene en el body (opcional)
-        const rawJefe = (req.body as any)?.jefeDeFamiliaId;
-      const jefeDeFamiliaId =
-        rawJefe !== undefined && rawJefe !== null && !Number.isNaN(Number(rawJefe))
-          ? Number(rawJefe)
-          : undefined;
 
       // Construir CreatePersonaDto
         const createData = {
@@ -46,7 +40,7 @@ export class PersonaController {
         razonSocial: validatedData.razonSocial,
         telefono: validatedData.telefono,
         email: validatedData.email,
-        ...(jefeDeFamiliaId !== undefined ? { jefeDeFamiliaId } : {}),
+        ...(validatedData.jefeDeFamiliaId !== undefined ? { jefeDeFamiliaId: validatedData.jefeDeFamiliaId } : {}),
         ...(validatedData.inmobiliariaId !== undefined ? { inmobiliariaId: validatedData.inmobiliariaId } : {}),
         };
 
@@ -63,18 +57,10 @@ export class PersonaController {
         });
     } catch (error: any) {
       const mappedError = mapPrismaError(error);
-      if (mappedError.errors) {
-            res.status(400).json({
+      res.status(mappedError.statusCode || 400).json({
             success: false,
-            message: 'Error de validación',
-          errors: mappedError.errors,
+        message: mappedError.message || 'Error al crear la persona',
         });
-        } else {
-        res.status(mappedError.statusCode || 400).json({
-                success: false,
-          message: mappedError.message || 'Error al crear la persona',
-            });
-        }
     }
 }
 
@@ -148,7 +134,8 @@ async obtenerPersonaPorId(req: Request, res: Response) {
 async actualizarPersona(req: Request, res: Response) {
     try {
         const { id } = validatedParams(req, getPersonaSchema);
-        const validatedData = updatePersonaSchema.parse(req.body);
+        // Body ya validado y normalizado por updatePersonaSchema en la ruta.
+        const validatedData = req.body as UpdatePersonaInput;
 
       // Construir UpdatePersonaDto: solo incluir campos que vienen en el request
       const updateData: any = {};
@@ -177,18 +164,10 @@ async actualizarPersona(req: Request, res: Response) {
         });
     } catch (error: any) {
       const mappedError = mapPrismaError(error);
-      if (mappedError.errors) {
-            res.status(400).json({
+      res.status(mappedError.statusCode || 400).json({
             success: false,
-            message: 'Error de validación',
-          errors: mappedError.errors,
-            });
-        } else {
-        res.status(mappedError.statusCode || 400).json({
-                success: false,
-          message: mappedError.message || 'Error al actualizar la persona',
-            });
-        }
+        message: mappedError.message || 'Error al actualizar la persona',
+        });
     }
 }
 
@@ -255,7 +234,8 @@ async eliminarPersona(req: Request, res: Response) {
 
 async obtenerPersonaPorCuil(req: Request, res: Response) {
     try {
-        const { cuil } = req.params;
+        // CUIL ya validado y normalizado en la ruta: string de 11 dígitos.
+        const { cuil } = validatedParams(req, cuilParamsSchema);
         
       // Usar método legacy que busca primero por identificadorTipo=CUIL y luego por campo cuil
         const persona = await personaService.findByCuil(cuil);
