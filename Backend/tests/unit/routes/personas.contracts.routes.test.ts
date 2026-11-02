@@ -7,8 +7,14 @@
 import request from 'supertest';
 import app from '../../../src/app';
 import { PersonaService } from '../../../src/services/persona.service';
+import { createPersonaSchema, updatePersonaSchema } from '../../../src/validations/persona.validation';
 import { authHeader, useTestWebEnv } from '../../support/http';
 
+const createSpy = jest.spyOn(PersonaService.prototype, 'create');
+const findByCuilSpy = jest.spyOn(PersonaService.prototype, 'findByCuil');
+// El body lo valida el middleware (parseAsync): si un controller llama a .parse, validó dos veces.
+const createSchemaParseSpy = jest.spyOn(createPersonaSchema, 'parse');
+const updateSchemaParseSpy = jest.spyOn(updatePersonaSchema, 'parse');
 const updateSpy = jest.spyOn(PersonaService.prototype, 'update');
 const crearMiembroSpy = jest.spyOn(PersonaService.prototype, 'crearMiembroFamiliar');
 const eliminarMiembroSpy = jest.spyOn(PersonaService.prototype, 'eliminarMiembroFamiliar');
@@ -17,6 +23,8 @@ const findAllSpy = jest.spyOn(PersonaService.prototype, 'findAll');
 useTestWebEnv();
 
 beforeEach(() => {
+    createSpy.mockReset().mockResolvedValue({ id: 1 } as any);
+    findByCuilSpy.mockReset().mockResolvedValue({ id: 3 } as any);
     updateSpy.mockReset().mockResolvedValue({ persona: {} as any, message: 'ok' });
     crearMiembroSpy.mockReset().mockResolvedValue({ id: 30 } as any);
     eliminarMiembroSpy.mockReset().mockResolvedValue(undefined as any);
@@ -38,16 +46,196 @@ describe('PUT /api/personas/:id', () => {
         expect(updateSpy).not.toHaveBeenCalled();
     });
 
-    test('body inválido responde 400 sin llamar al service', async () => {
+    // Regresión: el body se validaba en el controller y su catch leía ZodError.errors, que en Zod 4
+    // no existe: el 400 llevaba el JSON interno de Zod como string en `message` y sin `errors`.
+    test('body inválido responde 400 con el contrato estándar (message fijo y errors[])', async () => {
         const res = await request(app).put('/api/personas/5').set(ADMIN).send({ email: 'malo', telefono: 'abc' });
         expect(res.status).toBe(400);
+        expect(res.body.success).toBe(false);
+        expect(res.body.message).toBe('Datos inválidos');
+        expect(Array.isArray(res.body.errors)).toBe(true);
+        expect(res.body.errors).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ field: 'email', message: expect.any(String) }),
+                expect.objectContaining({ field: 'telefono', message: expect.any(String) }),
+            ]),
+        );
         expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    test('identificadorTipo sin identificadorValor: 400 estándar con el mensaje de la regla', async () => {
+        const res = await request(app).put('/api/personas/5').set(ADMIN).send({ identificadorTipo: 'DNI' });
+        expect(res.status).toBe(400);
+        expect(res.body.message).toBe('Datos inválidos');
+        expect(res.body.errors).toEqual([
+            expect.objectContaining({ message: 'identificadorTipo e identificadorValor deben venir juntos' }),
+        ]);
+        expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    test('formato de identificador inválido apunta al campo identificadorValor', async () => {
+        const res = await request(app).put('/api/personas/5').set(ADMIN).send({ identificadorTipo: 'DNI', identificadorValor: 'abc' });
+        expect(res.status).toBe(400);
+        expect(res.body.errors).toEqual([expect.objectContaining({ field: 'identificadorValor' })]);
+        expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    test('el body se valida una sola vez, en la ruta (el controller no vuelve a parsear)', async () => {
+        const res = await request(app).put('/api/personas/5').set(ADMIN).send({ nombre: 'Ana' });
+        expect(res.status).toBe(200);
+        expect(updateSchemaParseSpy).not.toHaveBeenCalled();
     });
 
     test('body válido llega al service sin campos fuera del contrato', async () => {
         const res = await request(app).put('/api/personas/5').set(ADMIN).send({ nombre: 'Ana', estadoOperativo: 'ELIMINADO' });
         expect(res.status).toBe(200);
         expect(updateSpy).toHaveBeenCalledWith(5, { nombre: 'Ana' });
+    });
+
+    test('valores nulos permitidos por el contrato (telefono, email) llegan al service', async () => {
+        await request(app).put('/api/personas/5').set(ADMIN).send({ telefono: null, email: null, inmobiliariaId: null });
+        expect(updateSpy).toHaveBeenCalledWith(5, { telefono: null, email: null, inmobiliariaId: null });
+    });
+
+    // Política de body vacío (#257 bloque 3): un update sin ningún campo del contrato es 400.
+    test.each([[{}], [{ campoInventado: 1 }], [{ estadoOperativo: 'ELIMINADO' }]])('%j responde 400 sin llamar al service', async (body) => {
+        const res = await request(app).put('/api/personas/5').set(ADMIN).send(body);
+        expect(res.status).toBe(400);
+        expect(res.body.message).toBe('Datos inválidos');
+        expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    test('RBAC sin cambios: TECNICO 403 sin llegar al service', async () => {
+        const res = await request(app).put('/api/personas/5').set(authHeader('TECNICO')).send({ nombre: 'Ana' });
+        expect(res.status).toBe(403);
+        expect(updateSpy).not.toHaveBeenCalled();
+    });
+});
+
+// El controller revalidaba con createPersonaSchema.parse y releía jefeDeFamiliaId del body con
+// Number(): el schema ya entrega el DTO tipado. Refactor sin cambio de contrato.
+describe('POST /api/personas', () => {
+    const base = { identificadorTipo: 'DNI', identificadorValor: '12345678', nombre: 'Ana', apellido: 'Paz' };
+    const post = (body: Record<string, unknown>, auth = ADMIN) => request(app).post('/api/personas').set(auth).send(body);
+
+    test('body válido llega al service como DTO (identificador normalizado, IDs number)', async () => {
+        const res = await post({
+            identificadorTipo: 'CUIL',
+            identificadorValor: ' 20-12345678-3 ',
+            nombre: 'Ana',
+            apellido: 'Paz',
+            telefono: 1155550000,
+            email: 'ana@example.com',
+            jefeDeFamiliaId: 9,
+            inmobiliariaId: 4,
+            categoria: 'PROPIETARIO',
+        });
+        expect(res.status).toBe(201);
+        expect(res.body).toEqual(expect.objectContaining({ success: true, message: 'Persona creada exitosamente' }));
+        expect(createSpy).toHaveBeenCalledTimes(1);
+        expect(createSpy).toHaveBeenCalledWith(
+            {
+                identificadorTipo: 'CUIL',
+                identificadorValor: '20123456783',
+                nombre: 'Ana',
+                apellido: 'Paz',
+                razonSocial: undefined,
+                telefono: 1155550000,
+                email: 'ana@example.com',
+                jefeDeFamiliaId: 9,
+                inmobiliariaId: 4,
+            },
+            expect.objectContaining({ role: 'ADMINISTRADOR' }),
+        );
+    });
+
+    test('sin jefeDeFamiliaId ni inmobiliariaId el DTO no incluye esas claves', async () => {
+        await post(base);
+        const dto = createSpy.mock.calls[0][0];
+        expect(dto).not.toHaveProperty('jefeDeFamiliaId');
+        expect(dto).not.toHaveProperty('inmobiliariaId');
+    });
+
+    test('el body se valida una sola vez, en la ruta (el controller no vuelve a parsear)', async () => {
+        const res = await post(base);
+        expect(res.status).toBe(201);
+        expect(createSchemaParseSpy).not.toHaveBeenCalled();
+    });
+
+    test.each([
+        ['falta nombre y apellido', { identificadorTipo: 'DNI', identificadorValor: '12345678' }],
+        ['DNI inválido', { ...base, identificadorValor: 'abc' }],
+        ['jefeDeFamiliaId no numérico', { ...base, jefeDeFamiliaId: 'abc' }],
+        ['jefeDeFamiliaId nulo', { ...base, jefeDeFamiliaId: null }],
+    ])('%s responde 400 estándar sin llamar al service', async (_label, body) => {
+        const res = await post(body);
+        expect(res.status).toBe(400);
+        expect(res.body.message).toBe('Datos inválidos');
+        expect(Array.isArray(res.body.errors)).toBe(true);
+        expect(createSpy).not.toHaveBeenCalled();
+    });
+
+    test('RBAC sin cambios: TECNICO 403', async () => {
+        const res = await post(base, authHeader('TECNICO'));
+        expect(res.status).toBe(403);
+        expect(createSpy).not.toHaveBeenCalled();
+    });
+});
+
+// GET /cuil/:cuil era la única ruta de Persona sin validateParams: el string llegaba crudo al
+// service. El CUIL es un string de 11 dígitos (no un number: no es un ID de PK).
+describe('GET /api/personas/cuil/:cuil', () => {
+    const get = (cuil: string, auth = ADMIN) => request(app).get(`/api/personas/cuil/${encodeURIComponent(cuil)}`).set(auth);
+
+    test.each([
+        ['con guiones', '20-12345678-3'],
+        ['con puntos', '20.12345678.3'],
+        ['con espacios', '20 12345678 3'],
+        ['con espacios externos', ' 20123456783 '],
+        ['solo dígitos', '20123456783'],
+    ])('CUIL %s llega al service normalizado y como string', async (_label, cuil) => {
+        const res = await get(cuil);
+        expect(res.status).toBe(200);
+        expect(findByCuilSpy).toHaveBeenCalledTimes(1);
+        expect(findByCuilSpy).toHaveBeenCalledWith('20123456783');
+        expect(typeof findByCuilSpy.mock.calls[0][0]).toBe('string');
+    });
+
+    test('mantiene el 404 cuando el CUIL es válido pero no existe', async () => {
+        findByCuilSpy.mockResolvedValue(null as any);
+        const res = await get('20-12345678-3');
+        expect(res.status).toBe(404);
+        expect(res.body).toEqual({ success: false, message: 'Persona no encontrada' });
+    });
+
+    test.each([
+        ['letras', 'abc'],
+        ['10 dígitos', '1234567890'],
+        ['12 dígitos', '123456789012'],
+        ['solo espacios', '   '],
+        ['un espacio', ' '],
+        ['dígitos con letra', '2012345678a'],
+        ['guiones sin dígitos', '--'],
+        ['dígitos no ASCII', '٢٠١٢٣٤٥٦٧٨٣'],
+        ['demasiado largo', '2'.repeat(300)],
+    ])('CUIL inválido (%s) responde 400 estándar sin llamar al service', async (_label, cuil) => {
+        const res = await get(cuil);
+        expect(res.status).toBe(400);
+        expect(res.body.success).toBe(false);
+        expect(res.body.message).toBe('Datos inválidos');
+        expect(res.body.errors).toEqual([expect.objectContaining({ field: 'cuil' })]);
+        expect(findByCuilSpy).not.toHaveBeenCalled();
+    });
+
+    test('RBAC sin cambios: INMOBILIARIA 403 sin llegar al service', async () => {
+        const res = await get('20123456783', authHeader('INMOBILIARIA', 5));
+        expect(res.status).toBe(403);
+        expect(findByCuilSpy).not.toHaveBeenCalled();
+    });
+
+    test('RBAC sin cambios: TECNICO puede consultar', async () => {
+        const res = await get('20123456783', authHeader('TECNICO'));
+        expect(res.status).toBe(200);
     });
 });
 

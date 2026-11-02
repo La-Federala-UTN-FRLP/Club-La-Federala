@@ -235,6 +235,35 @@ describe('GET /api/files/lote/:idLoteAsociado — query', () => {
     });
 });
 
+// PUT /files/:id existía sin validación: el body llegaba tal cual a Prisma (mass assignment de
+// campos internos) y el front no tenía consumidor. Se eliminó sin reemplazo: no hay operación de
+// "renombrar/editar metadata" expuesta.
+describe('PUT /api/files/:id — eliminada', () => {
+    test.each([
+        ['ADMINISTRADOR', { nombreArchivo: 'x.pdf' }],
+        ['GESTOR', { estadoOperativo: 'ELIMINADO', ventaId: 3 }],
+        ['ADMINISTRADOR', {}],
+    ])('con rol %s responde 404 (la ruta ya no existe)', async (role, body) => {
+        const res = await request(app).put('/api/files/12').set(authHeader(role)).send(body);
+        expect(res.status).toBe(404);
+    });
+
+    test('sin token también responde 404: no hay ruta que autentique', async () => {
+        const res = await request(app).put('/api/files/12').send({ nombreArchivo: 'x.pdf' });
+        expect(res.status).toBe(404);
+    });
+
+    test('un id inválido tampoco matchea ninguna ruta PUT', async () => {
+        const res = await request(app).put('/api/files/abc').set(ADMIN).send({});
+        expect(res.status).toBe(404);
+    });
+
+    test('las demás rutas de /:id siguen existiendo (GET/DELETE)', async () => {
+        expect((await request(app).get('/api/files/7').set(ADMIN)).status).toBe(200);
+        expect((await request(app).delete('/api/files/7').set(ADMIN)).status).toBe(204);
+    });
+});
+
 describe('RBAC sin cambios', () => {
     test('TECNICO no puede borrar archivos (403)', async () => {
         const res = await request(app).delete('/api/files/7').set(authHeader('TECNICO'));

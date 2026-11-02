@@ -2,8 +2,7 @@ import {
     createUsuarioSchema, 
     updateUsuarioSchema,
     getUsuarioSchema,
-    deleteUsuarioSchema, 
-    queryUsuarioSchema 
+    deleteUsuarioSchema
 } from '../../../src/validations/usuario.validation';
 
 //--- Tests para createUsuarioSchema ---
@@ -128,9 +127,9 @@ describe('createUsuarioSchema', () => {
 
 //--- Tests para updateUsuarioSchema ---
 describe('updateUsuarioSchema', () => {
-    test('acepta objeto vacío por ser esquema parcial', () => {
-        const result = updateUsuarioSchema.safeParse({});
-        expect(result.success).toBe(true);
+    test('rechaza un update vacío o con solo claves desconocidas', () => {
+        expect(updateUsuarioSchema.safeParse({}).success).toBe(false);
+        expect(updateUsuarioSchema.safeParse({ campoInventado: 1 }).success).toBe(false);
     });
 
     test('debe validar correctamente una actualización parcial', () => {
@@ -211,63 +210,6 @@ describe('deleteUsuarioSchema', () => {
     });
 });
 
-//--- Tests para queryUsuarioSchema ---
-describe('queryUsuarioSchema', () => {
-    test('debe validar correctamente una query sin filtros', () => {
-        // ARRANGE
-        const emptyQuery = {};
-
-        // ACT & ASSERT
-        expect(() => queryUsuarioSchema.parse(emptyQuery)).not.toThrow();
-    });
-
-    test('debe validar correctamente una query con filtros válidos', () => {
-        // ARRANGE
-        const validQuery = {
-            username: 'testuser',
-            rol: 'ADMINISTRADOR',
-            email: 'test@example.com',
-        };
-
-        // ACT & ASSERT
-        expect(() => queryUsuarioSchema.parse(validQuery)).not.toThrow();
-    });
-
-    test('debe rechazar un username vacío en la query', () => {
-        // ARRANGE
-        const invalidQuery = {
-            username: '',
-        };
-
-        // ACT & ASSERT
-        expect(() => queryUsuarioSchema.parse(invalidQuery)).toThrow();
-    });
-
-    test('debe rechazar un rol inválido en la query', () => {
-        // ARRANGE
-        const invalidQuery = {
-            rol: 'ROL_INVALIDO',
-        };
-
-        // ACT & ASSERT
-        expect(() => queryUsuarioSchema.parse(invalidQuery)).toThrow();
-    });
-
-    test('debe rechazar un email inválido en la query', () => {
-        // ARRANGE
-        const invalidQuery = {
-            email: 'email-invalido',
-        };
-
-        // ACT & ASSERT
-        expect(() => queryUsuarioSchema.parse(invalidQuery)).toThrow();
-    });
-
-    test('rechaza password en query con menos de 6 caracteres', () => {
-        const result = queryUsuarioSchema.safeParse({ password: '12345' });
-        expect(result.success).toBe(false);
-    });
-});
 
 //--- Normalización: trim/minúsculas antes de validar; password exacta ---
 describe('normalización de usuario (create y update)', () => {
