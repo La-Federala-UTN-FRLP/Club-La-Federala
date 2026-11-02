@@ -73,6 +73,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PutLoteResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [lotes]
@@ -138,6 +139,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PutVentaResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [ventas]
@@ -203,6 +205,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PutInmobiliariaResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [inmobiliarias]
@@ -268,6 +271,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PutUsuarioResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [usuarios]
@@ -333,6 +337,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PutReservaResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [reservas]
@@ -374,6 +379,25 @@ components:
       schema: { type: integer }
 
   responses:
+    BadRequest:
+      description: >-
+        Datos inválidos (body, params o query). En un PUT también se devuelve cuando el body no trae
+        ningún campo válido: `{}` o solo claves desconocidas (que se descartan).
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, message, errors]
+            properties:
+              success: { type: boolean, enum: [false] }
+              message: { type: string, example: 'Datos inválidos' }
+              errors:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    field: { type: string }
+                    message: { type: string }
     NotFound:
       description: Recurso no encontrado
       content:
@@ -459,7 +483,8 @@ components:
         fraccion: { type: integer, description: 'ID o número de fracción' }
         numPartido:
           type: integer
-          enum: [62]  # readonly 62
+          maximum: 2147483647
+          default: 62  # valor por defecto al crear un lote
         frente: { type: number }
         fondo: { type: number }
         superficie: { type: number }
@@ -492,7 +517,7 @@ components:
       required: [idFraccion, numero]
       properties:
         idFraccion: { type: integer }
-        numero: { type: integer }
+        numero: { type: integer, minimum: 1, maximum: 2147483647 }  # Fraccion.numero es Int @unique
         lotes:
           type: array
           items: { $ref: '#/components/schemas/Lote' }
@@ -585,7 +610,8 @@ components:
         ubicacion: { $ref: '#/components/schemas/Ubicacion' }
         superficie: { type: number }
         descripcion: { type: string }
-        capacidad: { type: number }
+        capacidad: { type: integer, minimum: 0, maximum: 2147483647 }
+        numPartido: { type: integer, maximum: 2147483647, default: 62 }
         nombre: { type: string }
         alquiler: { type: boolean }
         deuda: { type: boolean }
@@ -617,7 +643,8 @@ components:
         ubicacion: { $ref: '#/components/schemas/Ubicacion' }
         superficie: { type: number }
         descripcion: { type: string }
-        capacidad: { type: number }
+        capacidad: { type: integer, minimum: 0, maximum: 2147483647 }
+        numPartido: { type: integer, maximum: 2147483647 }
         nombre: { type: string }
 
     PutLoteResponse:
@@ -775,7 +802,7 @@ components:
       properties:
         nombre: { type: string }
         razonSocial: { type: string }
-        comxventa: { type: number }
+        comxventa: { type: number, minimum: 0, maximum: 100, nullable: true, description: 'Porcentaje de comisión (0 a 100). null se normaliza a 0.' }
         contacto: { type: string }
         reservas:
           type: array
@@ -811,7 +838,7 @@ components:
         nombre: { type: string }
         contacto: { type: string }
         razonSocial: {type: string}
-        comxventa: {type: integer} 
+        comxventa: { type: number, minimum: 0, maximum: 100, nullable: true, description: 'Porcentaje de comisión (0 a 100). null se normaliza a 0.' }
         userId: { type: integer }
         reservas:
           type: array

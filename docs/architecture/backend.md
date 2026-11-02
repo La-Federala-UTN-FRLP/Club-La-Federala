@@ -52,29 +52,85 @@ Estado final por parte del request:
 - `validateParams(schema)`: en las rutas que lo usan, Zod valida y transforma los params y el resultado se conserva en `req.validated.params`. `req.params` sigue siendo el input HTTP crudo (strings). Los controllers migrados leen los params con `validatedParams(req, schema)`, con el mismo schema que la ruta; si la ruta no validó params o usó otro schema, lanza.
 - `validateQuery(schema)`: igual que `validateParams`, pero para la query; el resultado se conserva en `req.validated.query` y los controllers lo leen con `validatedQuery(req, schema)`. En Express 5 `req.query` es un getter que re-parsea la URL en cada acceso, así que no se puede reemplazar ni mutar: el middleware anterior validaba pero el controller seguía viendo strings crudos y claves que el schema no declaraba. `req.validated.params` y `req.validated.query` conviven en el mismo request (`GET /ventas/inmobiliaria/:id` usa ambos).
 
-Los controllers no reinterpretan los valores transformados (`Number(...)`, `parseInt(...)`, `=== 'true'`, casts) ni leen `req.query` directamente: lo verifica `tests/unit/architecture/controllers.query.guard.test.ts`, que falla si algún controller vuelve a contener `req.query`. Quien agregue una ruta con `validateQuery` debe leerla con `validatedQuery` y el mismo objeto de schema; si la ruta no validó query, o la validó con otro schema, lanza.
+Los controllers no reinterpretan los valores transformados (`Number(...)`, `parseInt(...)`, `=== 'true'`, casts) ni leen `req.params` ni `req.query` directamente: lo verifican `tests/unit/architecture/controllers.params.guard.test.ts` y `tests/unit/architecture/controllers.query.guard.test.ts`. Quien agregue una ruta con `validateParams` o `validateQuery` debe leerla con `validatedParams` / `validatedQuery` y el mismo objeto de schema; si la ruta no validó esa parte, o la validó con otro schema, lanza.
 
 ### Política de IDs HTTP (path y query)
 
-Los IDs numéricos de las rutas con `validateParams()` (`/:id`, `/:ventaId`, `/:miembroId`, …), los IDs de query que representan PKs reales (`propietarioId`, `ubicacionId`, `loteId`, `clienteId`, `inmobiliariaId`, `compradorId`) y los campos históricos con semántica de identificador que siguen declarados en los schemas aunque sean filtros legacy no implementados (`vendedorId`) siguen una única política, `positiveIntString` en `src/validations/params.validation.ts`: entero decimal positivo canónico dentro de int4 (`1` a `2147483647`), con output `number`. `0`, `-1`, `007`, `+5`, `1e2`, `0x10`, `1.5`, `" 12"` o `2147483648` responden `400`.
+Todas las rutas con parámetros de path usan `validateParams()` y sus controllers leen el resultado con `validatedParams(req, schema)`; ningún controller relee `req.params`. Lo garantizan `tests/unit/architecture/routes.params.guard.test.ts` (toda ruta con `:param` pasa por `validateParams`) y `tests/unit/architecture/controllers.params.guard.test.ts` (ningún controller lee `req.params`).
 
-La política no cubre rutas que no usan `validateParams()`; por ejemplo `PUT /api/files/:id` todavía interpreta su `:id` en el controller. Tampoco cubre los decimales de query (`superficieMin/Max`, `sena`, `montoMin/Max`, que usan `z.coerce.number()`) ni los IDs de body (`idInt`).
+Los IDs numéricos de path (`/:id`, `/:ventaId`, `/:miembroId`, `/:idLoteAsociado`, …) y los IDs de query que representan PKs reales (`propietarioId`, `ubicacionId`, `loteId`, y `inmobiliariaId` en el listado de prioridades) siguen una única política, `positiveIntString` en `src/validations/params.validation.ts`: entero decimal positivo canónico dentro de int4 (`1` a `2147483647`), con output `number`. `0`, `-1`, `007`, `+5`, `1e2`, `0x10`, `1.5`, `" 12"` o `2147483648` responden `400`.
+
+`GET /personas/cuil/:cuil` es la excepción deliberada: el CUIL no es un número. `cuilParamsSchema` (`persona.validation.ts`) lo mantiene como `string`: quita guiones, puntos y espacios y exige 11 dígitos. Se lee con `validatedParams(req, cuilParamsSchema)` como cualquier otro param.
 
 ### Contrato de query params
 
 - **Claves desconocidas**: se descartan en silencio (sin `400`) y no llegan al controller ni al service. Los schemas de query no usan `.strict()` porque el frontend manda parámetros que el backend no declara (por ejemplo `estado` y `pageSize` a `/inmobiliarias`). Con el parser `simple` de Express 5, `foo[]=1` y `foo[bar]=1` son claves literales desconocidas, no arrays ni objetos.
 - **Query repetida**: `?id=1&id=2` llega como array y ningún filtro admite varios valores, así que responde `400`.
 - **Booleanos**: `booleanQuery` (`src/validations/query.validation.ts`) acepta únicamente `"true"` y `"false"` en minúscula y entrega un `boolean` (`deudor`, `includeInactive`, `includeDeleted`). `1`, `0`, `yes`, `TRUE`, `""` y los arrays responden `400`. No usar `z.coerce.boolean()`: convierte `"false"` en `true`.
-- **Qué recibe el service**: el schema de una ruta puede aceptar más filtros de los que el service usa. En `GET /lotes` el controller entrega al service el objeto validado por `queryLoteSchema`, y el service usa solo los filtros que implementa: los campos históricos que el schema todavía declara (`superficieMin/Max`, `fechaCreacionFrom/To`) se ignoran y siguen como deuda documentada abajo, fuera de #255; reservas, ventas y prioridades conservan un DTO explícito con los filtros soportados.
+- **Qué recibe el service**: el controller entrega al service lo que validó el schema de la ruta (`GET /lotes`) o un DTO explícito armado con los filtros del schema (reservas, ventas, prioridades). Como el schema declara solo los filtros que el service implementa, un filtro que el schema no declara no existe para el API: Zod lo descarta como clave desconocida.
+- **Lectura en el controller**: `validateQuery()` + `validatedQuery(req, schema)` con el mismo schema que la ruta; ningún controller lee `req.query` (lo verifica `tests/unit/architecture/controllers.query.guard.test.ts`).
 
-### Deuda conocida de query (fuera del contrato actual)
+Filtros de query vigentes (todos implementados por su service):
 
-- Filtros que el schema acepta y valida pero ningún service usa: lotes (`superficieMin`, `superficieMax`, `fechaCreacionFrom`, `fechaCreacionTo`), reservas (`desde`, `hasta`, `clienteId`, `inmobiliariaId`, `sena`, `fechaFinReservaDesde`, `fechaFinReservaHasta`) y ventas (`compradorId`, `vendedorId`, `fechaVentaFrom`, `fechaVentaTo`, `montoMin`, `montoMax`). Pendiente decidir, por filtro, implementarlo o quitarlo del schema. `inmobiliariaId` de reservas no debe pasar a ser filtro real sin revisar el aislamiento por tenant.
-- `GET /ventas/inmobiliaria/:id` reutiliza `queryVentaSchema` pero solo filtra por `estadoOperativo`.
-- `GET /reservas/filtrarPorEstado` es inalcanzable: `/:id` la captura antes y responde `400`. Su controller lee la query validada, pero la ruta sigue pendiente de eliminar.
+| Ruta | Filtros |
+|---|---|
+| `GET /lotes` | `estado`, `subestado`, `tipo`, `ocupacion`, `propietarioId`, `ubicacionId`, `deudor` |
+| `GET /reservas` | `estado`, `estadoOperativo`, `loteId` |
+| `GET /ventas` | `estado`, `estadoOperativo`, `loteId` |
+| `GET /ventas/inmobiliaria/:id` | `estadoOperativo` |
+
+Otras rutas con query validada: `GET /personas`, `GET /inmobiliarias`, el listado de prioridades (que sí implementa `loteId` e `inmobiliariaId`) y `GET /files/venta/:ventaId` y `GET /files/lote/:idLoteAsociado` (`includeDeleted`).
+
+### Contrato de body
+
+Cada medio de entrada tiene su propia política; no se mezclan.
+
+| Medio | Política | Dónde |
+|---|---|---|
+| Body JSON | number o string decimal; el output es siempre `number` | `src/validations/body.validation.ts` |
+| Path y query | solo strings canónicos (`positiveIntString`) | `src/validations/params.validation.ts` |
+| Multipart | todo campo llega como string: se valida con `positiveIntString` | `src/validations/filemeta.validation.ts` |
+
+Se reemplazó `z.coerce.number()`, que usaba `Number()` sobre cualquier valor y convertía `null`, `""`, `false` y `[]` en `0`, `true` en `1` y `"1e2"` o `"0x10"` en números.
+
+- **IDs de body JSON** (`idDelBody(entidad)`): number entero o string decimal canónico, entero positivo dentro de int4 (`1` a `2147483647`), output `number`. Se recortan los espacios externos de un string. Rechazan `null`, booleanos, arrays, objetos, `""`, `"0"`, `"-1"`, `"+5"`, `"007"`, `"1e2"` (notación científica), `"0x10"` (hexadecimal), `"1.5"`, `NaN`, `Infinity` y todo lo que supere `2147483647`. `optional()` y `nullable()` los define cada campo; el helper no los agrega.
+- **Enteros positivos int4 que no son PK** (`enteroPositivoDelBody(mensaje)`): la misma regla con mensaje propio (por ejemplo `Fraccion.numero`). `idDelBody` delega en él.
+- **Números generales** (`numeroDelBody(mensaje)`): number finito o string en notación decimal explícita (`"10"`, `" 10.5 "`, `"-1"`, `"007"`). Rechaza `null`, `""`, booleanos, arrays, `"1e2"`, `"0x10"`, `"+5"`, `".5"`, `"5."`, separadores de miles y coma decimal. No impone entero, signo ni rango: eso es regla de dominio de cada schema (`.pipe(z.number().int().min(0))`).
+- **Columnas `Int` de Prisma**: los campos del body que se persisten en una columna `Int` y están controlados por el cliente tienen tope `2147483647` (`capacidad`, `numPartido`, número de lote, número de calle, `maxPrioridadesActivas`, IDs, etc.). Sin tope, un valor mayor llegaba a Prisma y terminaba en `500`.
+- **`comxventa`** (inmobiliarias): porcentaje `0..100`. `null` significa "sin comisión" y se normaliza a `0` de forma explícita en el schema. `""`, `false` y `[]` ya no valen `0`.
+
+### Multipart
+
+`POST /files` valida `idLoteAsociado`, `tipo` y `ventaId` con `createFileMetadataSchema` antes del controller; los IDs son strings canónicos (`positiveIntString`) y el output ya es `number`. `ventaId` vacío (`""`) equivale a no enviarlo. El controller no vuelve a convertir con `Number()` ni `parseInt()`.
+
+### Updates parciales
+
+La convención histórica se mantiene: `PUT` es un update parcial y cada campo es opcional. Un update sin ningún campo válido (`{}` o solo claves desconocidas, que Zod descarta) responde `400` con `Debes enviar al menos un campo para actualizar`. Se evalúa sobre el resultado de Zod (`tieneAlgunCampo` / `ACTUALIZAR_SIN_CAMPOS`, en `body.validation.ts`). No se usa `.strict()`: un body con al menos un campo válido sigue funcionando aunque traiga además claves desconocidas, que se descartan. Aplica a lotes, ventas, usuarios, ubicaciones, personas, fracciones, reservas, prioridades e inmobiliarias.
+
+### Legacy eliminado
+
+Dejaron de formar parte del API (el schema, la ruta y su controller se eliminaron):
+
+- `GET /reservas/filtrarPorEstado`: era inalcanzable, `/:id` la capturaba antes.
+- `PUT /files/:id` (actualización de metadata de archivos).
+- Los filtros de query que ningún service implementaba: lotes (`superficieMin`, `superficieMax`, `fechaCreacionFrom`, `fechaCreacionTo`), reservas (`desde`, `hasta`, `clienteId`, `inmobiliariaId`, `sena`, `fechaFinReservaDesde`, `fechaFinReservaHasta`) y ventas (`compradorId`, `vendedorId`, `fechaVentaFrom`, `fechaVentaTo`, `montoMin`, `montoMax`). Si llegan en la URL se descartan como cualquier clave desconocida.
+- Los schemas sin uso `queryUsuarioSchema`, `queryInmobiliariaSchema`, `fileMetadataSchema` e `identificadorSchema`, y `user.validation.ts`.
+
+### Fracciones
+
+`numero` es `Int @unique` en Prisma. El contrato HTTP lo recibe como entero positivo dentro de int4 (`5` y `"5"` válidos; `"05"`, `"1e2"`, `"+5"`, `5.5`, `0`, booleanos, `null` y valores mayores a `2147483647` responden `400`) y lo entrega siempre como `number`. Una fracción inexistente responde `404` y un número ya existente responde `409`, tanto al crear como al actualizar. Eliminar una fracción con lotes asociados sigue respondiendo `400`.
+
+### Errores HTTP concretos de Files y Promociones
+
+- **Multipart inválido**: un `MulterError` causado por el input del cliente (campo de archivo que no es `file`, demasiados archivos o partes, nombre o valor de campo fuera de límites) responde `400` en lugar de `500`. `LIMIT_FILE_SIZE` conserva su `400` con el mensaje de tamaño máximo (20 MB). Un error interno que no es de Multer sigue respondiendo `500`.
+- **Archivo inexistente**: `POST /files/:id/restore` y `POST /files/:id/sustituir` responden `404`. Restaurar un archivo que no está eliminado, sustituir uno eliminado o sustituir un tipo no sustituible responden `400`. El status sale del `statusCode` que lanza `file.service`, no del texto del mensaje. En `POST /files/:id/sustituir`, `validateParams` se ejecuta antes que multer.
+- **Promociones**: `aplicar` y `quitar` delegan los errores en el middleware global con `next(error)`; ya no responden de forma manual. Un error con `statusCode` conserva su status y mensaje, `P2002` responde `409`, `P2025` responde `404` y un error inesperado responde `500` genérico sin exponer su mensaje interno. Esos códigos Prisma se reconocen con `instanceof Prisma.PrismaClientKnownRequestError` del cliente generado en `src/generated/prisma`, que es la clase que ese cliente lanza. La clase homónima de `@prisma/client/runtime/library` es otra y no identifica estos errores.
+
+### Deuda conocida de query y errores
+
 - `deudor` no se restringe por rol: un `TECNICO` puede filtrar por `deudor` aunque el campo `deuda` se le oculte en la respuesta.
 - `personas.limit` no tiene un máximo funcional.
-- `queryInmobiliariaSchema` y `queryUsuarioSchema` no se usan en ninguna ruta.
+- Otros catches locales de los controllers (por ejemplo Files y Persona) siguen respondiendo de forma manual y pueden exponer `error.message`; no se unificaron.
 
 ## Variables relevantes
 
