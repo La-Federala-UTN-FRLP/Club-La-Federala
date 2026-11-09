@@ -33,7 +33,7 @@ export function chipsFrom(applied, D, isInmo) {
   if (applied.precio && (applied.precio.min !== D.precio.min || applied.precio.max !== D.precio.max)) {
     arr.push({ k: "precio", label: `Precio ${applied.precio.min}–${applied.precio.max} USD` });
   }
-  if (!isInmo && applied.deudor !== null) {
+  if (!isInmo && applied.deudor != null) {
     arr.push({ k: "deudor", label: applied.deudor ? "Solo deudor" : "Sin deuda" });
   }
   return arr;

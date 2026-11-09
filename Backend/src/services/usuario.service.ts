@@ -41,9 +41,41 @@ export async function getUsuarioById(id: number): Promise<UserData> {
 
 }
 
-    
+
+// Quién administra usuarios: la ruta deja pasar a ADMINISTRADOR y GESTOR, pero solo
+// ADMINISTRADOR administra privilegios de ADMINISTRADOR (otorgarlos o tocar a quien los tiene).
+export type UsuarioActor = { role: string };
+
+function forbidUsuario(message: string): never {
+    const error = new Error(message) as any;
+    error.statusCode = 403;
+    throw error;
+}
+
+function assertPuedeAsignarRol(actor: UsuarioActor, rolSolicitado: Rol | undefined): void {
+    if (actor.role !== 'ADMINISTRADOR' && rolSolicitado === 'ADMINISTRADOR') {
+        forbidUsuario('Solo un ADMINISTRADOR puede asignar el rol ADMINISTRADOR');
+    }
+}
+
+// Para no-ADMINISTRADOR: el objetivo debe existir y no ser ADMINISTRADOR.
+async function assertPuedeModificarUsuario(actor: UsuarioActor, idObjetivo: number): Promise<void> {
+    if (actor.role === 'ADMINISTRADOR') return;
+    const objetivo = await prisma.user.findUnique({ where: { id: idObjetivo }, select: { role: true } });
+    if (!objetivo) {
+        const error = new Error('Usuario no encontrado') as any;
+        error.statusCode = 404;
+        throw error;
+    }
+    if (objetivo.role === 'ADMINISTRADOR') {
+        forbidUsuario('Solo un ADMINISTRADOR puede modificar a otro ADMINISTRADOR');
+    }
+}
+
 // crear usuario
-export async function createUser(req: PostUsuarioRequest): Promise<PostUsuarioResponse> {
+export async function createUser(req: PostUsuarioRequest, actor: UsuarioActor): Promise<PostUsuarioResponse> {
+    assertPuedeAsignarRol(actor, req.rol);
+
     // 1. Verificar si existe
     const exists = await prisma.user.findUnique({ where: { email: req.email }});
     if (exists) {
@@ -68,7 +100,9 @@ export async function createUser(req: PostUsuarioRequest): Promise<PostUsuarioRe
 }
 
 // actualizar usuario
-export async function updateUser( idActual: number, req: PutUsuarioRequest ): Promise<PutUsuarioResponse> {
+export async function updateUser( idActual: number, req: PutUsuarioRequest, actor: UsuarioActor ): Promise<PutUsuarioResponse> {
+   assertPuedeAsignarRol(actor, req.rol);
+   await assertPuedeModificarUsuario(actor, idActual);
    try {
        // Solo los campos del contrato de actualización: cualquier otra propiedad del input
        // (id, relaciones, etc.) no llega a Prisma. El rol público (rol) se persiste como role.

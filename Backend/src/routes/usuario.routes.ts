@@ -39,10 +39,11 @@ router.put(
     usuarioController.actualizarUsuario);
 
 // DELETE /api/Usuarios/:id
+// Solo ADMINISTRADOR elimina usuarios.
 router.delete(
     '/:id',
     authenticate,
-    authorize('ADMINISTRADOR', 'GESTOR'),
+    authorize('ADMINISTRADOR'),
     validateParams(deleteUsuarioSchema),  
     usuarioController.eliminarUsuario);
 

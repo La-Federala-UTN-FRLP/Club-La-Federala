@@ -28,7 +28,7 @@ export async function obtenerUsuarioPorId( req: Request<{ id: string }>, res: Re
 // Crear usuario
 export async function crearUsuario(req: Request, res: Response, next: NextFunction) {
     try {
-        const usuario = await UsuarioService.createUser(req.body);
+        const usuario = await UsuarioService.createUser(req.body, req.user!);
         res.status(201).json({success: true,message: "Usuario creado exitosamente", data:usuario});
     } catch (error) {
         next(error);
@@ -39,7 +39,7 @@ export async function crearUsuario(req: Request, res: Response, next: NextFuncti
 export async function actualizarUsuario(req: Request<{id: string}, {}, PutUsuarioRequest>, res: Response, next: NextFunction) {
     try {
         const { id } = validatedParams(req, getUsuarioSchema);
-        const result = await UsuarioService.updateUser(id, req.body);
+        const result = await UsuarioService.updateUser(id, req.body, req.user!);
         res.json({success: true, message: "Usuario actualizado exitosamente", data:result});
     } catch (error) {
         next(error);

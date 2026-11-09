@@ -189,6 +189,14 @@ function buildWhereFromQueryDTO(query: any, role?: string) {
   if (query?.propietarioId) where.propietarioId = Number(query.propietarioId) || undefined;
   if (query?.ubicacionId)   where.ubicacionId   = Number(query.ubicacionId) || undefined;
 
+  // TECNICO no ve la deuda: filtrar por ella le permitiría inferir quién es deudor por el
+  // conjunto de resultados, aunque el DTO oculte el campo. Se rechaza en lugar de ignorarlo.
+  if (role === 'TECNICO' && query?.deudor !== undefined) {
+    const error: any = new Error('El filtro deudor no está disponible para el rol TECNICO');
+    error.statusCode = 400;
+    throw error;
+  }
+
   // El filtro "solo deudores" debe restringir el query a lotes que tengan deuda (deuda === true).
   // El campo en el modelo es `deuda` (Boolean?).
   if (query?.deudor === true || query?.deudor === 'true') {

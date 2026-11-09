@@ -66,19 +66,21 @@ router.delete(
     ventaController.eliminarVenta);
 
 // PATCH /api/Ventas/:id/eliminar
+// Baja operativa: solo staff (INMOBILIARIA no elimina ventas, ni siquiera las propias).
 router.patch(
     '/:id/eliminar',
     authenticate,
-    authorize('ADMINISTRADOR', 'GESTOR', 'INMOBILIARIA'),
+    authorize('ADMINISTRADOR', 'GESTOR'),
     validateParams(patchVentaParamsSchema),
     ventaController.eliminarVenta
 );
 
 // PATCH /api/Ventas/:id/reactivar
+// Reactivación: solo staff (INMOBILIARIA no reactiva ventas, ni siquiera las propias).
 router.patch(
     '/:id/reactivar',
     authenticate,
-    authorize('ADMINISTRADOR', 'GESTOR', 'INMOBILIARIA'),
+    authorize('ADMINISTRADOR', 'GESTOR'),
     validateParams(patchVentaParamsSchema),
     ventaController.reactivarVenta
 );
