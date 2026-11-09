@@ -12,6 +12,11 @@ type JWTPayload = {
     inmobiliariaId?: number;
 };
 
+// Hash bcrypt constante (cost 10, el mismo de usuario.service y los seeds) de un valor aleatorio
+// descartado: no corresponde a ningún usuario ni password. Con email inexistente el login compara
+// contra este hash, así ambos caminos de "credenciales inválidas" hacen el mismo trabajo bcrypt.
+export const DUMMY_PASSWORD_HASH = '$2b$10$lMbtwk.xhSuMObcuJmsfSOnyZVff73YLQy2uN78UR09Crby/kqbBm';
+
 export async function login(data: LoginRequest): Promise<LoginResponse> {
   // 1. Buscar usuario con su inmobiliaria incluida (los emails se guardan normalizados)
   const user = await prisma.user.findUnique({
@@ -19,15 +24,9 @@ export async function login(data: LoginRequest): Promise<LoginResponse> {
     include: { inmobiliaria: true }
   });
 
-  if (!user) {
-    const error = new Error('Credenciales inválidas') as any;
-    error.statusCode = 401;
-    throw error;
-  }
-
-  // 2. Verificar password
-  const validPassword = await bcrypt.compare(data.password, user.password);
-  if (!validPassword) {
+  // 2. Verificar password (siempre una comparación bcrypt, exista o no el usuario)
+  const validPassword = await bcrypt.compare(data.password, user?.password ?? DUMMY_PASSWORD_HASH);
+  if (!user || !validPassword) {
     const error = new Error('Credenciales inválidas') as any;
     error.statusCode = 401;
     throw error;
@@ -44,8 +43,8 @@ export async function login(data: LoginRequest): Promise<LoginResponse> {
   // Obtener inmobiliariaId desde la relación incluida
   const inmobiliariaId = user.inmobiliaria?.id ?? null;
 
-  // Incluir inmobiliariaId en el JWT si el rol es INMOBILIARIA
-  // Esto evita consultar la BD en cada request en el middleware
+  // Incluir inmobiliariaId en el JWT si el rol es INMOBILIARIA.
+  // Los claims son informativos: authenticate relee rol y tenant vigentes desde la DB.
   const payload: JWTPayload = {
     sub: user.id,
     email: user.email,

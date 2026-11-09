@@ -17,44 +17,21 @@ jest.mock('../../../src/services/prioridad.service', () => ({
 }));
 
 import request from 'supertest';
-import jwt from 'jsonwebtoken';
 import app from '../../../src/app';
-import { initWebEnv, resetWebEnvForTests } from '../../../src/config/env';
+import { authHeader, useTestWebEnv } from '../../support/http';
 import { getAllReservas } from '../../../src/services/reserva.service';
 import { getAllVentas, getVentasByInmobiliaria } from '../../../src/services/venta.service';
 import { getAllPrioridades } from '../../../src/services/prioridad.service';
-
-const JWT_SECRET = 'unit-test-jwt-secret';
 
 const getAllReservasMock = getAllReservas as jest.Mock;
 const getAllVentasMock = getAllVentas as jest.Mock;
 const getVentasByInmobiliariaMock = getVentasByInmobiliaria as jest.Mock;
 const getAllPrioridadesMock = getAllPrioridades as jest.Mock;
 
-function tokenFor(role: string, inmobiliariaId?: number) {
-    return jwt.sign(
-        { sub: 1, email: 'test@example.com', role, ...(inmobiliariaId != null && { inmobiliariaId }) },
-        JWT_SECRET,
-    );
-}
+// Usuarios vigentes en la "DB" de test: authenticate relee rol y tenant del registro del helper.
+const auth = authHeader;
 
-function auth(role: string, inmobiliariaId?: number) {
-    return { Authorization: `Bearer ${tokenFor(role, inmobiliariaId)}` };
-}
-
-beforeAll(() => {
-    initWebEnv({
-        NODE_ENV: 'test',
-        DATABASE_URL: 'postgresql://user:pass@localhost:5432/federala',
-        JWT_SECRET,
-        SUPABASE_URL: 'https://example.supabase.co',
-        SUPABASE_SERVICE_KEY: 'unit-test-service-key',
-    });
-});
-
-afterAll(() => {
-    resetWebEnvForTests();
-});
+useTestWebEnv();
 
 beforeEach(() => {
     getAllReservasMock.mockReset().mockResolvedValue({ reservas: [], total: 0 });

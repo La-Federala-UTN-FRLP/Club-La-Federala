@@ -19,7 +19,7 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import type { NextFunction, Request, Response } from 'express';
 import app from '../../../src/app';
-import { initWebEnv, resetWebEnvForTests } from '../../../src/config/env';
+import { authHeader, useTestWebEnv } from '../../support/http';
 import { validate } from '../../../src/middlewares/validation.middleware';
 import { createReservaController } from '../../../src/controllers/reserva.controller';
 import { login } from '../../../src/services/auth.service';
@@ -46,23 +46,7 @@ function consoleOutput(): string {
         .join('\n');
 }
 
-function tokenFor(role: string) {
-    return jwt.sign({ sub: 1, email: 'admin@example.com', role }, JWT_SECRET);
-}
-
-beforeAll(() => {
-    initWebEnv({
-        NODE_ENV: 'test',
-        DATABASE_URL: 'postgresql://user:pass@localhost:5432/federala',
-        JWT_SECRET,
-        SUPABASE_URL: 'https://example.supabase.co',
-        SUPABASE_SERVICE_KEY: 'unit-test-service-key',
-    });
-});
-
-afterAll(() => {
-    resetWebEnvForTests();
-});
+useTestWebEnv();
 
 beforeEach(() => {
     consoleSpies = CONSOLE_METHODS.map((method) =>
@@ -115,7 +99,7 @@ describe('POST /api/usuarios — alta sin contraseña en logs', () => {
 
         const res = await request(app)
             .post('/api/usuarios')
-            .set({ Authorization: `Bearer ${tokenFor('ADMINISTRADOR')}` })
+            .set(authHeader('ADMINISTRADOR'))
             .send({
                 username: '  nuevo.usuario  ',
                 password: `  ${SECRET_PASSWORD}  `,
@@ -130,7 +114,7 @@ describe('POST /api/usuarios — alta sin contraseña en logs', () => {
             password: `  ${SECRET_PASSWORD}  `,
             rol: 'GESTOR',
             email: 'nuevo@example.com',
-        });
+        }, expect.objectContaining({ role: 'ADMINISTRADOR' }));
         expect(consoleOutput()).not.toContain(SECRET_PASSWORD);
     });
 });
