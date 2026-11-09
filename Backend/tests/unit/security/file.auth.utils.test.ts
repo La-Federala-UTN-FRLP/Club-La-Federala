@@ -136,6 +136,37 @@ describe('canUserAccessArchivo', () => {
     );
 });
 
+// Block 3: TECNICO accede solo a documentación técnica (PLANO, IMAGEN). BOLETO, ESCRITURA y OTRO
+// son documentos de venta (comerciales/legales). Tipo no contemplado → denegado (default deny).
+describe('canUserAccessArchivo — TECNICO por tipo', () => {
+    const tecnico: FileAuthUser = { role: 'TECNICO' };
+
+    test.each([
+        ['PLANO', true],
+        ['IMAGEN', true],
+        ['BOLETO', false],
+        ['ESCRITURA', false],
+        ['OTRO', false],
+    ] as const)('TECNICO + %s → %s', (tipo, esperado) => {
+        const ventaId = esperado ? null : 21;
+        expect(canUserAccessArchivo(tecnico, archivo({ tipo, ventaId }), null)).toBe(esperado);
+    });
+
+    test('la venta no habilita a TECNICO un documento de venta', () => {
+        expect(canUserAccessArchivo(tecnico, archivo({ tipo: 'BOLETO', ventaId: 21 }), { inmobiliariaId: null })).toBe(false);
+    });
+
+    test('tipo no contemplado → denegado (no se permite por defecto)', () => {
+        expect(canUserAccessArchivo(tecnico, archivo({ tipo: 'NUEVO_TIPO' as TipoFile }), null)).toBe(false);
+    });
+
+    test.each(['ADMINISTRADOR', 'GESTOR'])('%s accede a todos los tipos', (role) => {
+        for (const tipo of ['PLANO', 'IMAGEN', 'BOLETO', 'ESCRITURA', 'OTRO'] as TipoFile[]) {
+            expect(canUserAccessArchivo({ role }, archivo({ tipo, ventaId: 21 }), null)).toBe(true);
+        }
+    });
+});
+
 describe('canUseIncludeDeleted', () => {
     test.each([
         ['ADMINISTRADOR', true],

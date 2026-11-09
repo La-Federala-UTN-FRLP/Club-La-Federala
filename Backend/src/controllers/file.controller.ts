@@ -18,14 +18,16 @@ import {
 const TIPOS_REQUIEREN_VENTA: TipoFile[] = ["BOLETO", "ESCRITURA", "OTRO"];
 const TIPOS_PROHIBEN_VENTA: TipoFile[] = ["PLANO", "IMAGEN"];
 
-/** Etapa 5.4: Verifica acceso INMOBILIARIA. Retorna false si debe responder 404. */
-async function verifyInmobiliariaArchivoAccess(
+/**
+ * Verifica si el usuario puede acceder al archivo (canUserAccessArchivo: INMOBILIARIA por
+ * ownership de venta, TECNICO por tipo). Retorna false si debe responder 404.
+ */
+async function verifyArchivoAccess(
   user: { role: string; inmobiliariaId?: number | null } | undefined,
   archivo: { tipo: TipoFile | string; ventaId?: number | null; estadoOperativo?: string }
 ): Promise<boolean> {
-  if (!isInmobiliaria(user)) return true;
   let venta: { inmobiliariaId: number | null } | null = null;
-  if (archivo.ventaId != null && TIPOS_REQUIEREN_VENTA.includes(archivo.tipo as TipoFile)) {
+  if (isInmobiliaria(user) && archivo.ventaId != null && TIPOS_REQUIEREN_VENTA.includes(archivo.tipo as TipoFile)) {
     venta = await prisma.venta.findUnique({
       where: { id: archivo.ventaId },
       select: { inmobiliariaId: true },
@@ -37,6 +39,20 @@ async function verifyInmobiliariaArchivoAccess(
     estadoOperativo: archivo.estadoOperativo,
   };
   return canUserAccessArchivo(user, archivoForAuth, venta);
+}
+
+/**
+ * Respuesta de error de Files. Un error de dominio (statusCode 4xx) conserva su status y mensaje.
+ * Cualquier otro error es inesperado: 500 con un mensaje público fijo, sin el objeto error, stack,
+ * mensaje interno ni metadata de Prisma/Supabase (el detalle queda solo en el log del servidor).
+ */
+function sendFileError(res: Response, error: unknown, publicMessage: string) {
+    const statusCode = (error as { statusCode?: unknown } | null)?.statusCode;
+    if (typeof statusCode === "number" && statusCode >= 400 && statusCode < 500) {
+        return res.status(statusCode).json({ message: (error as Error).message || publicMessage });
+    }
+    console.error(`[files] ${publicMessage}:`, error);
+    return res.status(500).json({ message: publicMessage });
 }
 
 export class fileController {
@@ -52,6 +68,12 @@ export class fileController {
 
         if (!tipo || !["BOLETO", "ESCRITURA", "PLANO", "IMAGEN", "OTRO"].includes(tipo)) {
             return res.status(400).json({ message: "tipo inválido" });
+        }
+
+        // Block 3: no se puede crear un tipo que el rol no puede leer (TECNICO → solo PLANO/IMAGEN).
+        // Va antes de las reglas de venta: un tipo vedado no consulta la venta ni el storage.
+        if (!canUserAccessArchivo(req.user, { tipo }, null)) {
+            return res.status(403).json({ message: `No tenés permiso para subir archivos de tipo ${tipo}` });
         }
 
         if (TIPOS_REQUIEREN_VENTA.includes(tipo)) {
@@ -72,8 +94,8 @@ export class fileController {
         if (ventaId !== undefined) {
             try {
                 await ensureVentaPerteneceALote(ventaId, idLoteAsociado);
-            } catch (err: any) {
-                return res.status(err.statusCode ?? 400).json({ message: err.message });
+            } catch (err) {
+                return sendFileError(res, err, "Error al subir archivo");
             }
         }
 
@@ -103,9 +125,8 @@ export class fileController {
                 uploadedBy: req.user?.email || null
             });
             res.status(201).json({ message: 'Archivo subido', data: newFile });
-        } catch (err: any) {
-            const status = err.statusCode ?? 500;
-            res.status(status).json({ message: err.message || "Error al subir archivo" });
+        } catch (err) {
+            sendFileError(res, err, "Error al subir archivo");
         }
     }
 }
@@ -118,15 +139,16 @@ export const getAllFilesController = async (req: Request, res: Response) => {
         const files = await FileService.listByLote(idLote, includeDeleted, req.user);
         res.status(200).json(files);
     } catch (error) {
-        res.status(500).json({ message: "Error al obtener archivos", error });
+        sendFileError(res, error, "Error al obtener archivos");
     }
 };
 
 export const getAllFilesByVentaController = async (req: Request, res: Response) => {
     try {
         const { ventaId } = validatedParams(req, fileVentaParamsSchema);
+        let venta: { inmobiliariaId: number | null } | null = null;
         if (isInmobiliaria(req.user)) {
-            const venta = await prisma.venta.findUnique({
+            venta = await prisma.venta.findUnique({
                 where: { id: ventaId },
                 select: { inmobiliariaId: true },
             });
@@ -137,9 +159,10 @@ export const getAllFilesByVentaController = async (req: Request, res: Response) 
         const { tipo, includeDeleted: requested = false } = validatedQuery(req, filesByVentaQuerySchema);
         const includeDeleted = requested && canUseIncludeDeleted(req.user);
         const files = await FileService.listByVenta(ventaId, tipo, includeDeleted);
-        res.status(200).json(files);
+        // Block 3: misma política por archivo que el resto de Files (TECNICO no ve documentos de venta).
+        res.status(200).json(files.filter((f) => canUserAccessArchivo(req.user, f, venta)));
     } catch (error) {
-        res.status(500).json({ message: "Error al obtener archivos por venta", error });
+        sendFileError(res, error, "Error al obtener archivos por venta");
     }
 };
 
@@ -157,12 +180,12 @@ export const sustituirArchivoController = async (req: Request, res: Response) =>
             file.buffer,
             file.originalname,
             req.user?.email || null,
-            req.user?.email || undefined
+            req.user?.email || undefined,
+            req.user
         );
         res.status(200).json({ message: "Archivo sustituido", data: newFile });
-    } catch (error: any) {
-        const status = error.statusCode ?? 500;
-        res.status(status).json({ message: error.message || "Error al sustituir archivo" });
+    } catch (error) {
+        sendFileError(res, error, "Error al sustituir archivo");
     }
 };
 
@@ -175,7 +198,7 @@ export const generateSignedUrlController = async (req: Request, res: Response) =
         if (!file) {
             return res.status(404).json({ message: "Archivo no encontrado o eliminado" });
         }
-        if (!(await verifyInmobiliariaArchivoAccess(req.user, file))) {
+        if (!(await verifyArchivoAccess(req.user, file))) {
             return res.status(404).json({ message: "Archivo no encontrado o eliminado" });
         }
 
@@ -184,7 +207,7 @@ export const generateSignedUrlController = async (req: Request, res: Response) =
         const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
         res.status(200).json({ signedUrl, signedURL: signedUrl, expiresAt });
     } catch (error) {
-        res.status(500).json({ message: "Error al generar URL firmada", error });
+        sendFileError(res, error, "Error al generar URL firmada");
     }
 };
 
@@ -195,12 +218,12 @@ export const getFileByIdController = async (req: Request, res: Response) => {
         if (!file) {
             return res.status(404).json({ message: "Archivo no encontrado" });
         }
-        if (!(await verifyInmobiliariaArchivoAccess(req.user, file))) {
+        if (!(await verifyArchivoAccess(req.user, file))) {
             return res.status(404).json({ message: "Archivo no encontrado" });
         }
         res.status(200).json(file);
     } catch (error) {
-        res.status(500).json({ message: "Error al obtener archivo", error });
+        sendFileError(res, error, "Error al obtener archivo");
     }
 };
 
@@ -209,9 +232,8 @@ export const deleteFileController = async (req: Request, res: Response) => {
     try {
         await FileService.deleteFileById(id, req.user?.email);
         res.status(204).send();
-    } catch (error: any) {
-        const status = error?.statusCode ?? 500;
-        res.status(status).json({ message: error?.message || "Error al eliminar archivo" });
+    } catch (error) {
+        sendFileError(res, error, "Error al eliminar archivo");
     }
 };
 
@@ -220,9 +242,8 @@ export const restoreFileController = async (req: Request, res: Response) => {
     try {
         const file = await FileService.restoreFileById(id);
         res.status(200).json({ message: "Archivo restaurado", data: file });
-    } catch (error: any) {
-        const status = error.statusCode ?? 500;
-        res.status(status).json({ message: error.message || "Error al restaurar archivo" });
+    } catch (error) {
+        sendFileError(res, error, "Error al restaurar archivo");
     }
 };
 
@@ -240,9 +261,8 @@ export const updateAprobacionController = async (req: Request, res: Response) =>
             observacion
         );
         res.status(200).json({ message: "Aprobación actualizada", data: updated });
-    } catch (error: any) {
-        const status = error.statusCode ?? 500;
-        res.status(status).json({ message: error.message || "Error al actualizar aprobación" });
+    } catch (error) {
+        sendFileError(res, error, "Error al actualizar aprobación");
     }
 };
 
@@ -251,15 +271,13 @@ export const purgeFileController = async (req: Request, res: Response) => {
     try {
         const file = await prisma.archivos.findUnique({ where: { id } });
         if (!file) return res.status(404).json({ message: "Archivo no encontrado" });
-        if (!(await verifyInmobiliariaArchivoAccess(req.user, file))) {
+        if (!(await verifyArchivoAccess(req.user, file))) {
             return res.status(404).json({ message: "Archivo no encontrado" });
         }
         await FileService.purgeFileById(id);
         res.status(204).send();
-    } catch (error: any) {
-        const status = error.message?.includes("encontrado") ? 404 : 500;
-        res.status(status).json({ message: error.message || "Error al purgar archivo" });
+    } catch (error) {
+        // El 404 sale del statusCode que lanza el service, no del texto del mensaje.
+        sendFileError(res, error, "Error al purgar archivo");
     }
 };
-
-
