@@ -1,7 +1,7 @@
 // src/lib/http/http.js
 // Cliente HTTP con Authorization + refresh automático.
 // - Si el access vence (401 o body "Token expirado"), llama /auth/refresh.
-// - Soporta refresh via cookie (credentials: 'include') o body.
+// - El refresh viaja en el body (sin cookies: la auth es Bearer en Authorization).
 // - Reintenta UNA vez la request original con el nuevo access.
 // - Comentarios concisos para mantenimiento.
 
@@ -47,7 +47,6 @@ async function doFetch(url, { method, headers, body, access, ...rest }) {
     method,
     headers: baseHeaders,
     body: body != null ? JSON.stringify(body) : undefined,
-    credentials: "include", // por si el back usa cookie httpOnly para refresh
     ...rest,
   });
 }
@@ -70,8 +69,7 @@ async function refreshTokens() {
     const res = await fetch(refreshUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ refresh }), // si el back usa cookie, igual es inofensivo
+      body: JSON.stringify({ refresh }),
     });
 
     if (!res.ok) {

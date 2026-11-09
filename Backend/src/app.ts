@@ -31,11 +31,12 @@ app.use((req, res, next) => {
   next();
 });
 
+// CORS es política del navegador (qué origins pueden leer respuestas desde JS); la seguridad del
+// recurso la dan JWT + RBAC. Sin `credentials`: la auth es Bearer en Authorization, sin cookies.
 const corsOptions = {
   origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
     callback(null, resolveCorsOrigin(origin, process.env.FRONTEND_URL, process.env.NODE_ENV));
   },
-  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   optionsSuccessStatus: 204,
