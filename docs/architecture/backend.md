@@ -27,7 +27,7 @@ Proceso distinto al web. No sirve HTTP, no usa `PORT` y no importa Express. Cont
 - `src/controllers`: adaptación HTTP y delegación.
 - `src/services`: reglas de negocio y acceso con Prisma.
 - `src/validations`: esquemas Zod para body, parámetros y query.
-- `src/middlewares`: JWT, roles, validación, logs y errores.
+- `src/middlewares`: JWT, roles, validación, rate limit de login, logs y errores.
 - `src/domain`: reglas/tipos de estados.
 - `src/jobs`: expiración de reservas y promociones.
 - `prisma`: esquema, migraciones y seeds.
@@ -35,6 +35,87 @@ Proceso distinto al web. No sirve HTTP, no usa `PORT` y no importa Express. Cont
 ## Seguridad
 
 Las rutas privadas usan `authenticate` y `authorize`. Los roles son `ADMINISTRADOR`, `GESTOR`, `INMOBILIARIA` y `TECNICO`. Las validaciones ocurren antes del controlador y `handleError` centraliza errores.
+
+### Autenticación: JWT + identidad vigente desde la DB
+
+El JWT es una **prueba de identidad firmada**; la **DB es la fuente vigente de autorización**. `authenticate` (`src/middlewares/auth.middleware.ts`):
+
+1. Lee `Authorization: Bearer <JWT>`. Sin header o sin el prefijo `Bearer ` → `401` (`Token no proporcionado`).
+2. Verifica firma y expiración con `JWT_SECRET`. Token expirado → `401` (`Token expirado`); firma inválida o token malformado → `401` (`Token inválido`).
+3. Obtiene el id de usuario del claim `sub` (o `id`, legacy): debe ser un entero positivo (number o string decimal canónico). Si no lo es → `401` (`Token inválido`).
+4. Relee la identidad con `findAuthIdentity` (`src/services/authIdentity.service.ts`): `id`, `email`, `role` y la inmobiliaria asociada (`User ← Inmobiliaria.userId`). Nunca lee la password.
+5. Usuario inexistente (por ejemplo, eliminado con un JWT todavía vigente) → `401` con el mismo mensaje que un token inválido. Un error de la DB no es un problema de credenciales: va al middleware de errores (`500` genérico).
+6. Arma `req.user` con el rol y el `inmobiliariaId` **de la DB**. Los claims `role`, `email` e `inmobiliariaId` del token no se usan para autorizar.
+7. `authorize(...roles)` compara contra `req.user.role`.
+
+Consecuencias: un cambio de rol o de inmobiliaria rige desde el siguiente request autenticado, sin esperar a que venza el token, y un usuario eliminado deja de entrar. El costo es una lectura por PK en cada request autenticado. El modelo `User` no tiene un estado activo/inactivo: la única revocación es eliminar al usuario (o esperar el vencimiento del token, `JWT_EXPIRES_IN`, default `2h`).
+
+**Login timing.** Con un email inexistente, `POST /auth/login` igual ejecuta `bcrypt.compare` contra un hash dummy constante del mismo costo (`DUMMY_PASSWORD_HASH`, cost 10, en `auth.service.ts`). Elimina la diferencia trivial de trabajo criptográfico entre "usuario inexistente" y "password incorrecta"; ambos responden `401 Credenciales inválidas`. No pretende ser una garantía absoluta contra la enumeración de usuarios.
+
+### Modelo Bearer-only
+
+```text
+login → token en localStorage (lf_token) → Authorization: Bearer → backend
+```
+
+No hay cookies de autenticación, ni `Set-Cookie`, ni refresh cookie. El frontend no envía `credentials: "include"` y el CORS del backend no habilita credentials. El helper general (`frontend/src/lib/http/http.js`) y los fetch directos de multipart y signed URLs (`lib/api/archivos.js`) agregan el header `Authorization`.
+
+Como el navegador no adjunta credenciales de forma automática, el CSRF clásico basado en cookies no aplica a este modelo y no hay protección CSRF dedicada.
+
+Código legacy: el frontend conserva un flujo de refresh (`refreshTokens`/`apiRefresh` en `http.js` y `lib/auth/api.js`, la clave `lf_refresh` y las variables `VITE_AUTH_REFRESH_*`) que apunta a `/auth/refresh`, una ruta que el backend **no** expone. No forma parte del runtime exitoso: ante un `401`, el helper intenta ese refresh y, como no hay refresh token, limpia los tokens y redirige a `/login`.
+
+### Rate limiting de login
+
+Solo `POST /api/auth/login` (`src/middlewares/loginRateLimit.middleware.ts`, `express-rate-limit` 8.7.3). Va antes de la validación del body, así que también cuentan los intentos con body inválido. No mira el JWT, `req.user` ni el email.
+
+- Ventana de 15 minutos y **10 intentos fallidos** por cliente; el siguiente responde `429` con `{ success: false, code: 'TOO_MANY_REQUESTS', message }` sin llegar al login.
+- `skipSuccessfulRequests`: un login exitoso (status < 400) no consume cupo. Una vez bloqueado, la password correcta también recibe `429` hasta que vence la ventana.
+- Headers estándar `RateLimit`/`RateLimit-Policy` (`draft-8`); sin los legacy `X-RateLimit-*`.
+
+Identificación del cliente (sin cambiar el `trust proxy` global de Express):
+
+- **Render (`RENDER=true`, exactamente ese valor):** header `CF-Connecting-IP`, que Cloudflare escribe en cada request y sobrescribe lo que mande el cliente. Solo se acepta si es exactamente una IP válida (`net.isIP` después de recortar espacios); una lista, una IP con puerto, un valor vacío o un header repetido van al fallback.
+- **Fallback (y fuera de Render):** `req.ip` → `socket.remoteAddress` → una key constante. En Render, `req.ip` es la IP del proxy: un bucket compartido, más restrictivo, pero nunca una key elegida por el cliente.
+- `ipKeyGenerator` normaliza IPv4-mapped a IPv4 y agrupa IPv6 por `/56`.
+- **`X-Forwarded-For` no se usa como key**: Cloudflare agrega entradas en lugar de reemplazarlo, así que su lado izquierdo lo controla quien llama.
+
+Limitaciones: el store es en memoria (`MemoryStore`, por proceso). Alcanza con la única instancia actual; con varias instancias cada una contaría por separado y habría que pasar a un store compartido. El contrato de client IP es específico de Render: al migrar a Cloud Run hay que revalidarlo antes de reutilizarlo.
+
+### Matriz RBAC: decisiones cerradas
+
+| Superficie | Regla |
+|---|---|
+| `GET/POST/PUT /usuarios` | `ADMINISTRADOR` y `GESTOR`. Un `GESTOR` administra usuarios comunes, pero no puede crear un `ADMINISTRADOR`, promover a nadie (ni a sí mismo) a `ADMINISTRADOR`, ni modificar un usuario que ya es `ADMINISTRADOR` → `403` sin escrituras. Editar un usuario inexistente → `404`. |
+| `DELETE /usuarios/:id` | Solo `ADMINISTRADOR`. |
+| `PATCH /ventas/:id/eliminar` y `/reactivar` | Solo `ADMINISTRADOR` y `GESTOR`. `INMOBILIARIA` (incluso sobre ventas propias) y `TECNICO` → `403`. |
+| `PATCH /reservas/:id/eliminar` y `/reactivar` | `INMOBILIARIA` opera sobre las reservas de su inmobiliaria; las de otra → `403` sin escrituras. |
+| `GET /lotes?deudor=…` | `TECNICO` no puede usar el filtro `deudor` (`400`, sin consultar la DB): el campo `deuda` se le oculta y el filtro permitiría inferirlo. La regla vive en `lote.service`, donde se arma el `where`. |
+
+### Tenant de Prioridades
+
+En toda operación de Prioridades (crear, listar, ver, actualizar, cancelar, finalizar, eliminar, reactivar), un usuario `INMOBILIARIA` **sin** `inmobiliariaId` responde `403`; nunca cae en el camino de `ADMINISTRADOR`/`GESTOR`. Con tenant, el listado filtra siempre por el tenant vigente (se ignora `?inmobiliariaId`) y las operaciones sobre una prioridad ajena responden `403`.
+
+El ownership se valida **antes** que las reglas de estado: cancelar o finalizar una prioridad ajena responde `403` sin importar su estado, así que el status no revela el estado de prioridades de otra inmobiliaria. El motivo de negocio (`400`, por ejemplo "solo ACTIVA") solo se informa sobre prioridades propias.
+
+### Files: acceso por tipo y errores
+
+`canUserAccessArchivo` (`src/utils/file.auth.utils.ts`) es la política central por rol y tipo:
+
+| Rol | Tipos accesibles |
+|---|---|
+| `ADMINISTRADOR`, `GESTOR` | Todos. |
+| `TECNICO` | `PLANO` e `IMAGEN` (documentación técnica). `BOLETO`, `ESCRITURA` y `OTRO` (documentos de venta, comerciales o legales) y cualquier tipo no contemplado quedan denegados (lista blanca). |
+| `INMOBILIARIA` | `PLANO` e `IMAGEN`; `BOLETO`, `ESCRITURA` y `OTRO` solo de ventas de su inmobiliaria (reglas 5.4). |
+
+`OTRO` se trata como documento de venta porque el código lo define así: exige `ventaId` al subirlo y se guarda bajo `venta-{id}` en storage.
+
+La política se consulta antes de exponer metadata o contenido y antes de cualquier efecto. El status depende de la operación:
+
+- **Listados** (`GET /files/lote/:id`, `GET /files/venta/:ventaId`): los archivos no accesibles se filtran.
+- **Detalle, signed URL, sustituir y aprobaciones de un archivo no accesible:** `404`, la misma convención que Files ya usaba con `INMOBILIARIA`; no se revela si el id existe ni qué tipo tiene. En sustituir y aprobaciones, la autorización por tipo va antes que las validaciones de estado y de tipo.
+- **Upload** (`POST /files`) de un tipo no permitido: `403`, antes de consultar la venta o el storage (el tipo lo elige quien llama).
+
+Errores de Files: un error de dominio con `statusCode` 4xx conserva su status y su `{ message }`. Cualquier otro error es inesperado: `500` con un mensaje público fijo (por ejemplo, `Error al obtener archivos`), sin el objeto de error, stack, mensaje interno ni metadata de Prisma o Supabase; el detalle queda solo en el log del servidor.
 
 ## Validación de requests
 
@@ -128,9 +209,9 @@ Dejaron de formar parte del API (el schema, la ruta y su controller se eliminaro
 
 ### Deuda conocida de query y errores
 
-- `deudor` no se restringe por rol: un `TECNICO` puede filtrar por `deudor` aunque el campo `deuda` se le oculte en la respuesta.
 - `personas.limit` no tiene un máximo funcional.
-- Otros catches locales de los controllers (por ejemplo Files y Persona) siguen respondiendo de forma manual y pueden exponer `error.message`; no se unificaron.
+- Otros catches locales de los controllers (por ejemplo Persona) siguen respondiendo de forma manual y pueden exponer `error.message`; no se unificaron. Files ya no lo hace (ver "Files: acceso por tipo y errores").
+- El middleware global responde con `err.message` para cualquier error que traiga `status` o `statusCode`, incluidos los 5xx.
 
 ## Variables relevantes
 
@@ -161,3 +242,11 @@ Nunca publicar valores reales en docs ni en Git.
 `FRONTEND_URL` es **un único origin** autorizado para browsers (sin path, sin CSV, matching exacto). Ejemplos: `http://localhost:5173` o `https://frontend.example.com`. Se recortan espacios externos de la variable; no se normaliza el header `Origin`.
 
 Fuera de `production`, `http://localhost:5173` se admite automáticamente. En `production` no: hay que configurar `FRONTEND_URL` de forma explícita (requerido en WebEnv al arrancar). Las requests sin `Origin` (curl, Postman, server-to-server) no dependen de esta lista.
+
+Configuración (`src/app.ts`):
+
+- Métodos: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`. Headers permitidos: `Content-Type` y `Authorization`. Preflight → `204`.
+- Origin permitido → `Access-Control-Allow-Origin` con ese origin. Origin no permitido → sin `Access-Control-Allow-Origin` (la respuesta no se rechaza en el servidor: es el navegador el que bloquea la lectura).
+- Sin `Access-Control-Allow-Credentials`: la auth es Bearer en `Authorization`, sin cookies (ver "Modelo Bearer-only").
+
+CORS es una política del navegador: decide qué origins pueden leer respuestas desde JavaScript. No protege el API frente a clientes HTTP arbitrarios (curl, scripts, server-to-server), que no aplican CORS. La seguridad del recurso la dan JWT + RBAC.
