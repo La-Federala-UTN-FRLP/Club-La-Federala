@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { FileMetadata, TipoFile, NewFileMetadata, EstadoAprobacion, TargetAprobacion } from "../types/files.types";
 import {
   isInmobiliaria,
+  isTecnico,
   canUserAccessArchivo,
   canUpdateAprobacion,
   type FileAuthUser,
@@ -170,6 +171,7 @@ export async function saveFileMetadata(metadata: NewFileMetadata): Promise<FileM
  * Lista archivos por lote. Si user es INMOBILIARIA (Etapa 5.4), filtra:
  * - PLANO/IMAGEN: incluir siempre.
  * - BOLETO/ESCRITURA/OTRO: solo si venta.inmobiliariaId == user.inmobiliariaId.
+ * Si user es TECNICO (Block 3), solo los tipos que canUserAccessArchivo le permite.
  */
 export async function listByLote(
   idLoteAsociado: number,
@@ -185,6 +187,12 @@ export async function listByLote(
     orderBy: { createdAt: "desc" },
     include: { venta: { select: { numero: true } } },
   });
+
+  if (isTecnico(user)) {
+    return rows
+      .filter((row) => canUserAccessArchivo(user, { tipo: row.tipo as TipoFile }, null))
+      .map(toFileMetadata);
+  }
 
   if (!isInmobiliaria(user)) {
     return rows.map(toFileMetadata);
@@ -285,7 +293,7 @@ export async function restoreFileById(id: number): Promise<FileMetadata> {
 /** Purga definitiva: borra en Supabase Storage + registro en DB */
 export async function purgeFileById(id: number): Promise<void> {
   const file = await prisma.archivos.findUnique({ where: { id } });
-  if (!file) throw new Error("Archivo no encontrado");
+  if (!file) throw errorHttp("Archivo no encontrado", 404);
   const objectPath = file.linkArchivo;
   const { error } = await getSupabaseClient().storage.from(getSupabaseBucket()).remove([objectPath]);
   if (error) {
@@ -304,16 +312,21 @@ export async function getOperativeFileRaw(id: number) {
 /**
  * Sustituir documento: soft delete del anterior + subir nuevo del mismo tipo, loteId, ventaId.
  * NO cambia EstadoVenta.
+ * Block 3: un tipo que el usuario no puede ver responde 404 antes de cualquier otra validación
+ * (no se revela que existe ni su estado).
  */
 export async function sustituirArchivo(
   id: number,
   fileBuffer: Buffer,
   originalname: string,
   uploadedBy?: string | null,
-  deletedByEmail?: string
+  deletedByEmail?: string,
+  user?: FileAuthUser
 ): Promise<FileMetadata> {
   const oldFile = await prisma.archivos.findUnique({ where: { id } });
-  if (!oldFile) throw errorHttp("Archivo no encontrado", 404);
+  if (!oldFile || !canUserAccessArchivo(user, { tipo: oldFile.tipo as TipoFile }, null)) {
+    throw errorHttp("Archivo no encontrado", 404);
+  }
   if (oldFile.estadoOperativo === "ELIMINADO") {
     throw errorHttp("No se puede sustituir un archivo eliminado", 400);
   }
@@ -379,7 +392,9 @@ export async function updateAprobacionPlano(
   observacion?: string
 ): Promise<FileMetadata> {
   const file = await prisma.archivos.findUnique({ where: { id }, include: { venta: { select: { numero: true } } } });
-  if (!file) {
+  // Block 3: la autorización por tipo precede a la validación de tipo y a la acción (un tipo que
+  // el rol no puede ver responde 404, sin revelar que el id existe ni qué tipo tiene).
+  if (!file || !canUserAccessArchivo({ role: userRole }, { tipo: file.tipo as TipoFile }, null)) {
     const err = new Error("Archivo no encontrado") as Error & { statusCode?: number };
     err.statusCode = 404;
     throw err;

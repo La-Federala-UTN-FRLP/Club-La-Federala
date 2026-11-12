@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: API Club de Campo La Federala (CCLF)
   description: API para gestionar lotes, ventas, inmobiliarias, usuarios y reservas.
-  version: 1.0.12
+  version: 1.0.13
 servers:
   - url: http://localhost:3000/api
     description: Servidor local de desarrollo
@@ -232,6 +232,8 @@ paths:
     post:
       tags: [usuarios]
       summary: Crear usuario
+      description: >-
+        ADMINISTRADOR y GESTOR. Un GESTOR no puede crear usuarios con rol ADMINISTRADOR (403).
       requestBody:
         required: true
         content:
@@ -243,6 +245,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PostUsuarioResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /usuarios/{idUsuario}:
     parameters:
@@ -260,6 +263,9 @@ paths:
     put:
       tags: [usuarios]
       summary: Actualizar usuario
+      description: >-
+        ADMINISTRADOR y GESTOR. Un GESTOR no puede asignar el rol ADMINISTRADOR (ni a sí mismo) ni
+        modificar a un usuario que ya es ADMINISTRADOR (403).
       requestBody:
         required: true
         content:
@@ -272,16 +278,19 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/PutUsuarioResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [usuarios]
       summary: Eliminar usuario
+      description: Solo ADMINISTRADOR (cualquier otro rol recibe 403).
       responses:
         '200':
           description: OK
           content:
             application/json:
               schema: { $ref: '#/components/schemas/DeleteUsuarioResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   # ===================== R E S E R V A S =====================
@@ -406,6 +415,20 @@ components:
             type: object
             properties:
               message: { type: string }
+    Forbidden:
+      description: >-
+        El usuario autenticado no tiene permiso. Si lo rechaza la ruta (rol no admitido), el body es
+        `{ success: false, error }`; si lo rechaza una regla del service, `{ success: false, code, message }`.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success]
+            properties:
+              success: { type: boolean, enum: [false] }
+              error: { type: string, example: 'No tienes permisos para esta acción' }
+              code: { type: string, example: 'ERROR' }
+              message: { type: string, example: 'Solo un ADMINISTRADOR puede asignar el rol ADMINISTRADOR' }
 
   schemas:
     # ====== Tipos base / enums ======

@@ -145,7 +145,6 @@ export async function uploadArchivo(file, idLoteAsociado, tipo = "IMAGEN", venta
       headers: {
         ...(access ? { Authorization: `Bearer ${access}` } : {}),
       },
-      credentials: 'include',
       body: formData,
     });
 
@@ -190,7 +189,6 @@ export async function sustituirArchivo(fileId, file) {
     const res = await fetch(`${getApiBase()}${PRIMARY}/${fileId}/sustituir`, {
       method: "POST",
       headers: { ...(access ? { Authorization: `Bearer ${access}` } : {}) },
-      credentials: "include",
       body: formData,
     });
     const data = await res.json().catch(() => ({}));
@@ -291,7 +289,6 @@ export async function getFileSignedUrl(fileId) {
         "Content-Type": "application/json",
         ...(access ? { Authorization: `Bearer ${access}` } : {}),
       },
-      credentials: 'include',
       body: JSON.stringify({}),
     });
     const urlData = await urlRes.json().catch(() => ({}));

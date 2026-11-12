@@ -333,7 +333,6 @@ async function apiRegistrarBoleto(ventaId, file) {
   const res = await fetch(`${getApiBase()}${PRIMARY}/${ventaId}/registrar-boleto`, {
     method: "POST",
     headers: { ...(access ? { Authorization: `Bearer ${access}` } : {}) },
-    credentials: "include",
     body: formData,
   });
   const data = await res.json().catch(() => ({}));
@@ -356,7 +355,6 @@ async function apiRegistrarEscritura(ventaId, file, fechaEscritura) {
   const res = await fetch(`${getApiBase()}${PRIMARY}/${ventaId}/registrar-escritura`, {
     method: "POST",
     headers: { ...(access ? { Authorization: `Bearer ${access}` } : {}) },
-    credentials: "include",
     body: formData,
   });
   const data = await res.json().catch(() => ({}));

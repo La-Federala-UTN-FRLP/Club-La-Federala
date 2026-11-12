@@ -6,6 +6,7 @@ import FilterBarBase from "./FilterBarBase";
 import { lotesFilterPreset } from "./presets/lotes.preset";
 import { chipsFrom, nice } from "./utils/chips";
 import { filterEstadoOptionsFor, canUseDeudorFilter } from "../../lib/auth/rbac.ui";
+import { hasRole } from "../../lib/auth/rbac";
 
 export default function FilterBarLotes({
   preset = lotesFilterPreset,
@@ -26,7 +27,8 @@ export default function FilterBarLotes({
   );
 
   const canDeudor = canUseDeudorFilter(authUser);
-  const isInmo = !canDeudor;
+  // isInmo y canDeudor no son equivalentes: TECNICO tampoco usa el filtro deudor.
+  const isInmo = hasRole(authUser, "INMOBILIARIA");
 
   const SUBESTADOS = useMemo(
     () => preset?.catalogs?.SUBESTADOS ?? ["CONSTRUIDO", "EN_CONSTRUCCION", "NO_CONSTRUIDO"],
@@ -156,9 +158,12 @@ export default function FilterBarLotes({
           deudor: null
         };
       }
+      if (!canDeudor) {
+        return { ...filters, deudor: null };
+      }
       return filters;
     }
-  }), [isInmo]);
+  }), [isInmo, canDeudor]);
 
   // Función para formatear opciones en el modal
   const optionFormatter = useMemo(() => ({

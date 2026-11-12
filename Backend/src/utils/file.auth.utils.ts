@@ -7,6 +7,11 @@
  * - BOLETO/ESCRITURA/OTRO: solo si venta.inmobiliariaId == user.inmobiliariaId.
  * - IMAGEN: sin cambios (no restringir en 5.4).
  * INMOBILIARIA NUNCA puede subir, editar, eliminar, restaurar, purgar.
+ *
+ * Block 3 — Permisos por tipo para rol TECNICO (leer, firmar URL, subir, sustituir, aprobar):
+ * - PLANO e IMAGEN: documentación técnica, permitida.
+ * - BOLETO/ESCRITURA/OTRO: documentos de venta (comerciales/legales), denegados.
+ * - Cualquier tipo no contemplado: denegado (lista blanca, default deny).
  */
 
 import type { TipoFile } from "../types/files.types";
@@ -50,9 +55,18 @@ export function canInmobiliariaAccessVenta(
 
 const TIPOS_DOC_VENTA: TipoFile[] = ["BOLETO", "ESCRITURA", "OTRO"];
 
+/** Block 3: únicos tipos a los que accede TECNICO (lo no listado queda denegado). */
+const TIPOS_TECNICO: TipoFile[] = ["PLANO", "IMAGEN"];
+
+/** Indica si el usuario tiene rol TECNICO. */
+export function isTecnico(user: FileAuthUser | undefined): boolean {
+  return user?.role === "TECNICO";
+}
+
 /**
- * Determina si el usuario INMOBILIARIA puede acceder (ver/descargar) al archivo.
- * - Si user NO es INMOBILIARIA => true (sin restricción adicional).
+ * Determina si el usuario puede acceder (ver/descargar/operar) al archivo.
+ * - Si user es TECNICO => solo PLANO/IMAGEN (Block 3; la venta no cambia nada).
+ * - Si user NO es TECNICO ni INMOBILIARIA => true (sin restricción adicional).
  * - Si user es INMOBILIARIA:
  *   - archivo eliminado => false
  *   - PLANO => true
@@ -68,6 +82,7 @@ export function canUserAccessArchivo(
   archivo: ArchivoForAuth,
   venta: VentaForAuth | null
 ): boolean {
+  if (isTecnico(user)) return TIPOS_TECNICO.includes(archivo.tipo);
   if (!isInmobiliaria(user)) return true;
 
   if (archivo.estadoOperativo === "ELIMINADO") return false;

@@ -100,7 +100,9 @@ describe('ids válidos llegan como números', () => {
         service.sustituirArchivo.mockResolvedValue({ id: 8 });
         const res = await RUTAS[5][1]('7').set(ADMIN);
         expect(res.status).toBe(200);
-        expect(service.sustituirArchivo).toHaveBeenCalledWith(7, expect.any(Buffer), 'doc.pdf', 'test@example.com', 'test@example.com');
+        expect(service.sustituirArchivo).toHaveBeenCalledWith(
+            7, expect.any(Buffer), 'doc.pdf', 'test@example.com', 'test@example.com', expect.objectContaining({ role: 'ADMINISTRADOR' }),
+        );
     });
 
     test('POST /:id/url', async () => {

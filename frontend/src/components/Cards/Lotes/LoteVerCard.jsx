@@ -317,6 +317,11 @@ export default function LoteVerCard({
     () => ["ADMINISTRADOR", "GESTOR"].includes(user?.role),
     [user?.role]
   );
+  // TECNICO solo accede a documentación técnica (el backend no le devuelve Escritura ni Boleto).
+  const docTipos = useMemo(
+    () => (user?.role === "TECNICO" ? DOC_TIPOS.filter(({ type }) => type === "PLANOS") : DOC_TIPOS),
+    [user?.role]
+  );
 
   const [imageUrls, setImageUrls] = useState([]);
 
@@ -599,7 +604,7 @@ export default function LoteVerCard({
               </div>
 
               <div className="lote-doc-buttons" style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                {DOC_TIPOS.map(({ label, type }, index) => {
+                {docTipos.map(({ label, type }, index) => {
                   const flexStyle = index === 0
                     ? { flex: "1 1 100%" }
                     : { flex: "1 1 calc(50% - 4px)" };

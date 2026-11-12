@@ -225,6 +225,8 @@ Estrategia: auditoría READ-ONLY → extracción behavior-preserving → regress
 
 Política CORS fail-closed: un origin exacto, sin substring, sin CSV y sin regex. Localhost condicionado por entorno. Requests sin Origin permitidas. `credentials: true` se preserva. Inventario global de env pendiente de #225.
 
+> **Actualización posterior (AI-012):** `credentials: true` se eliminó. La auth es Bearer-only y el API ya no anuncia `Access-Control-Allow-Credentials`. La allowlist de esta decisión no cambió.
+
 #### Resultado
 
 - `cors.origins.test.ts` — 11 PASS
@@ -704,6 +706,88 @@ Cerrar el saneamiento de contratos HTTP en un solo Issue ejecutado por bloques c
 - `Backend/tests/unit/validations/body.validation.test.ts`
 - `Backend/tests/unit/routes/body.empty.routes.test.ts`, `body.numbers.routes.test.ts`, `legacy.filters.routes.test.ts`, `reservas.legacy.routes.test.ts`, `fracciones.contracts.routes.test.ts`, `files.errors.routes.test.ts`, `promociones.errors.routes.test.ts`
 - `Backend/tests/unit/architecture/routes.params.guard.test.ts`, `controllers.params.guard.test.ts`, `controllers.query.guard.test.ts`
+- `Backend/documents/documentacionApi.yaml`
+- `docs/architecture/backend.md`
+- `AI-DECISIONS.md`
+
+### AI-012 — Endurecimiento de autorización, aislamiento y configuración de seguridad
+
+**Fecha:** 2026-11-07
+**Área:** Seguridad / Backend / Frontend
+**Herramientas:** ChatGPT + Claude + Grok
+
+#### Problema
+
+Una auditoría de seguridad posterior a #258 encontró superficies de autorización y configuración sin cerrar:
+
+- **RBAC:** un `GESTOR` podía crear o promover usuarios `ADMINISTRADOR`, modificar administradores y eliminar usuarios; `INMOBILIARIA` podía eliminar y reactivar ventas; `TECNICO` podía filtrar lotes por `deudor` aunque el campo `deuda` se le oculta.
+- **Tenant de Prioridades:** un usuario `INMOBILIARIA` sin `inmobiliariaId` caía en algunos casos en el camino de staff (por ejemplo, el listado sin filtro de tenant). Cancelar y finalizar validaban el estado antes que el ownership, y el status revelaba el estado de prioridades ajenas (oracle).
+- **Identidad:** `authenticate` armaba `req.user` con los claims del JWT. Un usuario eliminado seguía entrando hasta el vencimiento del token, y un cambio de rol o de inmobiliaria no regía hasta un nuevo login.
+- **Login:** sin rate limiting; con un email inexistente el login respondía sin hacer el trabajo de bcrypt (diferencia de tiempo trivial).
+- **Files:** `TECNICO` podía leer, firmar URLs, subir y sustituir boletos, escrituras y otros documentos de venta, y el endpoint de aprobaciones le revelaba el tipo de un archivo con solo conocer su id. Los 500 de Files serializaban el objeto de error o el mensaje interno.
+- **CORS:** `credentials: true` en el backend y `credentials: "include"` en el frontend, sin ninguna cookie que lo justificara.
+
+#### Prompt / intención
+
+Cerrar esas superficies en un único Issue ejecutado por bloques con checkpoint humano entre cada uno (1: RBAC/tenant, 2: identidad/login, 3: Files, 4: CORS Bearer-only, 5: documentación y auditoría final), regression-first (RED antes de cada cambio) y sin rediseñar Auth, sin migrar a cookies, sin cambiar la password policy y sin tocar el error handler global.
+
+#### Propuesta generada por IA
+
+- Releer la identidad desde la DB en cada request autenticado (`findAuthIdentity`, sin leer la password) y usar los claims solo para identificar al usuario.
+- Comparar contra un hash bcrypt dummy cuando el email no existe.
+- `express-rate-limit` solo en `POST /api/auth/login`, con keyGenerator explícito y sin cambiar el `trust proxy` global de Express.
+- Reglas de privilegio de usuarios en el service (`assertPuedeAsignarRol`, `assertPuedeModificarUsuario`) y `authorize` más estricto en las rutas.
+- Un helper de tenant para Prioridades (`requireTenantSiInmobiliaria`) aplicado en todas las operaciones, con el ownership antes que el estado.
+- Fortalecer el helper central de Files (`canUserAccessArchivo`) con una lista blanca por tipo para `TECNICO`, en lugar de checks dispersos por controller.
+- Un saneamiento local de errores en Files (`sendFileError`) en lugar de migrar al middleware global.
+
+#### Validación humana
+
+- El alcance de cada bloque se definió antes de implementar y se aprobó bloque por bloque.
+- Para la IP del cliente en Render se evaluó la entrada izquierda de `X-Forwarded-For`, que es falsificable porque Cloudflare agrega entradas. Se eligió `CF-Connecting-IP` bajo `RENDER=true`.
+- Se decidió que `OTRO` es documento de venta (lo exige el código: `ventaId` obligatorio y path `venta-{id}`) y se le deniega a `TECNICO`.
+- Se mantuvo la convención `404` de Files para ocultar la existencia de archivos; el upload de un tipo no permitido responde `403`.
+- ChatGPT participó en la definición del alcance, las decisiones funcionales y los checkpoints. Claude realizó la implementación regression-first y las verificaciones. Grok hizo la revisión adversarial del Bloque 1 y detectó el oracle de estado en cancelar/finalizar Prioridades, que se corrigió antes de cerrar ese bloque. Los Bloques 2 a 4 no tuvieron revisión adversarial independiente; queda como validación posterior, antes del PR.
+- La decisión final de integración corresponde a validación humana.
+
+#### Decisión adoptada
+
+- **Identidad vigente:** el JWT prueba identidad; rol e inmobiliaria salen de la DB en cada request. `sub` inválido o usuario inexistente → `401`; un error de DB → `500`. Un cambio de rol o de tenant rige en el siguiente request.
+- **Bearer-only:** token en `localStorage`, header `Authorization: Bearer`. Se eliminan `credentials: true` del CORS y los 8 `credentials: "include"` del frontend. No hay cookies ni protección CSRF basada en cookies. El código legacy de refresh del frontend (`/auth/refresh`, inexistente en el backend) queda pendiente de limpieza.
+- **Rate limiting de login:** 15 minutos, 10 intentos fallidos, `skipSuccessfulRequests`, `429` con `TOO_MANY_REQUESTS`, headers estándar `draft-8`. Store en memoria por proceso (válido con una instancia).
+- **Client IP en Render:** `RENDER=true` → `CF-Connecting-IP` validado como IP única; si no, `req.ip` → `socket.remoteAddress` → key constante. `X-Forwarded-For` no se usa como key. Revalidar al migrar a Cloud Run.
+- **Login timing:** bcrypt contra un hash dummy del mismo costo cuando el email no existe.
+- **Escalada de GESTOR:** no puede asignar `ADMINISTRADOR`, no puede modificar administradores (`403`) y no puede eliminar usuarios (`DELETE /usuarios/:id` solo `ADMINISTRADOR`).
+- **Ventas:** eliminar y reactivar son solo de `ADMINISTRADOR`/`GESTOR`. Reservas: `INMOBILIARIA` sigue operando sobre las propias.
+- **TECNICO:** sin filtro `deudor` (`400`).
+- **Tenant de Prioridades:** `INMOBILIARIA` sin `inmobiliariaId` → `403` en toda operación; ownership antes que estado.
+- **Files fail-closed por tipo:** `TECNICO` accede solo a `PLANO` e `IMAGEN`; `BOLETO`, `ESCRITURA`, `OTRO` y cualquier tipo desconocido quedan denegados en listados, detalle, signed URL, upload, sustituir y aprobaciones. Los errores inesperados de Files responden `500` genérico sin serializar el error.
+- **CORS sin credentials:** la allowlist de AI-004 no cambia. CORS se documenta como política del navegador, no como autorización del recurso.
+- **Dependencia nueva:** `express-rate-limit` 8.7.3 (fuera del rango vulnerable 8.0.0–8.2.1); única dependencia productiva agregada.
+- **Fuera de alcance (PR final pre-Cloud):** error handler global y 404 JSON, mappers Prisma, password policy, refresh/cookies, código frontend muerto, Dockerfile del backend, OpenAPI de auth/files/prioridades, paginación, nullable y Cloud.
+
+#### Resultado
+
+- RED previo a implementar, con causa registrada por bloque; por ejemplo: rate limiting de login 8 tests HTTP fallando; Bloque 3 38 tests fallando (autorización por tipo de `TECNICO` y exposición de errores); Bloque 4 5 tests fallando (`Access-Control-Allow-Credentials: true`).
+- 61 suites, **2933** tests PASS; 0 omitidos, 0 enfocados.
+- typecheck PASS.
+- build backend PASS.
+- build frontend PASS.
+- `git diff --check` PASS.
+- Índice de Git vacío al cerrar la ejecución.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/middlewares/auth.middleware.ts`, `loginRateLimit.middleware.ts`
+- `Backend/src/services/authIdentity.service.ts`, `auth.service.ts`, `usuario.service.ts`, `prioridad.service.ts`, `lote.service.ts`, `file.service.ts`
+- `Backend/src/controllers/usuario.controller.ts`, `file.controller.ts`
+- `Backend/src/routes/auth.routes.ts`, `usuario.routes.ts`, `ventas.routes.ts`
+- `Backend/src/utils/file.auth.utils.ts`
+- `Backend/src/app.ts`
+- `Backend/package.json`, `Backend/package-lock.json`
+- `Backend/tests/support/http.ts`
+- `Backend/tests/unit/security/auth.identity.test.ts`, `auth.test-registry.test.ts`, `login.dummy-hash.test.ts`, `login.rate-limit.test.ts`, `login.rate-limit.key.test.ts`, `usuarios.privilegios.authz.test.ts`, `lifecycle.inmobiliaria.authz.test.ts`, `lotes.deudor.authz.test.ts`, `prioridades.tenant.authz.test.ts`, `files.tipo.authz.test.ts`, `files.error-exposure.test.ts`, `file.auth.utils.test.ts`, `cors.origins.test.ts`
+- `frontend/src/lib/http/http.js`, `lib/auth/api.js`, `lib/api/archivos.js`, `lib/api/ventas.js`, `lib/auth/rbac.ui.js`, `components/FilterBar/FilterBarLotes.jsx`, `components/FilterBar/utils/chips.js`, `components/Cards/Lotes/LoteVerCard.jsx`
 - `Backend/documents/documentacionApi.yaml`
 - `docs/architecture/backend.md`
 - `AI-DECISIONS.md`

@@ -30,6 +30,24 @@ function mapPrismaError(e: unknown) {
   return e;
 }
 
+type PrioridadActor = { role: string; inmobiliariaId?: number | null };
+
+// Tenant del actor para las operaciones de Prioridades.
+// INMOBILIARIA sin inmobiliariaId no tiene tenant: 403, nunca el camino de ADMINISTRADOR/GESTOR.
+// Devuelve el tenant si el actor es INMOBILIARIA; undefined para el resto de los roles.
+function requireTenantSiInmobiliaria(user?: PrioridadActor): number | undefined {
+  if (user?.role !== 'INMOBILIARIA') {
+    return undefined;
+  }
+  if (user.inmobiliariaId == null) {
+    const err: any = new Error('El usuario INMOBILIARIA no tiene una inmobiliaria asociada');
+    err.status = 403;
+    err.statusCode = 403;
+    throw err;
+  }
+  return user.inmobiliariaId;
+}
+
 // ==============================
 // Crear prioridad
 // ==============================
@@ -44,6 +62,8 @@ export async function createPrioridad(
   },
   user?: { role: string; inmobiliariaId?: number | null }
 ): Promise<any> {
+  const tenantId = requireTenantSiInmobiliaria(user);
+
   // Validar que el lote exista
   const lote = await prisma.lote.findUnique({ where: { id: body.loteId } });
   if (!lote) {
@@ -96,22 +116,16 @@ export async function createPrioridad(
   let ownerType: OwnerPrioridad;
   let inmobiliariaIdFinal: number | null = null;
 
-  if (user?.role === 'INMOBILIARIA') {
-    if (!user.inmobiliariaId) {
-      const err: any = new Error('El usuario INMOBILIARIA no tiene una inmobiliaria asociada.');
-      err.status = 400;
-      throw err;
-    }
-    
+  if (tenantId !== undefined) {
     // Validar límite de prioridades activas para INMOBILIARIA
     const inm = await prisma.inmobiliaria.findUnique({
-      where: { id: user.inmobiliariaId },
+      where: { id: tenantId },
       select: { maxPrioridadesActivas: true },
     });
     const limite = inm?.maxPrioridadesActivas ?? 5;
     
     const activas = await prisma.prioridad.count({
-      where: { inmobiliariaId: user.inmobiliariaId, estado: EstadoPrioridad.ACTIVA },
+      where: { inmobiliariaId: tenantId, estado: EstadoPrioridad.ACTIVA },
     });
     
     if (activas >= limite) {
@@ -121,7 +135,7 @@ export async function createPrioridad(
     }
     
     ownerType = OwnerPrioridad.INMOBILIARIA;
-    inmobiliariaIdFinal = user.inmobiliariaId;
+    inmobiliariaIdFinal = tenantId;
   } else if (user?.role === 'ADMINISTRADOR' || user?.role === 'GESTOR') {
     // ADMIN/GESTOR pueden setear ownerType e inmobiliariaId desde el body
     if (body.ownerType) {
@@ -192,12 +206,14 @@ export async function getAllPrioridades(
   query: PrioridadesListQuery,
   user?: { role: string; inmobiliariaId?: number | null }
 ): Promise<{ prioridades: any[]; total: number }> {
+  const tenantId = requireTenantSiInmobiliaria(user);
+
   // Construir where clause
   const where: any = {};
 
   // Si el usuario es INMOBILIARIA, solo mostrar sus prioridades (ignorar inmobiliariaId del query)
-  if (user?.role === 'INMOBILIARIA' && user?.inmobiliariaId != null) {
-    where.inmobiliariaId = user.inmobiliariaId;
+  if (tenantId !== undefined) {
+    where.inmobiliariaId = tenantId;
   } else {
     // Admin/Gestor pueden filtrar por inmobiliariaId si viene en query
     if (query.inmobiliariaId) {
@@ -277,6 +293,7 @@ export async function eliminarPrioridad(
   id: number,
   user?: { role: string; inmobiliariaId?: number | null }
 ): Promise<any> {
+  const tenantId = requireTenantSiInmobiliaria(user);
   try {
     // Obtener la prioridad existente
     const prioridad = await prisma.prioridad.findUnique({
@@ -306,8 +323,8 @@ export async function eliminarPrioridad(
     }
 
     // Validar permisos: INMOBILIARIA solo puede eliminar sus propias prioridades
-    if (user?.role === 'INMOBILIARIA' && user?.inmobiliariaId != null) {
-      if (prioridad.inmobiliariaId !== user.inmobiliariaId || prioridad.ownerType !== 'INMOBILIARIA') {
+    if (tenantId !== undefined) {
+      if (prioridad.inmobiliariaId !== tenantId || prioridad.ownerType !== 'INMOBILIARIA') {
         const err: any = new Error('No tienes permiso para eliminar esta prioridad');
         err.statusCode = 403;
         throw err;
@@ -368,6 +385,7 @@ export async function reactivarPrioridad(
   id: number,
   user?: { role: string; inmobiliariaId?: number | null }
 ): Promise<any> {
+  const tenantId = requireTenantSiInmobiliaria(user);
   try {
     // Obtener la prioridad existente
     const prioridad = await prisma.prioridad.findUnique({
@@ -397,8 +415,8 @@ export async function reactivarPrioridad(
     }
 
     // Validar permisos: INMOBILIARIA solo puede reactivar sus propias prioridades
-    if (user?.role === 'INMOBILIARIA' && user?.inmobiliariaId != null) {
-      if (prioridad.inmobiliariaId !== user.inmobiliariaId || prioridad.ownerType !== 'INMOBILIARIA') {
+    if (tenantId !== undefined) {
+      if (prioridad.inmobiliariaId !== tenantId || prioridad.ownerType !== 'INMOBILIARIA') {
         const err: any = new Error('No tienes permiso para reactivar esta prioridad');
         err.statusCode = 403;
         throw err;
@@ -452,6 +470,7 @@ export async function getPrioridadById(
   id: number,
   user?: { role: string; inmobiliariaId?: number | null }
 ): Promise<any> {
+  const tenantId = requireTenantSiInmobiliaria(user);
   const prioridad = await prisma.prioridad.findUnique({
     where: { id },
     include: {
@@ -471,13 +490,8 @@ export async function getPrioridadById(
   }
 
   // Validar permisos: INMOBILIARIA solo puede ver sus propias prioridades
-  if (user?.role === 'INMOBILIARIA') {
-    if (!user.inmobiliariaId) {
-      const err: any = new Error('El usuario INMOBILIARIA no tiene una inmobiliaria asociada');
-      err.status = 400;
-      throw err;
-    }
-    if (prioridad.ownerType !== OwnerPrioridad.INMOBILIARIA || prioridad.inmobiliariaId !== user.inmobiliariaId) {
+  if (tenantId !== undefined) {
+    if (prioridad.ownerType !== OwnerPrioridad.INMOBILIARIA || prioridad.inmobiliariaId !== tenantId) {
       const err: any = new Error('No puedes ver esta prioridad');
       err.status = 403;
       throw err;
@@ -498,6 +512,7 @@ export async function cancelPrioridad(
   id: number,
   user?: { role: string; inmobiliariaId?: number | null }
 ): Promise<any> {
+  const tenantId = requireTenantSiInmobiliaria(user);
   const prioridad = await prisma.prioridad.findUnique({
     where: { id },
     select: { id: true, estado: true, loteId: true, loteEstadoAlCrear: true, ownerType: true, inmobiliariaId: true },
@@ -509,21 +524,9 @@ export async function cancelPrioridad(
     throw err;
   }
 
-  // Validar que la prioridad esté ACTIVA
-  if (prioridad.estado !== EstadoPrioridad.ACTIVA) {
-    const err: any = new Error('Solo se pueden cancelar prioridades ACTIVA');
-    err.status = 400;
-    throw err;
-  }
-
   // Validar permisos: INMOBILIARIA solo puede cancelar sus propias prioridades
-  if (user?.role === 'INMOBILIARIA') {
-    if (!user.inmobiliariaId) {
-      const err: any = new Error('El usuario INMOBILIARIA no tiene una inmobiliaria asociada');
-      err.status = 400;
-      throw err;
-    }
-    if (prioridad.ownerType !== OwnerPrioridad.INMOBILIARIA || prioridad.inmobiliariaId !== user.inmobiliariaId) {
+  if (tenantId !== undefined) {
+    if (prioridad.ownerType !== OwnerPrioridad.INMOBILIARIA || prioridad.inmobiliariaId !== tenantId) {
       const err: any = new Error('No puedes cancelar esta prioridad');
       err.status = 403;
       throw err;
@@ -531,6 +534,13 @@ export async function cancelPrioridad(
   } else if (user?.role !== 'ADMINISTRADOR' && user?.role !== 'GESTOR') {
     const err: any = new Error('No tienes permisos para cancelar prioridades');
     err.status = 403;
+    throw err;
+  }
+
+  // Validar que la prioridad esté ACTIVA
+  if (prioridad.estado !== EstadoPrioridad.ACTIVA) {
+    const err: any = new Error('Solo se pueden cancelar prioridades ACTIVA');
+    err.status = 400;
     throw err;
   }
 
@@ -571,6 +581,7 @@ export async function finalizePrioridad(
   id: number,
   user?: { role: string; inmobiliariaId?: number | null }
 ): Promise<any> {
+  const tenantId = requireTenantSiInmobiliaria(user);
   const prioridad = await prisma.prioridad.findUnique({
     where: { id },
     select: { id: true, estado: true, loteId: true, loteEstadoAlCrear: true, ownerType: true, inmobiliariaId: true },
@@ -582,21 +593,9 @@ export async function finalizePrioridad(
     throw err;
   }
 
-  // Validar que la prioridad esté ACTIVA
-  if (prioridad.estado !== EstadoPrioridad.ACTIVA) {
-    const err: any = new Error('Solo se pueden finalizar prioridades ACTIVA');
-    err.status = 400;
-    throw err;
-  }
-
   // Validar permisos: INMOBILIARIA solo puede finalizar sus propias prioridades
-  if (user?.role === 'INMOBILIARIA') {
-    if (!user.inmobiliariaId) {
-      const err: any = new Error('El usuario INMOBILIARIA no tiene una inmobiliaria asociada');
-      err.status = 400;
-      throw err;
-    }
-    if (prioridad.ownerType !== OwnerPrioridad.INMOBILIARIA || prioridad.inmobiliariaId !== user.inmobiliariaId) {
+  if (tenantId !== undefined) {
+    if (prioridad.ownerType !== OwnerPrioridad.INMOBILIARIA || prioridad.inmobiliariaId !== tenantId) {
       const err: any = new Error('No puedes finalizar esta prioridad');
       err.status = 403;
       throw err;
@@ -604,6 +603,13 @@ export async function finalizePrioridad(
   } else if (user?.role !== 'ADMINISTRADOR' && user?.role !== 'GESTOR') {
     const err: any = new Error('No tienes permisos para finalizar prioridades');
     err.status = 403;
+    throw err;
+  }
+
+  // Validar que la prioridad esté ACTIVA
+  if (prioridad.estado !== EstadoPrioridad.ACTIVA) {
+    const err: any = new Error('Solo se pueden finalizar prioridades ACTIVA');
+    err.status = 400;
     throw err;
   }
 
@@ -701,6 +707,7 @@ export async function updatePrioridad(
   }>,
   user?: { role: string; inmobiliariaId?: number | null }
 ): Promise<any> {
+  const tenantId = requireTenantSiInmobiliaria(user);
   // Obtener prioridad actual
   const prioridadActual = await prisma.prioridad.findUnique({
     where: { id },
@@ -714,13 +721,8 @@ export async function updatePrioridad(
   }
 
   // Validar permisos: INMOBILIARIA solo puede editar sus propias prioridades
-  if (user?.role === 'INMOBILIARIA') {
-    if (!user.inmobiliariaId) {
-      const err: any = new Error('El usuario INMOBILIARIA no tiene una inmobiliaria asociada');
-      err.status = 400;
-      throw err;
-    }
-    if (prioridadActual.ownerType !== OwnerPrioridad.INMOBILIARIA || prioridadActual.inmobiliariaId !== user.inmobiliariaId) {
+  if (tenantId !== undefined) {
+    if (prioridadActual.ownerType !== OwnerPrioridad.INMOBILIARIA || prioridadActual.inmobiliariaId !== tenantId) {
       const err: any = new Error('No puedes editar esta prioridad');
       err.status = 403;
       throw err;

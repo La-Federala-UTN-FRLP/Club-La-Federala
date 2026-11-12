@@ -18,6 +18,10 @@ jest.mock('bcrypt', () => ({
     hash: jest.fn(),
 }));
 
+// Actor con privilegios completos: estos tests cubren el contrato de datos, no la autorización
+// (la matriz ADMINISTRADOR/GESTOR está en tests/unit/security/usuarios.privilegios.authz.test.ts).
+const ADMIN = { role: 'ADMINISTRADOR' };
+
 // ARRANGE GLOBAL: Limpiamos los mocks después de cada prueba.
 afterEach(() => {
     jest.clearAllMocks();
@@ -91,7 +95,7 @@ describe('createUser', () => {
         (prisma.user.create as jest.Mock).mockResolvedValue(createdUser);
 
         // ACT
-        const result = await createUser(newUserRequest);
+        const result = await createUser(newUserRequest, ADMIN);
 
         // ASSERT
         expect(bcrypt.hash).toHaveBeenCalledWith('password123', 10);
@@ -119,8 +123,8 @@ describe('createUser', () => {
         (prisma.user.findUnique as jest.Mock).mockResolvedValue(existingUser);
 
         // ACT & ASSERT
-        await expect(createUser(newUserRequest)).rejects.toThrow('Email ya registrado');
-        await expect(createUser(newUserRequest)).rejects.toHaveProperty('statusCode', 409);
+        await expect(createUser(newUserRequest, ADMIN)).rejects.toThrow('Email ya registrado');
+        await expect(createUser(newUserRequest, ADMIN)).rejects.toHaveProperty('statusCode', 409);
         expect(bcrypt.hash).not.toHaveBeenCalled();
         expect(prisma.user.create).not.toHaveBeenCalled();
     });
@@ -140,7 +144,7 @@ describe('updateUser', () => {
         (prisma.user.update as jest.Mock).mockResolvedValue(updatedUser);
 
         // ACT
-        const result = await updateUser(1, updateRequest);
+        const result = await updateUser(1, updateRequest, ADMIN);
         
         // ASSERT
         expect(bcrypt.hash).toHaveBeenCalledWith('newPassword', 10);
@@ -162,8 +166,8 @@ describe('updateUser', () => {
         (prisma.user.update as jest.Mock).mockRejectedValue(prismaError);
 
         // ACT & ASSERT
-        await expect(updateUser(999, updateRequest)).rejects.toThrow('Usuario no encontrado');
-        await expect(updateUser(999, updateRequest)).rejects.toHaveProperty('statusCode', 404);
+        await expect(updateUser(999, updateRequest, ADMIN)).rejects.toThrow('Usuario no encontrado');
+        await expect(updateUser(999, updateRequest, ADMIN)).rejects.toHaveProperty('statusCode', 404);
     });
 });
 
@@ -204,7 +208,7 @@ describe('updateUser — contrato de actualización', () => {
     }
 
     test('el rol del contrato público se persiste como role', async () => {
-        await updateUser(7, { rol: 'GESTOR' });
+        await updateUser(7, { rol: 'GESTOR' }, ADMIN);
         expect(updateData()).toEqual({ role: 'GESTOR' });
     });
 
@@ -217,17 +221,17 @@ describe('updateUser — contrato de actualización', () => {
             uplodedFiles: { deleteMany: {} },
             inmobiliaria: { disconnect: true },
             persona: { disconnect: true },
-        } as any);
+        } as any, ADMIN);
         expect(updateData()).toEqual({ username: 'nuevo' });
     });
 
     test('normaliza username y email', async () => {
-        await updateUser(7, { username: '  juan  ', email: '  Usuario@Mail.COM ' });
+        await updateUser(7, { username: '  juan  ', email: '  Usuario@Mail.COM ' }, ADMIN);
         expect(updateData()).toEqual({ username: 'juan', email: 'usuario@mail.com' });
     });
 
     test('hashea la password exacta, sin trim', async () => {
-        await updateUser(7, { password: '  clave segura  ' });
+        await updateUser(7, { password: '  clave segura  ' }, ADMIN);
         // Comparación booleana para no volcar la password en el mensaje de fallo.
         expect((bcrypt.hash as jest.Mock).mock.calls[0][0] === '  clave segura  ').toBe(true);
         expect(updateData()).toEqual({ password: 'hashed_password' });

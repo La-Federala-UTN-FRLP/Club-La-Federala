@@ -53,13 +53,13 @@ describe('PUT /api/usuarios/:id — body', () => {
             inmobiliaria: { disconnect: true },
         });
         expect(res.status).toBe(200);
-        expect(updateUserMock).toHaveBeenCalledWith(7, { username: 'nuevo' });
+        expect(updateUserMock).toHaveBeenCalledWith(7, { username: 'nuevo' }, expect.objectContaining({ role: 'ADMINISTRADOR' }));
     });
 
     test('normaliza username y email antes de validar', async () => {
         const res = await put('7', { username: '  juan  ', email: '  Usuario@Mail.COM ' });
         expect(res.status).toBe(200);
-        expect(updateUserMock).toHaveBeenCalledWith(7, { username: 'juan', email: 'usuario@mail.com' });
+        expect(updateUserMock).toHaveBeenCalledWith(7, { username: 'juan', email: 'usuario@mail.com' }, expect.objectContaining({ role: 'ADMINISTRADOR' }));
     });
 
     test('la password se conserva exacta (sin trim)', async () => {
@@ -72,7 +72,7 @@ describe('PUT /api/usuarios/:id — body', () => {
 
     test('rol del contrato público llega al service', async () => {
         await put('7', { rol: 'GESTOR' });
-        expect(updateUserMock).toHaveBeenCalledWith(7, { rol: 'GESTOR' });
+        expect(updateUserMock).toHaveBeenCalledWith(7, { rol: 'GESTOR' }, expect.objectContaining({ role: 'ADMINISTRADOR' }));
     });
 
     test('RBAC sin cambios: sin token 401, INMOBILIARIA y TECNICO 403', async () => {

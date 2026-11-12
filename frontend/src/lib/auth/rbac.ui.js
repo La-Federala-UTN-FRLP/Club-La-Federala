@@ -1,5 +1,5 @@
 // src/lib/auth/rbac.ui.js
-import { PERMISSIONS, userPermissions, can } from './rbac';
+import { PERMISSIONS, userPermissions, can, hasRole } from './rbac';
 
 // ================================
 // 1) Módulos visibles en la barra
@@ -99,9 +99,9 @@ export function filterEstadoOptionsFor(user, allEstados) {
   return isInmo ? allEstados.filter((e) => e !== 'NO_DISPONIBLE') : allEstados;
 }
 
-// Filtro "Deudor": ocultar para Inmobiliaria
+// Filtro "Deudor": ocultar para Inmobiliaria y Técnico (el backend rechaza ?deudor para TECNICO)
 export function canUseDeudorFilter(user) {
   const perms = new Set(userPermissions(user));
   const isInmo = perms.has(PERMISSIONS.RES_ACCESS) && !perms.has(PERMISSIONS.SALE_ACCESS);
-  return !isInmo;
+  return !isInmo && !hasRole(user, "TECNICO");
 }
