@@ -9,11 +9,7 @@ services:
       VITE_API_BASE_URL: http://localhost:3000/api
       VITE_API_FORCE_ABSOLUTE: "true"
       VITE_AUTH_USE_MOCK: "false"
-      VITE_AUTH_LOGIN_PATH: /auth/login
-      VITE_AUTH_ME_PATH: /auth/me
-      VITE_AUTH_REFRESH_PATH: /auth/refresh
       VITE_AUTH_TOKEN_KEY: lf_token
-      VITE_AUTH_REFRESH_TOKEN_KEY: lf_refresh
     ports:
       - "5173:5173"
     depends_on:
@@ -28,6 +24,9 @@ services:
     build:
       context: ./Backend
       dockerfile: Dockerfile
+      # Stage de desarrollo (devDependencies: ts-node-dev, Prisma CLI). La imagen productiva es el
+      # stage final "runtime" (node dist/server.js).
+      target: deps
     container_name: grupo01_backend
     environment:
       NODE_ENV: ${NODE_ENV}

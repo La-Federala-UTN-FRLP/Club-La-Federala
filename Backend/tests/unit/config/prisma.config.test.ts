@@ -1,5 +1,6 @@
-// En producción Prisma no debe loguear cada query (volumen en Cloud Logging);
-// error/warn se conservan siempre. Se mockea el PrismaClient generado para leer
+// En producción Prisma no loguea cada query (volumen en Cloud Logging) ni sus errores: el log "error"
+// de Prisma imprime el mensaje completo (con la query y sus argumentos en un ValidationError). Esos
+// errores llegan al caller y se loguean sanitizados (safeErrorForLog). Fuera de producción: todo. Se mockea el PrismaClient generado para leer
 // las opciones con las que se construye, sin abrir conexión.
 function logLevelsFor(nodeEnv: string | undefined): unknown {
     const previous = process.env.NODE_ENV;
@@ -22,8 +23,8 @@ function logLevelsFor(nodeEnv: string | undefined): unknown {
 }
 
 describe('config/prisma — niveles de log', () => {
-    test('production: solo error y warn, sin query', () => {
-        expect(logLevelsFor('production')).toEqual(['error', 'warn']);
+    test('production: solo warn (sin query ni el error crudo de Prisma)', () => {
+        expect(logLevelsFor('production')).toEqual(['warn']);
     });
 
     test('development: conserva query', () => {

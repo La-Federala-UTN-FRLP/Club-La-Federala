@@ -137,3 +137,58 @@ describe('parseJobEnv', () => {
         ).not.toThrow();
     });
 });
+
+describe('parseWebEnv — JWT_SECRET en production', () => {
+    const prod = (overrides: Record<string, string | undefined> = {}) =>
+        baseWeb({ NODE_ENV: 'production', FRONTEND_URL: 'https://app.example.com', ...overrides });
+
+    test('menos de 32 caracteres → falla al arrancar', () => {
+        try {
+            parseWebEnv(prod({ JWT_SECRET: 'x'.repeat(31) }));
+            throw new Error('debía fallar');
+        } catch (error) {
+            expect(error).toBeInstanceOf(EnvValidationError);
+            expect((error as EnvValidationError).issues).toEqual([
+                'JWT_SECRET: JWT_SECRET must be at least 32 characters when NODE_ENV is production',
+            ]);
+        }
+    });
+
+    test('32 caracteres o más → válido', () => {
+        expect(parseWebEnv(prod({ JWT_SECRET: 'x'.repeat(32) })).jwtSecret).toHaveLength(32);
+    });
+
+    test('los espacios no cuentan para el mínimo', () => {
+        expect(() => parseWebEnv(prod({ JWT_SECRET: `  ${'x'.repeat(30)}  ` }))).toThrow(EnvValidationError);
+    });
+
+    test.each(['development', 'test'])('%s: un secreto corto sigue siendo válido (compatibilidad local)', (NODE_ENV) => {
+        expect(() => parseWebEnv(baseWeb({ NODE_ENV, JWT_SECRET: 'corto' }))).not.toThrow();
+    });
+});
+
+describe('parseWebEnv — JWT_EXPIRES_IN', () => {
+    test.each(['2h', '30m', '1d', '7 days', '1.5h'])('%s → válido', (JWT_EXPIRES_IN) => {
+        expect(parseWebEnv(baseWeb({ JWT_EXPIRES_IN })).jwtExpiresIn).toBe(JWT_EXPIRES_IN);
+    });
+
+    test.each([
+        ['abc', /not a valid duration/],
+        ['10x', /not a valid duration/],
+        ['3600', /must include a time unit/],
+        ['-1h', /must be a positive duration/],
+        ['0s', /must be a positive duration/],
+    ])('%s → falla al arrancar', (JWT_EXPIRES_IN, motivo) => {
+        try {
+            parseWebEnv(baseWeb({ JWT_EXPIRES_IN }));
+            throw new Error('debía fallar');
+        } catch (error) {
+            expect(error).toBeInstanceOf(EnvValidationError);
+            expect((error as EnvValidationError).issues.join(' ')).toMatch(motivo);
+        }
+    });
+
+    test('ausente → default 2h', () => {
+        expect(parseWebEnv(baseWeb({ JWT_EXPIRES_IN: undefined })).jwtExpiresIn).toBe('2h');
+    });
+});

@@ -1,4 +1,31 @@
 import { z } from 'zod';
+import jwt from 'jsonwebtoken';
+
+// HS256 (algoritmo por defecto de jsonwebtoken) requiere una clave de al menos 256 bits
+// (RFC 7518 §3.2): 32 caracteres. Se exige solo en production para no romper entornos locales.
+export const JWT_SECRET_MIN_LENGTH_PRODUCTION = 32;
+
+/**
+ * JWT_EXPIRES_IN se valida con la propia librería (jsonwebtoken + ms): se firma un token de prueba y
+ * se exige exp > iat. Además se rechazan números sin unidad: llegan como string y jsonwebtoken los
+ * interpreta como milisegundos ("3600" = 3,6 s), lo que nunca es la intención.
+ * Válidos: "2h", "30m", "1d", "7 days". Inválidos: "abc", "3600", "-1h", "0s".
+ */
+export function jwtExpiresInIssue(value: string): string | null {
+    if (/^\s*-?\d+(\.\d+)?\s*$/.test(value)) {
+        return 'JWT_EXPIRES_IN must include a time unit (e.g. 2h, 30m, 1d)';
+    }
+    try {
+        const token = jwt.sign({}, 'jwt-expires-in-probe', { expiresIn: value as jwt.SignOptions['expiresIn'] });
+        const decoded = jwt.decode(token) as { iat?: number; exp?: number } | null;
+        if (!decoded?.exp || !decoded.iat || decoded.exp <= decoded.iat) {
+            return 'JWT_EXPIRES_IN must be a positive duration';
+        }
+        return null;
+    } catch {
+        return 'JWT_EXPIRES_IN is not a valid duration (e.g. 2h, 30m, 1d)';
+    }
+}
 
 const nodeEnvSchema = z.enum(['development', 'test', 'production']);
 
@@ -81,7 +108,18 @@ const webEnvSchema = z
             .transform((v) => (v === undefined || v.trim() === '' ? 'lotes-files' : v)),
     })
     .superRefine((data, ctx) => {
+        const expiresInIssue = jwtExpiresInIssue(data.JWT_EXPIRES_IN);
+        if (expiresInIssue) {
+            ctx.addIssue({ code: 'custom', message: expiresInIssue, path: ['JWT_EXPIRES_IN'] });
+        }
         if (data.NODE_ENV === 'production') {
+            if (data.JWT_SECRET.trim().length < JWT_SECRET_MIN_LENGTH_PRODUCTION) {
+                ctx.addIssue({
+                    code: 'custom',
+                    message: `JWT_SECRET must be at least ${JWT_SECRET_MIN_LENGTH_PRODUCTION} characters when NODE_ENV is production`,
+                    path: ['JWT_SECRET'],
+                });
+            }
             const url = data.FRONTEND_URL?.trim();
             if (!url) {
                 ctx.addIssue({
