@@ -677,39 +677,62 @@ export async function updatedLote(id: number, data: any, role?: string): Promise
   }
 }
 
+export const MENSAJE_LOTE_CON_ASOCIACIONES =
+  'No se puede eliminar el lote porque tiene operaciones o asociaciones registradas (ventas, reservas, prioridades, promociones, alquileres o archivos).';
+
+function loteConAsociacionesError(): Error & { statusCode: number } {
+  const error = new Error(MENSAJE_LOTE_CON_ASOCIACIONES) as Error & { statusCode: number };
+  error.statusCode = 409;
+  return error;
+}
+
+/**
+ * Hard delete de un lote, solo si no destruye historia ni asociaciones.
+ *
+ * Bloquean (409, sin borrar nada) las ventas, reservas (y con ellas sus ofertas), prioridades,
+ * promociones, alquileres y archivos del lote, en cualquier estado (incluidos los dados de baja):
+ * son historia comercial o documentos. Borrar la metadata de un archivo dejaría además el objeto
+ * huérfano en storage. La ubicación no bloquea: su FK es SET NULL y queda disponible para reasignarse.
+ *
+ * Atomicidad y carreras: el chequeo y el borrado corren en la misma transacción y el lote es lo único
+ * que se borra. Si entre el chequeo y el DELETE aparece una asociación, la FK (RESTRICT) hace fallar
+ * el DELETE en la base y se responde el mismo 409: nunca queda un borrado parcial ni una asociación
+ * huérfana.
+ */
 export async function deleteLote(id: number, role?: string): Promise<DeleteLoteResponse> {
   if (role === 'TECNICO') {
     const e: any = new Error('Los técnicos no están autorizados para eliminar lotes');
     e.statusCode = 403;
     throw e;
   }
-  
-  // 1) Borrar archivos asociados a este lote antes de eliminar el lote
-  // Esto evita el error de foreign key constraint "Archivos_idLoteAsociado_fkey"
-  await prisma.archivos.deleteMany({
-    where: {
-      idLoteAsociado: id,
-    },
-  });
 
-  // 2) Borrar reservas asociadas a este lote antes de eliminar el lote
-  // Esto evita el error de foreign key constraint "Reserva_loteId_fkey"
-  await prisma.reserva.deleteMany({
-    where: {
-      loteId: id,
-    },
-  });
-
-  // 3) Borrar ventas asociadas a este lote antes de eliminar el lote
-  // Esto evita el error de foreign key constraint "Venta_loteId_fkey"
-  await prisma.venta.deleteMany({
-    where: {
-      loteId: id,
-    },
-  });
-
-  // 4) Recién después borrar el lote
-  await prisma.lote.delete({ where: { id: id } });
+  try {
+    await prisma.$transaction(async (tx) => {
+      const lote = await tx.lote.findUnique({
+        where: { id },
+        select: {
+          _count: {
+            select: { Venta: true, reserva: true, prioridad: true, promociones: true, alquileres: true, archivos: true },
+          },
+        },
+      });
+      if (!lote) {
+        const error = new Error('Lote no encontrado') as Error & { statusCode: number };
+        error.statusCode = 404;
+        throw error;
+      }
+      if (Object.values(lote._count).some((n) => n > 0)) {
+        throw loteConAsociacionesError();
+      }
+      await tx.lote.delete({ where: { id } });
+    });
+  } catch (error) {
+    // Asociación creada entre el chequeo y el DELETE: la rechaza la FK de la base.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && (error.code === 'P2003' || error.code === 'P2014')) {
+      throw loteConAsociacionesError();
+    }
+    throw error;
+  }
   return { message: 'Lote eliminado correctamente' };
 }
 
