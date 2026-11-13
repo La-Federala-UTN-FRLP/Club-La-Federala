@@ -57,9 +57,7 @@ export async function actualizarLote(req: Request, res: Response, next: NextFunc
         const user = req.user;
 
         const { id } = validatedParams(req, getLoteSchema);
-        // La validación de si el técnico puede acceder a este lote
-        // ya se hizo en el middleware `checkLoteStatusForTecnico`.
-        // El controlador solo actualiza.
+        // RBAC por rol en la ruta; las restricciones de campos para TECNICO las aplica el service.
         const result = await loteService.updatedLote(id, req.body, user?.role);
         res.json({success: true,message: "Lote actualizado exitosamente",data:result});
     } catch (error) {
@@ -73,9 +71,7 @@ export async function eliminarLote(req: Request, res: Response, next: NextFuncti
     try {
         const user = req.user;
         const { id } = validatedParams(req, deleteLoteSchema);
-        // La validación de si el técnico puede acceder a este lote
-        // ya se hizo en el middleware `checkLoteStatusForTecnico`.
-        // El controlador solo elimina.
+        // Solo ADMINISTRADOR (authorize en la ruta).
         const result = await loteService.deleteLote(id, user?.role);
         res.json({success: true,message: "Lote eliminado exitosamente",data:result});
     } catch (error) {

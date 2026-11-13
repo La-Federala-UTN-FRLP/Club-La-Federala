@@ -44,9 +44,19 @@ describe('getAllUsers', () => {
         expect(result).toEqual(mockUsers);
         expect(prisma.user.findMany).toHaveBeenCalledWith({
             orderBy: { id: 'asc' },
-            take: 10,
             omit: { password: true },
         });
+    });
+
+    // D5: sin paginación, el listado es completo. Antes un take: 10 fijo ocultaba usuarios.
+    test('devuelve más de 10 usuarios: sin tope fijo', async () => {
+        const muchos = Array.from({ length: 12 }, (_, i) => ({ id: i + 1, username: `u${i + 1}`, email: `u${i + 1}@test.com`, role: 'GESTOR' as Rol }));
+        (prisma.user.findMany as jest.Mock).mockResolvedValue(muchos);
+
+        const result = await getAllUsers();
+
+        expect(result).toHaveLength(12);
+        expect((prisma.user.findMany as jest.Mock).mock.calls[0][0]).not.toHaveProperty('take');
     });
 });
 

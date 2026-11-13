@@ -13,7 +13,7 @@ import {
   ReservasListQuery,
 } from '../services/reserva.service';
 import { validatedParams, validatedQuery } from '../middlewares/validation.middleware';
-import { getReservaParamsSchema, deleteReservaParamsSchema, patchReservaParamsSchema, queryReservasSchema } from '../validations/reserva.validation';
+import { getReservaParamsSchema, patchReservaParamsSchema, queryReservasSchema } from '../validations/reserva.validation';
 
 // ==============================
 // Obtener todas las reservas
@@ -87,20 +87,6 @@ export async function updateReservaController(req: Request, res: Response, next:
     const user = req.user;
     const data = await updateReserva(id, req.body, user);
     res.json({ success: true, message: 'Reserva actualizada exitosamente', data });
-  } catch (error) {
-    next(error);
-  }
-}
-
-// ==============================
-// Eliminar reserva (soft delete - estadoOperativo)
-// ==============================
-export async function deleteReservaController(req: Request, res: Response, next: NextFunction) {
-  try {
-    const { id } = validatedParams(req, deleteReservaParamsSchema);
-    const user = req.user;
-    const data = await eliminarReserva(id, user);
-    res.json({ success: true, message: 'Reserva eliminada exitosamente', data });
   } catch (error) {
     next(error);
   }

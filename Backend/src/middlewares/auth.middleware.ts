@@ -2,6 +2,13 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { getWebEnv } from '../config/env';
 import { findAuthIdentity } from '../services/authIdentity.service';
+import { errorCodeForStatus } from './error.middleware';
+
+ // Rechazo de auth con el contrato de error (D4): { success, code, message }.
+ // `error` repite el mensaje por compatibilidad: el frontend todavía lo lee (deprecated).
+ function sendAuthError(res: Response, status: 401 | 403, message: string) {
+   return res.status(status).json({ success: false, code: errorCodeForStatus(status), message, error: message });
+ }
 
  // Extender tipo Request
  declare global {
@@ -31,7 +38,7 @@ import { findAuthIdentity } from '../services/authIdentity.service';
    // 1. Obtener token del header
    const authHeader = req.headers.authorization;
    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-       return res.status(401).json({ success: false, error: 'Token no proporcionado' });
+       return sendAuthError(res, 401, 'Token no proporcionado');
    }
    const token = authHeader.split(' ')[1];
 
@@ -43,14 +50,14 @@ import { findAuthIdentity } from '../services/authIdentity.service';
        // Solo el tipo de error: sin mensaje (puede citar el header de un token malformado), stack, token ni headers.
        console.warn(`[AUTH] ${error?.name}`);
        if (error.name === 'TokenExpiredError') {
-           return res.status(401).json({ success: false, error: 'Token expirado' });
+           return sendAuthError(res, 401, 'Token expirado');
        }
-       return res.status(401).json({ success: false, error: 'Token inválido' });
+       return sendAuthError(res, 401, 'Token inválido');
    }
 
    const userId = userIdFromToken(decoded);
    if (userId == null) {
-       return res.status(401).json({ success: false, error: 'Token inválido' });
+       return sendAuthError(res, 401, 'Token inválido');
    }
 
    // 3. Identidad vigente desde la DB. Un error de DB no es un problema de credenciales: va al handler (500).
@@ -62,7 +69,7 @@ import { findAuthIdentity } from '../services/authIdentity.service';
    }
    if (!identity) {
        // Usuario eliminado: misma respuesta que un token inválido, sin revelar el motivo.
-       return res.status(401).json({ success: false, error: 'Token inválido' });
+       return sendAuthError(res, 401, 'Token inválido');
    }
 
    // 4. Agregar usuario al request (rol e inmobiliariaId de la DB, no de los claims)
@@ -75,20 +82,17 @@ import { findAuthIdentity } from '../services/authIdentity.service';
    next();
  }
  // Autorización: Middleware para verificar roles
+ // allowedRoles: los roles admitidos quedan legibles en el middleware (solo lectura) para que el test
+ // de la OpenAPI compare x-roles con la autorización real de cada ruta.
  export function authorize(...roles: string[]) {
-   return (req: Request, res: Response, next: NextFunction) => {
+   const middleware = (req: Request, res: Response, next: NextFunction) => {
        if (!req.user) {
-           return res.status(401).json({
-               success: false,
-               error: 'No autenticado'
-           });
+           return sendAuthError(res, 401, 'No autenticado');
        }
        if (!roles.includes(req.user.role)) {
-           return res.status(403).json({
-               success: false,
-               error: 'No tienes permisos para esta acción'
-           });
+           return sendAuthError(res, 403, 'No tienes permisos para esta acción');
        }
        next();
    };
+   return Object.assign(middleware, { allowedRoles: Object.freeze([...roles]) as readonly string[] });
  }

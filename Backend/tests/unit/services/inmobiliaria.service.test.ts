@@ -4,7 +4,6 @@ jest.mock('../../../src/config/prisma', () =>
 
 import {
     createInmobiliaria,
-    deleteInmobiliaria,
     eliminarInmobiliaria,
     getAllInmobiliarias,
     getInmobiliariaById,
@@ -544,25 +543,5 @@ describe('reactivarInmobiliaria', () => {
         await expect(reactivarInmobiliaria(1)).rejects.toThrow(/ya está operativa/i);
         await expectStatusCode(() => reactivarInmobiliaria(1), 409);
         expect(prismaMock.inmobiliaria.update).not.toHaveBeenCalled();
-    });
-});
-
-describe('deleteInmobiliaria', () => {
-    test('hard delete retorna mensaje de éxito', async () => {
-        prismaMock.inmobiliaria.delete.mockResolvedValue({ id: 4 });
-
-        const result = await deleteInmobiliaria({ idInmobiliaria: 4 });
-
-        expect(prismaMock.inmobiliaria.delete).toHaveBeenCalledWith({ where: { id: 4 } });
-        expect(result).toEqual({ message: 'Inmobiliaria eliminada correctamente' });
-    });
-
-    test('traduce Prisma P2025 a 404', async () => {
-        prismaMock.inmobiliaria.delete.mockRejectedValue({ code: 'P2025' });
-
-        await expect(deleteInmobiliaria({ idInmobiliaria: 123 })).rejects.toThrow(
-            'Inmobiliaria no encontrada',
-        );
-        await expectStatusCode(() => deleteInmobiliaria({ idInmobiliaria: 123 }), 404);
     });
 });

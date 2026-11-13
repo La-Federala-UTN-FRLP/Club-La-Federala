@@ -2,7 +2,6 @@ import {
     createVentaSchema,
     updateVentaSchema,
     getVentaSchema,
-    deleteVentaSchema,
     queryVentaSchema,
 } from '../../../src/validations/venta.validation';
 
@@ -233,13 +232,6 @@ describe('getVentaSchema', () => {
         expect(getVentaSchema.safeParse({ id: '-1' }).success).toBe(false);
         expect(getVentaSchema.safeParse({ id: '0' }).success).toBe(false);
         expect(getVentaSchema.safeParse({ id: '1.5' }).success).toBe(false);
-    });
-});
-
-describe('deleteVentaSchema', () => {
-    test('comparte reglas de id con getVentaSchema', () => {
-        expect(deleteVentaSchema.safeParse({ id: '2' }).success).toBe(true);
-        expect(deleteVentaSchema.safeParse({ id: '0' }).success).toBe(false);
     });
 });
 

@@ -11,7 +11,6 @@ jest.mock('../../../src/services/pago.service', () => ({
 }));
 jest.mock('../../../src/services/inmobiliaria.service', () => ({ createInmobiliaria: jest.fn(), updateInmobiliaria: jest.fn() }));
 jest.mock('../../../src/services/venta.service', () => ({ createVenta: jest.fn(), updateVenta: jest.fn() }));
-jest.mock('../../../src/services/ubicacion.service', () => ({ createUbicacion: jest.fn(), updateUbicacion: jest.fn() }));
 jest.mock('../../../src/services/file.service', () => ({ uploadFileToSupabase: jest.fn(), saveFileMetadata: jest.fn() }));
 jest.mock('../../../src/utils/file.validation.utils', () => ({ ensureVentaPerteneceALote: jest.fn() }));
 
@@ -23,7 +22,6 @@ import * as prioridadService from '../../../src/services/prioridad.service';
 import * as pagoService from '../../../src/services/pago.service';
 import * as inmobiliariaService from '../../../src/services/inmobiliaria.service';
 import * as ventaService from '../../../src/services/venta.service';
-import * as ubicacionService from '../../../src/services/ubicacion.service';
 import * as fileService from '../../../src/services/file.service';
 import { ensureVentaPerteneceALote } from '../../../src/utils/file.validation.utils';
 import { PersonaService } from '../../../src/services/persona.service';
@@ -48,7 +46,6 @@ const MOCKS = [
     inmobiliariaService.createInmobiliaria,
     inmobiliariaService.updateInmobiliaria,
     ventaService.createVenta,
-    ubicacionService.createUbicacion,
     fileService.uploadFileToSupabase,
     fileService.saveFileMetadata,
     ensureVentaPerteneceALote,
@@ -227,11 +224,6 @@ describe('números no-ID del body', () => {
         expect(m(pagoService.registrarPagoEnVenta)).not.toHaveBeenCalled();
     });
 
-    test('POST /ubicaciones: numero null no se convierte en 0 (ni llega al service)', async () => {
-        const res = await request(app).post('/api/ubicaciones').set(ADMIN).send({ calle: 'Maca', numero: null });
-        expect(res.status).toBe(400);
-        expect(m(ubicacionService.createUbicacion)).not.toHaveBeenCalled();
-    });
 });
 
 describe('inmobiliaria: comxventa', () => {

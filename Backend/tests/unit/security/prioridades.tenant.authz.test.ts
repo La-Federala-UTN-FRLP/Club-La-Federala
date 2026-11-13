@@ -11,6 +11,7 @@ jest.mock('../../../src/config/prisma', () => {
         count: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn(),
     });
     const tx = { prioridad: delegate(), lote: delegate() };
     return {
@@ -28,7 +29,7 @@ import prismaReal from '../../../src/config/prisma';
 import { resetPrismaMock } from '../../support/mocks/prisma';
 import { authHeader, useTestWebEnv } from '../../support/http';
 
-type Delegate = Record<'findMany' | 'findUnique' | 'findFirst' | 'count' | 'create' | 'update', jest.Mock>;
+type Delegate = Record<'findMany' | 'findUnique' | 'findFirst' | 'count' | 'create' | 'update' | 'updateMany', jest.Mock>;
 const prisma = prismaReal as unknown as {
     prioridad: Delegate;
     lote: Delegate;
@@ -69,6 +70,7 @@ function expectSinEscrituras() {
     expect(prisma.lote.update).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(prisma.__tx.prioridad.update).not.toHaveBeenCalled();
+    expect(prisma.__tx.prioridad.updateMany).not.toHaveBeenCalled();
     expect(prisma.__tx.prioridad.create).not.toHaveBeenCalled();
     expect(prisma.__tx.lote.update).not.toHaveBeenCalled();
 }
@@ -216,7 +218,9 @@ describe.each(['cancelar', 'finalizar'] as const)('PATCH /api/prioridades/:id/%s
 
     function stub(prioridad: Record<string, unknown> | null) {
         prisma.prioridad.findUnique.mockResolvedValue(prioridad && buildPrioridad(prioridad));
-        prisma.__tx.prioridad.update.mockResolvedValue(buildPrioridad());
+        // El cierre escribe condicionado a ACTIVA (updateMany) y relee la fila resultante.
+        prisma.__tx.prioridad.updateMany.mockResolvedValue({ count: 1 });
+        prisma.__tx.prioridad.findUnique.mockResolvedValue(buildPrioridad());
         prisma.__tx.lote.findUnique.mockResolvedValue({ estado: 'DISPONIBLE' });
     }
 
@@ -244,7 +248,7 @@ describe.each(['cancelar', 'finalizar'] as const)('PATCH /api/prioridades/:id/%s
         stub({ ...PROPIA, estado: 'ACTIVA' });
         const res = await request(app).patch(url).set(PROPIO);
         expect(res.status).toBe(200);
-        expect(prisma.__tx.prioridad.update).toHaveBeenCalledTimes(1);
+        expect(prisma.__tx.prioridad.updateMany).toHaveBeenCalledTimes(1);
     });
 
     test('I tenant 5 → prioridad inexistente → 404 sin escrituras', async () => {
@@ -266,7 +270,7 @@ describe.each(['cancelar', 'finalizar'] as const)('PATCH /api/prioridades/:id/%s
             stub({ ...AJENA, estado: 'ACTIVA' });
             const res = await request(app).patch(url).set(authHeader(role));
             expect(res.status).toBe(200);
-            expect(prisma.__tx.prioridad.update).toHaveBeenCalledTimes(1);
+            expect(prisma.__tx.prioridad.updateMany).toHaveBeenCalledTimes(1);
         });
     });
 });
