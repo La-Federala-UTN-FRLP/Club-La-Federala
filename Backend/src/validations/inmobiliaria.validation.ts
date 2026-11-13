@@ -71,4 +71,3 @@ export const listInmobiliariasQuerySchema = z.object({
 });
 
 export const getInmobiliariaSchema = idParamSchema;
-export const deleteInmobiliariaSchema = idParamSchema;

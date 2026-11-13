@@ -122,7 +122,7 @@ describe('TECNICO — GET /api/files/:id', () => {
     test.each(VEDADOS_TECNICO)('%s → 404 sin metadata', async (tipo) => {
         const res = await request(app).get(`/api/files/${ID[tipo]}`).set(TECNICO);
         expect(res.status).toBe(404);
-        expect(res.body).toEqual({ message: 'Archivo no encontrado' });
+        expect(res.body).toEqual({ success: false, code: 'NOT_FOUND', message: 'Archivo no encontrado' });
         sinMetadata(res.body, tipo);
     });
 });
@@ -189,7 +189,7 @@ describe('TECNICO — POST /api/files/:id/sustituir', () => {
     test.each(VEDADOS_TECNICO)('%s → 404 sin subir ni dar de baja nada', async (tipo) => {
         const res = await adjuntarPdf(request(app).post(`/api/files/${ID[tipo]}/sustituir`).set(TECNICO));
         expect(res.status).toBe(404);
-        expect(res.body).toEqual({ message: 'Archivo no encontrado' });
+        expect(res.body).toEqual({ success: false, code: 'NOT_FOUND', message: 'Archivo no encontrado' });
         expect(mockStorage.upload).not.toHaveBeenCalled();
         expect(db.archivos.update).not.toHaveBeenCalled();
         expect(db.archivos.create).not.toHaveBeenCalled();
@@ -212,7 +212,7 @@ describe('TECNICO — PATCH /api/files/:id/aprobaciones', () => {
     test.each(VEDADOS_TECNICO)('%s → 404: la autorización por tipo precede a la acción y a la validación de tipo', async (tipo) => {
         const res = await request(app).patch(`/api/files/${ID[tipo]}/aprobaciones`).set(TECNICO).send({ target: 'COMISION', estado: 'APROBADO' });
         expect(res.status).toBe(404);
-        expect(res.body).toEqual({ message: 'Archivo no encontrado' });
+        expect(res.body).toEqual({ success: false, code: 'NOT_FOUND', message: 'Archivo no encontrado' });
         expect(db.archivos.update).not.toHaveBeenCalled();
     });
 

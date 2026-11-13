@@ -2,7 +2,7 @@ import { Router } from 'express';
 import * as reservaController from '../controllers/reserva.controller';
 import { validate, validateParams, validateQuery } from '../middlewares/validation.middleware';
 import { authenticate, authorize } from '../middlewares/auth.middleware';
-import { createReservaSchema, updateReservaSchema, getReservaParamsSchema, deleteReservaParamsSchema, queryReservasSchema, patchReservaParamsSchema, createOfertaSchema } from '../validations/reserva.validation';
+import { createReservaSchema, updateReservaSchema, getReservaParamsSchema, queryReservasSchema, patchReservaParamsSchema, createOfertaSchema } from '../validations/reserva.validation';
 
 const router = Router();
 
@@ -51,14 +51,6 @@ router.put(
     validateParams(getReservaParamsSchema),
     validate(updateReservaSchema), 
     reservaController.updateReservaController);
-
-// DELETE /api/Reservas/:id
-router.delete(
-    '/:id',
-    authenticate,
-    authorize('ADMINISTRADOR', 'GESTOR'),
-    validateParams(deleteReservaParamsSchema),  
-    reservaController.deleteReservaController);
 
 // PATCH /api/Reservas/:id/eliminar
 router.patch(

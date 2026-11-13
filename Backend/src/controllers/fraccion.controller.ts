@@ -19,11 +19,8 @@ export async function obtenerTodas(req: Request, res: Response, next: NextFuncti
             message: 'Fracciones obtenidas exitosamente',
             ...response
         });
-    } catch (error: any) {
-        res.status(500).json({
-            success: false,
-            message: error.message || 'Error al obtener las fracciones'
-        });
+    } catch (error) {
+        next(error);
     }
 
 }

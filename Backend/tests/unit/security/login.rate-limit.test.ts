@@ -139,3 +139,27 @@ describe('POST /api/auth/login fuera de Render (cliente = req.ip)', () => {
         expect((await intentar({ 'CF-Connecting-IP': '198.51.100.200' })).status).toBe(429);
     });
 });
+
+describe('log del 429', () => {
+    beforeEach(() => {
+        process.env.RENDER = 'true';
+    });
+
+    test('registra evento, ruta y key del cliente; nunca email, password ni Authorization', async () => {
+        const cliente = { 'CF-Connecting-IP': '203.0.113.77', Authorization: 'Bearer token-que-no-debe-aparecer' };
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+        await agotarCupo(cliente);
+        expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('[RATE_LIMIT]'));
+
+        const res = await intentar(cliente, 'password-secreta-123');
+
+        expect(res.status).toBe(429);
+        const lineas = warn.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('[RATE_LIMIT]'));
+        expect(lineas).toEqual(['[RATE_LIMIT] 429 POST /api/auth/login key=203.0.113.77']);
+        const todo = JSON.stringify(warn.mock.calls);
+        for (const sensible of ['alguien@mail.com', 'password-secreta-123', 'token-que-no-debe-aparecer']) {
+            expect(todo).not.toContain(sensible);
+        }
+        warn.mockRestore();
+    });
+});
