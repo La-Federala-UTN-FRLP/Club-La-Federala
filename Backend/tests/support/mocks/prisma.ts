@@ -88,12 +88,13 @@ export const lotePrismaSpec = {
     persona: ['findUnique'],
     ubicacion: ['update'],
     fraccion: ['findUnique'],
-    archivos: ['deleteMany'],
-    reserva: ['deleteMany'],
-    venta: ['deleteMany'],
 } as const;
 
-export const lotePrismaMock = createPrismaMock(lotePrismaSpec);
+const lotePrismaDelegates = createPrismaMock(lotePrismaSpec);
+export const lotePrismaMock = Object.assign(lotePrismaDelegates, {
+    // tx = el mismo mock (deleteLote corre en una transacción). resetPrismaMock solo limpia sus llamadas.
+    $transaction: jest.fn((fn: (tx: unknown) => unknown): unknown => fn(lotePrismaDelegates)),
+});
 
 /** Spec de Reserva: delegates del client + tx mínimo para $transaction. */
 export const reservaPrismaSpec = {

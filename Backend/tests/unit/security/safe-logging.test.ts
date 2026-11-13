@@ -84,6 +84,7 @@ describe('POST /api/auth/login — no expone credenciales en logs', () => {
         expect(res.status).toBe(400);
         expect(res.body).toEqual({
             success: false,
+            code: 'VALIDATION_ERROR',
             message: 'Datos inválidos',
             errors: [{ field: 'email', message: expect.any(String) }],
         });
@@ -142,7 +143,7 @@ describe('authenticate — errores JWT esperados sin token ni stack en logs', ()
         const res = await request(app).get('/api/usuarios').set({ Authorization: `Bearer ${expired}` });
 
         expect(res.status).toBe(401);
-        expect(res.body).toEqual({ success: false, error: 'Token expirado' });
+        expect(res.body).toEqual({ success: false, code: 'UNAUTHORIZED', message: 'Token expirado', error: 'Token expirado' });
         const output = consoleOutput();
         expect(output).toContain('[AUTH] TokenExpiredError');
         expect(output).not.toContain(expired);
@@ -155,7 +156,7 @@ describe('authenticate — errores JWT esperados sin token ni stack en logs', ()
         const res = await request(app).get('/api/usuarios').set({ Authorization: `Bearer ${forged}` });
 
         expect(res.status).toBe(401);
-        expect(res.body).toEqual({ success: false, error: 'Token inválido' });
+        expect(res.body).toEqual({ success: false, code: 'UNAUTHORIZED', message: 'Token inválido', error: 'Token inválido' });
         const output = consoleOutput();
         expect(output).not.toContain(forged);
         expect(output).not.toContain(JWT_SECRET);

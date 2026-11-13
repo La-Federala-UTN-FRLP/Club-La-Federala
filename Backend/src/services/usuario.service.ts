@@ -15,11 +15,10 @@ const toUsuario = (u: PrismaUser): Usuario => ({
     email: u.email,
 });
 
-// obtener todos los usuarios
-export async function getAllUsers(limit: number = 10): Promise<UserData[]> {
+// obtener todos los usuarios (listado completo: no hay paginación y un tope fijo ocultaba usuarios)
+export async function getAllUsers(): Promise<UserData[]> {
     const usuarios = await prisma.user.findMany({
         orderBy: { id: 'asc' },
-        take: limit,
         omit: { password: true }
     });
     return usuarios;

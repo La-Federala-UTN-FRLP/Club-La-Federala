@@ -11,9 +11,11 @@ Se implementa con **Node.js + TypeScript + Prisma ORM**, siguiendo una arquitect
 Carpeta utilizada para almacenar documentos de referencia relacionados al proyecto.
 - `MetodosDashboard.jpeg` / `MetodosSidePanel.jpeg`: capturas de interfaz y propuestas de diseño.
 - `RelevamientoAPIs-Backend.pdf`: documento de relevamiento de APIs.
-- `documentacionApi.yaml`: documento de endpoint de API.
+- `documentacionApi.yaml`: **contrato de la API** (OpenAPI 3.0.3): 78 operaciones `/api` + `GET /health`. `tests/unit/openapi/openapi.contract.test.ts` verifica que coincida con las rutas reales, su seguridad y sus roles.
 
 ### `link a Documentacion API en Swagger`[https://app.swaggerhub.com/apis-docs/clubdecampolf/api-club-de-campo-la-federala/1.0.12]
+
+Copia externa publicada antes del freeze; puede estar desactualizada. La fuente de verdad es `documents/documentacionApi.yaml`.
 
 ---
 
@@ -108,6 +110,14 @@ Validado en `src/config/bootstrapWeb.ts` **antes** de abrir el puerto.
 | `JWT_EXPIRES_IN` | no | `2h` |
 | `SUPABASE_BUCKET` | no | `lotes-files` |
 
+Reglas de validación (el proceso no arranca si fallan):
+
+- `JWT_SECRET`: en `production`, al menos 32 caracteres. En development/test basta un valor no vacío.
+- `JWT_EXPIRES_IN`: duración con unidad (`2h`, `30m`, `1d`); un número sin unidad se rechaza.
+- `FRONTEND_URL`: un único origin (sin path ni CSV); requerido en `production`.
+
+Rotar `JWT_SECRET` invalida todos los JWT emitidos.
+
 Cliente Supabase: inicialización **lazy** en `file.service.ts` (sin side effects al importar rutas).
 
 ### JobEnv (`jobs:expirations*`)
@@ -116,7 +126,7 @@ Solo `DATABASE_URL`. Carga `.env` local + validación al inicio del runner CLI.
 
 ### Tooling Prisma
 
-`prisma/schema.prisma` referencia `DATABASE_URL` y `DIRECT_URL`. `prisma generate`, migraciones y seeds usan ambas según el schema; el job **no** exige `DIRECT_URL` en runtime.
+`prisma/schema.prisma` referencia `DATABASE_URL` y `DIRECT_URL`. `prisma validate`, las migraciones (`prisma migrate dev`, `prisma migrate deploy`) y los seeds usan ambas según el schema; `prisma generate` no las requiere (Prisma 6.18). El job **no** exige `DIRECT_URL` en runtime.
 
 ---
 
@@ -133,11 +143,18 @@ TypeScript con watcher (`ts-node-dev`) sobre `src/server.ts`.
 ### Producción
 
 ```bash
+npm ci
 npm run build
 npm start
 ```
 
 JavaScript compilado: `node dist/server.js`. El build genera Prisma Client, compila TypeScript y copia el cliente a `dist/generated/prisma`.
+
+### Docker
+
+- **Build sin `.env`:** el stage `build` corre `prisma generate` con `DATABASE_URL`/`DIRECT_URL` dummy solo en ese comando (no se conecta, no son secretos, no quedan en la imagen). El runtime recibe las URLs reales por entorno.
+- **Imagen productiva:** `Dockerfile` multi-stage; el stage final `runtime` contiene solo `dist` y dependencias de producción, corre como usuario sin privilegios y ejecuta `node dist/server.js`. El job usa la misma imagen con el comando `node dist/jobs/runExpirations.js`.
+- **Desarrollo:** `docker-compose.yml` (raíz) usa el stage `deps` y `npm run dev` con el código montado por volumen. Es el entorno de desarrollo, no el runtime productivo.
 
 ## Health y shutdown
 
@@ -153,11 +170,14 @@ JavaScript compilado: `node dist/server.js`. El build genera Prisma Client, comp
   1. Instala las dependencias (`npm install`).
   2. Corre la suite completa con `npm test`.
   3. Para un archivo puntual utilizá `npm test -- nombre-del-archivo`.
+  4. Integración contra PostgreSQL real (descartable): `TEST_DATABASE_URL=... npm run test:integration` (ver `docs/development/setup-local.md`). No forma parte de `npm test`.
 
 - **Qué se está testeando**
   - Servicios de negocio (por ejemplo `lote.service`, `venta.service`) mediante mocks de Prisma.
   - Reglas de autorización y validaciones específicas de cada flujo.
   - Escenarios CRUD que incluyen caminos felices y manejo de errores (404, 403, etc.).
+  - Contrato HTTP contra la app real (supertest): errores, autenticación, roles y tenant.
+  - Guards de arquitectura y el inventario de la OpenAPI contra las rutas montadas.
 
 ---
 
@@ -169,6 +189,7 @@ El proceso web (`npm run dev` / `npm start`) **no** programa ni ejecuta expiraci
 
 - **Expirar Promociones**: marca promociones vencidas como inactivas y restaura estado/precio del lote.
 - **Expirar Reservas**: marca reservas vencidas como `EXPIRADA` y restaura el estado del lote.
+- **Expirar Prioridades**: marca prioridades `ACTIVA` vencidas como `EXPIRADA` y restaura el lote si sigue `CON_PRIORIDAD`. La escritura está condicionada a que la prioridad siga `ACTIVA`: no pisa una cancelación o finalización concurrente.
 
 ### Desarrollo / manual
 

@@ -1,31 +1,13 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { PersonaService } from '../services/persona.service';
 import { getPersonaSchema, cuilParamsSchema, deletePersonaSchema, miembroFamiliarParamsSchema, queryPersonasSchema, CreateMiembroFamiliarInput, CreatePersonaInput, UpdatePersonaInput } from '../validations/persona.validation';
 import { GetPersonasResponse, PostPersonaResponse, GetPersonaResponse, PutPersonaResponse, DeletePersonaResponse, PostPersonaRequest, PutPersonaRequest } from '../types/interfacesCCLF';
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { validatedParams, validatedQuery } from '../middlewares/validation.middleware';
 
 const personaService = new PersonaService();
 
-// Helper para mapear errores Prisma
-function mapPrismaError(e: unknown): any {
-  if (e instanceof PrismaClientKnownRequestError) {
-    if (e.code === 'P2002') {
-      const err: any = new Error('Ya existe una persona con ese identificador');
-      err.statusCode = 409;
-      return err;
-    }
-    if (e.code === 'P2025') {
-      const err: any = new Error('Persona no encontrada');
-      err.statusCode = 404;
-      return err;
-    }
-  }
-  return e;
-}
-
 export class PersonaController {
-    async create(req: Request, res: Response) {
+    async create(req: Request, res: Response, next: NextFunction) {
     try {
       // Body ya validado y normalizado por createPersonaSchema en la ruta (IDs ya son number).
       const validatedData = req.body as CreatePersonaInput;
@@ -55,16 +37,12 @@ export class PersonaController {
             success: true,
         ...response,
         });
-    } catch (error: any) {
-      const mappedError = mapPrismaError(error);
-      res.status(mappedError.statusCode || 400).json({
-            success: false,
-        message: mappedError.message || 'Error al crear la persona',
-        });
+    } catch (error) {
+      next(error);
     }
 }
 
-async obtenerTodas(req: Request, res: Response) {
+async obtenerTodas(req: Request, res: Response, next: NextFunction) {
     try {
       const user = (req as any).user; // Del middleware de auth
       
@@ -89,16 +67,12 @@ async obtenerTodas(req: Request, res: Response) {
             message: 'Personas obtenidas exitosamente',
         ...response,
         });
-        } catch (error: any) {
-      const mappedError = mapPrismaError(error);
-      res.status(mappedError.statusCode || 500).json({
-            success: false,
-        message: mappedError.message || 'Error al obtener las personas',
-        });
+        } catch (error) {
+      next(error);
     }
 }
 
-async obtenerPersonaPorId(req: Request, res: Response) {
+async obtenerPersonaPorId(req: Request, res: Response, next: NextFunction) {
     try {
         const { id } = validatedParams(req, getPersonaSchema);
       const user = (req as any).user; // Del middleware de auth
@@ -114,24 +88,12 @@ async obtenerPersonaPorId(req: Request, res: Response) {
             success: true,
         ...response,
         });
-    } catch (error: any) {
-      const mappedError = mapPrismaError(error);
-      if (mappedError.errors) {
-            res.status(400).json({
-            success: false,
-            message: 'Error de validación',
-          errors: mappedError.errors,
-            });
-        } else {
-        res.status(mappedError.statusCode || 404).json({
-                success: false,
-          message: mappedError.message || 'Persona no encontrada',
-            });
-        }
+    } catch (error) {
+      next(error);
     }
 }
 
-async actualizarPersona(req: Request, res: Response) {
+async actualizarPersona(req: Request, res: Response, next: NextFunction) {
     try {
         const { id } = validatedParams(req, getPersonaSchema);
         // Body ya validado y normalizado por updatePersonaSchema en la ruta.
@@ -162,16 +124,12 @@ async actualizarPersona(req: Request, res: Response) {
             success: true,
         ...response,
         });
-    } catch (error: any) {
-      const mappedError = mapPrismaError(error);
-      res.status(mappedError.statusCode || 400).json({
-            success: false,
-        message: mappedError.message || 'Error al actualizar la persona',
-        });
+    } catch (error) {
+      next(error);
     }
 }
 
-  async desactivarPersona(req: Request, res: Response) {
+  async desactivarPersona(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = validatedParams(req, deletePersonaSchema);
       const response: DeletePersonaResponse = await personaService.desactivarPersona(id);
@@ -180,16 +138,12 @@ async actualizarPersona(req: Request, res: Response) {
         success: true,
         ...response,
       });
-    } catch (error: any) {
-      const mappedError = mapPrismaError(error);
-      res.status(mappedError.statusCode || 400).json({
-        success: false,
-        message: mappedError.message || 'Error al desactivar la persona',
-      });
+    } catch (error) {
+      next(error);
     }
   }
 
-  async reactivarPersona(req: Request, res: Response) {
+  async reactivarPersona(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = validatedParams(req, deletePersonaSchema);
       const response: PutPersonaResponse = await personaService.reactivarPersona(id);
@@ -198,16 +152,12 @@ async actualizarPersona(req: Request, res: Response) {
         success: true,
         ...response,
       });
-    } catch (error: any) {
-      const mappedError = mapPrismaError(error);
-      res.status(mappedError.statusCode || 400).json({
-        success: false,
-        message: mappedError.message || 'Error al reactivar la persona',
-      });
+    } catch (error) {
+      next(error);
     }
   }
 
-async eliminarPersona(req: Request, res: Response) {
+async eliminarPersona(req: Request, res: Response, next: NextFunction) {
     try {
         const { id } = validatedParams(req, deletePersonaSchema);
       const response: DeletePersonaResponse = await personaService.deletePersonaDefinitivo(id);
@@ -216,23 +166,12 @@ async eliminarPersona(req: Request, res: Response) {
             success: true,
         ...response,
         });
-        } catch (error: any) {
-      const mappedError = mapPrismaError(error);
-      if (mappedError.statusCode === 409) {
-        res.status(409).json({
-            success: false,
-          message: mappedError.message || 'No se puede eliminar definitivamente porque tiene asociaciones',
-            });
-        } else {
-        res.status(mappedError.statusCode || 400).json({
-                success: false,
-          message: mappedError.message || 'Error al eliminar la persona',
-            });
-        }
+        } catch (error) {
+      next(error);
     }
 }
 
-async obtenerPersonaPorCuil(req: Request, res: Response) {
+async obtenerPersonaPorCuil(req: Request, res: Response, next: NextFunction) {
     try {
         // CUIL ya validado y normalizado en la ruta: string de 11 dígitos.
         const { cuil } = validatedParams(req, cuilParamsSchema);
@@ -241,10 +180,7 @@ async obtenerPersonaPorCuil(req: Request, res: Response) {
         const persona = await personaService.findByCuil(cuil);
 
         if (!persona) {
-            return res.status(404).json({
-            success: false,
-          message: 'Persona no encontrada',
-            });
+          return next(Object.assign(new Error('Persona no encontrada'), { statusCode: 404 }));
         }
 
         const response: GetPersonaResponse = {
@@ -256,16 +192,12 @@ async obtenerPersonaPorCuil(req: Request, res: Response) {
             success: true,
         ...response,
         });
-        } catch (error: any) {
-      const mappedError = mapPrismaError(error);
-      res.status(mappedError.statusCode || 500).json({
-                success: false,
-        message: mappedError.message || 'Error al buscar la persona',
-            });
-        }
+        } catch (error) {
+      next(error);
+    }
     }
 
-  async obtenerGrupoFamiliar(req: Request, res: Response) {
+  async obtenerGrupoFamiliar(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = validatedParams(req, getPersonaSchema);
       const grupo = await personaService.getGrupoFamiliar(id);
@@ -274,16 +206,12 @@ async obtenerPersonaPorCuil(req: Request, res: Response) {
         success: true,
         ...grupo,
       });
-    } catch (error: any) {
-      const mappedError = mapPrismaError(error);
-      res.status(mappedError.statusCode || 400).json({
-        success: false,
-        message: mappedError.message || 'Error al obtener grupo familiar',
-      });
+    } catch (error) {
+      next(error);
     }
   }
 
-  async crearMiembroFamiliar(req: Request, res: Response) {
+  async crearMiembroFamiliar(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = validatedParams(req, getPersonaSchema);
       // Body validado y normalizado por createMiembroFamiliarSchema en la ruta
@@ -301,16 +229,12 @@ async obtenerPersonaPorCuil(req: Request, res: Response) {
         miembro,
         message: 'Miembro familiar creado exitosamente',
       });
-    } catch (error: any) {
-      const mappedError = mapPrismaError(error);
-      res.status(mappedError.statusCode || 400).json({
-        success: false,
-        message: mappedError.message || 'Error al crear miembro familiar',
-      });
+    } catch (error) {
+      next(error);
     }
   }
 
-  async eliminarMiembroFamiliar(req: Request, res: Response) {
+  async eliminarMiembroFamiliar(req: Request, res: Response, next: NextFunction) {
     try {
       // Params ya validados y convertidos en la ruta (miembroFamiliarParamsSchema)
       const { id: titularId, miembroId } = validatedParams(req, miembroFamiliarParamsSchema);
@@ -321,12 +245,8 @@ async obtenerPersonaPorCuil(req: Request, res: Response) {
         success: true,
         message: 'Miembro familiar eliminado exitosamente',
       });
-    } catch (error: any) {
-      const mappedError = mapPrismaError(error);
-      res.status(mappedError.statusCode || 400).json({
-        success: false,
-        message: mappedError.message || 'Error al eliminar miembro familiar',
-      });
+    } catch (error) {
+      next(error);
     }
   }
 }

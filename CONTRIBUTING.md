@@ -84,7 +84,7 @@ Los tipos aceptados son `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `cho
 - Registrar decisiones de arquitectura importantes mediante ADR en [`docs/architecture/adr/`](docs/architecture/adr/001-estructura-documentacion.md).
 - Registrar en [`AI-DECISIONS.md`](AI-DECISIONS.md) los usos relevantes de IA que afecten código, arquitectura, seguridad o decisiones técnicas: problema, prompt/herramienta, propuesta y validación humana.
 - Conservar [`Documentacion/`](Documentacion/README.md) como material histórico; no modificarla sin una decisión explícita.
-- El contrato OpenAPI en `Backend/documents/documentacionApi.yaml` existe, pero está pendiente de reconciliación con la API actual: no tratarlo todavía como contrato oficial validado.
+- `Backend/documents/documentacionApi.yaml` es el contrato de la API. Agregar, quitar o cambiar los roles de una ruta exige actualizar la OpenAPI en el mismo PR: `tests/unit/openapi/openapi.contract.test.ts` falla si no coinciden.
 
 ## Checklist para Pull Requests
 

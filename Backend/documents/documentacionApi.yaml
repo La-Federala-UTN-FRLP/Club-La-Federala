@@ -1,942 +1,3291 @@
 openapi: 3.0.3
 info:
   title: API Club de Campo La Federala (CCLF)
-  description: API para gestionar lotes, ventas, inmobiliarias, usuarios y reservas.
-  version: 1.0.13
+  version: 1.0.14
+  description: >-
+    API del backend de CCLF: lotes, promociones, reservas, ventas, pagos, prioridades, personas,
+    inmobiliarias, usuarios, archivos, fracciones y ubicaciones.
+
+
+    **Autenticación.** JWT en el header `Authorization: Bearer <token>`, obtenido con
+    `POST /auth/login`. No se usan cookies. El acceso se evalúa con el
+    estado vigente del usuario en cada request: un usuario eliminado, o el usuario de una
+    inmobiliaria dada de baja (ELIMINADO), deja de operar aunque su token no haya vencido.
+
+
+    **Autorización.** Cada operación declara en `x-roles` los roles admitidos por la ruta
+    (`ADMINISTRADOR`, `GESTOR`, `INMOBILIARIA`, `TECNICO`). Un rol fuera de la lista recibe 403.
+    Las reglas adicionales (tenant, campos permitidos por rol) se indican en la descripción.
+    `INMOBILIARIA` opera solo dentro de su propia inmobiliaria.
+
+
+    **Errores.** Formato `{ success: false, code, message }`, con `errors[]` en las validaciones.
+    Una ruta o método inexistente responde 404 JSON `{ code: NOT_FOUND, message: "Ruta no encontrada" }`.
+    El body JSON admite hasta 1 MB (413 `PAYLOAD_TOO_LARGE`); los archivos viajan por
+    `multipart/form-data` con su propio límite (20 MB).
+
+
+    **Montos.** Los campos Decimal de las entidades que se devuelven sin DTO (lotes, reservas,
+    ofertas, promociones, ventas, plan de pago recién creado) se serializan como **string**
+    (`"15000.5"`). El contexto de pagos, el registro de pagos, el reemplazo de plan y la comisión de
+    inmobiliarias los devuelven como **number**.
 servers:
   - url: http://localhost:3000/api
-    description: Servidor local de desarrollo
+    description: Desarrollo local (las rutas de la API cuelgan de /api)
 
 tags:
-  - name: lotes
-    description: Este endpoint maneja toda la información relacionada con los lotes.
-  - name: ventas
-    description: Este endpoint maneja toda la información relacionada con las ventas.
-  - name: inmobiliarias
-    description: Este endpoint maneja toda la información relacionada con las inmobiliarias.
-  - name: usuarios
-    description: Este endpoint maneja toda la información relacionada con los usuarios.
-  - name: reservas
-    description: Este endpoint maneja toda la información relacionada con las reservas.
+  - name: Health
+    description: Liveness del proceso.
+  - name: Auth
+    description: Login con JWT Bearer.
+  - name: Lotes
+  - name: Promociones
+    description: >-
+      Promociones de precio sobre un lote. La expiración por fecha de fin la ejecuta el job programado
+      de expiraciones (no hay endpoint manual).
+  - name: Reservas
+  - name: Ventas
+  - name: Pagos
+    description: Plan de pagos, cuotas, pagos y recargos de una venta.
+  - name: Prioridades
+    description: >-
+      Prioridades sobre lotes. Al llegar `fechaFin` el job programado de expiraciones las expira con su
+      lifecycle completo (prioridad EXPIRADA y lote restaurado si sigue CON_PRIORIDAD).
+  - name: Personas
+  - name: Inmobiliarias
+  - name: Usuarios
+    description: Administración de cuentas.
+  - name: Files
+    description: Documentos de lotes y ventas (BOLETO, ESCRITURA, PLANO, IMAGEN, OTRO).
+  - name: Fracciones
+  - name: Ubicaciones
+    description: >-
+      Solo lectura. Las ubicaciones se crean y modifican dentro del alta y la edición de lotes
+      (`calle` + `numeroCalle`, o `ubicacionId`).
 
 paths:
-  # ===================== L O T E S =====================
+  # ============================================================ HEALTH
+  /health:
+    servers:
+      - url: http://localhost:3000
+        description: Fuera del prefijo /api
+    get:
+      tags: [Health]
+      operationId: health
+      summary: Liveness
+      description: >-
+        Indica que el proceso HTTP responde. No consulta la base de datos ni otros servicios: no es un
+        chequeo de readiness ni de dependencias.
+      security: []
+      responses:
+        '200':
+          description: Proceso vivo
+          headers:
+            Cache-Control:
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [ok] }
+
+  # ============================================================ AUTH
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Iniciar sesión
+      description: >-
+        Devuelve el usuario y un JWT. Credenciales inválidas, usuario inexistente y usuario de una
+        inmobiliaria dada de baja (ELIMINADO) responden el mismo 401 genérico.
+
+
+        Rate limit por cliente: 10 intentos fallidos cada 15 minutos; el siguiente responde 429.
+        Los logins exitosos no consumen cupo.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+            example: { email: usuario@example.com, password: clave-de-ejemplo }
+      responses:
+        '200':
+          description: Login correcto
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/LoginData' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: Credenciales inválidas (mismo body para todos los motivos)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example: { success: false, code: UNAUTHORIZED, message: Credenciales inválidas }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  # ============================================================ LOTES
   /lotes:
     get:
-      tags: [lotes]
+      tags: [Lotes]
+      operationId: listarLotes
       summary: Listar lotes
+      description: >-
+        TECNICO no puede usar el filtro `deudor` (400) y su respuesta omite `deuda`, ventas y reservas.
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA, TECNICO]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: estado, in: query, schema: { $ref: '#/components/schemas/EstadoLoteEntrada' } }
+        - { name: subestado, in: query, schema: { $ref: '#/components/schemas/SubestadoLoteEntrada' } }
+        - { name: tipo, in: query, schema: { $ref: '#/components/schemas/TipoLoteEntrada' } }
+        - { name: ocupacion, in: query, schema: { $ref: '#/components/schemas/Ocupacion' } }
+        - { name: propietarioId, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
+        - { name: ubicacionId, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
+        - name: deudor
+          in: query
+          description: true = solo lotes con deuda; false = sin deuda. No disponible para TECNICO (400).
+          schema: { type: string, enum: ['true', 'false'] }
       responses:
         '200':
-          description: OK
+          description: Lotes
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/GetLotesResponse' }
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data:
+                    type: object
+                    required: [lotes, total]
+                    properties:
+                      lotes: { type: array, items: { $ref: '#/components/schemas/Lote' } }
+                      total: { type: integer, description: Cantidad devuelta }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
     post:
-      tags: [lotes]
+      tags: [Lotes]
+      operationId: crearLote
       summary: Crear lote
+      description: >-
+        La ubicación se asocia con `ubicacionId` (existente) o se crea con `calle` + `numeroCalle`;
+        `ubicacionId` tiene prioridad. `precio` es obligatorio para "Lote Venta" y no se admite para
+        "Espacio Comun".
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/PostLoteRequest' }
+            schema: { $ref: '#/components/schemas/LoteCrear' }
       responses:
         '201':
-          description: Creado
+          description: Lote creado
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/PostLoteResponse' }
-
-  /lotes/{idLote}:
+              schema: { $ref: '#/components/schemas/LoteMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /lotes/{id}:
     parameters:
-      - $ref: '#/components/parameters/IdLote'
+      - $ref: '#/components/parameters/Id'
     get:
-      tags: [lotes]
-      summary: Obtener lote por ID
+      tags: [Lotes]
+      operationId: obtenerLote
+      summary: Obtener lote
+      description: Para TECNICO la respuesta omite `deuda`, ventas y reservas.
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA, TECNICO]
+      security: [{ bearerAuth: [] }]
       responses:
         '200':
-          description: OK
+          description: Lote
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/GetLoteResponse' }
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data: { $ref: '#/components/schemas/Lote' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
     put:
-      tags: [lotes]
+      tags: [Lotes]
+      operationId: actualizarLote
       summary: Actualizar lote
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/PutLoteRequest' }
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PutLoteResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '404': { $ref: '#/components/responses/NotFound' }
-    delete:
-      tags: [lotes]
-      summary: Eliminar lote
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/DeleteLoteResponse' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  # ===================== V E N T A S =====================
-  /ventas:
-    get:
-      tags: [ventas]
-      summary: Listar ventas
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/GetVentasResponse' }
-    post:
-      tags: [ventas]
-      summary: Crear venta
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/PostVentaRequest' }
-      responses:
-        '201':
-          description: Creado
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PostVentaResponse' }
-
-  /ventas/{idVenta}:
-    parameters:
-      - $ref: '#/components/parameters/IdVenta'
-    get:
-      tags: [ventas]
-      summary: Obtener venta por ID
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/GetVentaResponse' }
-        '404': { $ref: '#/components/responses/NotFound' }
-    put:
-      tags: [ventas]
-      summary: Actualizar venta
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/PutVentaRequest' }
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PutVentaResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '404': { $ref: '#/components/responses/NotFound' }
-    delete:
-      tags: [ventas]
-      summary: Eliminar venta
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/DeleteVentaResponse' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  # ================= I N M O B I L I A R I A S =================
-  /inmobiliarias:
-    get:
-      tags: [inmobiliarias]
-      summary: Listar inmobiliarias
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/GetInmobiliariasResponse' }
-    post:
-      tags: [inmobiliarias]
-      summary: Crear inmobiliaria
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/PostInmobiliariaRequest' }
-      responses:
-        '201':
-          description: Creado
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PostInmobiliariaResponse' }
-
-  /inmobiliarias/{idInmobiliaria}:
-    parameters:
-      - $ref: '#/components/parameters/IdInmobiliaria'
-    get:
-      tags: [inmobiliarias]
-      summary: Obtener inmobiliaria por ID
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/GetInmobiliariaResponse' }
-        '404': { $ref: '#/components/responses/NotFound' }
-    put:
-      tags: [inmobiliarias]
-      summary: Actualizar inmobiliaria
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/PutInmobiliariaRequest' }
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PutInmobiliariaResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '404': { $ref: '#/components/responses/NotFound' }
-    delete:
-      tags: [inmobiliarias]
-      summary: Eliminar inmobiliaria
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/DeleteInmobiliariaResponse' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  # ===================== U S U A R I O S =====================
-  /usuarios:
-    get:
-      tags: [usuarios]
-      summary: Listar usuarios
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/GetUsuariosResponse' }
-    post:
-      tags: [usuarios]
-      summary: Crear usuario
       description: >-
-        ADMINISTRADOR y GESTOR. Un GESTOR no puede crear usuarios con rol ADMINISTRADOR (403).
+        Actualización parcial (al menos un campo). TECNICO solo puede modificar `subestado` y
+        `superficie`; si no envía ninguno de ellos recibe 403. `calle` + `numeroCalle` actualizan la
+        ubicación existente o crean una; `ubicacionId` conecta una existente.
+      x-roles: [ADMINISTRADOR, GESTOR, TECNICO]
+      security: [{ bearerAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/PostUsuarioRequest' }
+            schema: { $ref: '#/components/schemas/LoteActualizar' }
+      responses:
+        '200':
+          description: Lote actualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoteMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [Lotes]
+      operationId: eliminarLote
+      summary: Eliminar lote definitivamente
+      description: >-
+        Borrado físico del lote, solo si no tiene historia ni asociaciones: ventas, reservas (y sus
+        ofertas), prioridades, promociones, alquileres o archivos, en cualquier estado (incluidos los
+        dados de baja). Si tiene alguna responde 409 y no borra nada. La ubicación del lote no bloquea
+        (queda sin lote asignado). Solo ADMINISTRADOR.
+      x-roles: [ADMINISTRADOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Lote eliminado
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  message: { type: string, example: Lote eliminado exitosamente }
+                  data:
+                    type: object
+                    properties:
+                      message: { type: string, example: Lote eliminado correctamente }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: El lote tiene operaciones o asociaciones registradas; no se borró nada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConflictResponse' }
+              example:
+                success: false
+                code: CONFLICT
+                message: No se puede eliminar el lote porque tiene operaciones o asociaciones registradas (ventas, reservas, prioridades, promociones, alquileres o archivos).
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  # ============================================================ PROMOCIONES
+  /lotes/{id}/promociones/aplicar:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Promociones]
+      operationId: aplicarPromocion
+      summary: Aplicar promoción a un lote
+      description: >-
+        El lote debe estar DISPONIBLE, tener precio y no tener otra promoción activa. Pasa a
+        EN_PROMOCION con el precio promocional.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PromocionAplicar' }
       responses:
         '201':
-          description: Creado
+          description: Promoción aplicada
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/PostUsuarioResponse' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-
-  /usuarios/{idUsuario}:
-    parameters:
-      - $ref: '#/components/parameters/IdUsuario'
-    get:
-      tags: [usuarios]
-      summary: Obtener usuario por username
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/GetUsuarioResponse' }
-        '404': { $ref: '#/components/responses/NotFound' }
-    put:
-      tags: [usuarios]
-      summary: Actualizar usuario
-      description: >-
-        ADMINISTRADOR y GESTOR. Un GESTOR no puede asignar el rol ADMINISTRADOR (ni a sí mismo) ni
-        modificar a un usuario que ya es ADMINISTRADOR (403).
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/PutUsuarioRequest' }
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PutUsuarioResponse' }
+              schema: { $ref: '#/components/schemas/PromocionMutacionResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-    delete:
-      tags: [usuarios]
-      summary: Eliminar usuario
-      description: Solo ADMINISTRADOR (cualquier otro rol recibe 403).
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /lotes/{id}/promociones/quitar:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Promociones]
+      operationId: quitarPromocion
+      summary: Quitar la promoción activa
+      description: Restaura el estado y el precio anteriores del lote.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
       responses:
         '200':
-          description: OK
+          description: Promoción quitada
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/DeleteUsuarioResponse' }
+              schema: { $ref: '#/components/schemas/PromocionMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /lotes/{id}/promociones/activa:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Promociones]
+      operationId: obtenerPromocionActiva
+      summary: Obtener la promoción activa de un lote
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA, TECNICO]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Promoción activa, o `data` null si no hay
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data:
+                    allOf: [{ $ref: '#/components/schemas/Promocion' }]
+                    nullable: true
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
 
-  # ===================== R E S E R V A S =====================
+  # ============================================================ RESERVAS
   /reservas:
     get:
-      tags: [reservas]
+      tags: [Reservas]
+      operationId: listarReservas
       summary: Listar reservas
+      description: INMOBILIARIA ve solo las reservas de su inmobiliaria.
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: estado, in: query, schema: { $ref: '#/components/schemas/EstadoReserva' } }
+        - { name: estadoOperativo, in: query, schema: { $ref: '#/components/schemas/EstadoOperativo' } }
+        - { name: loteId, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
       responses:
         '200':
-          description: OK
+          description: Reservas
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/GetReservasResponse' }
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data:
+                    type: object
+                    required: [reservas, total]
+                    properties:
+                      reservas: { type: array, items: { $ref: '#/components/schemas/Reserva' } }
+                      total: { type: integer, description: Cantidad devuelta }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
     post:
-      tags: [reservas]
+      tags: [Reservas]
+      operationId: crearReserva
       summary: Crear reserva
+      description: >-
+        Para INMOBILIARIA la reserva queda siempre a nombre de su inmobiliaria (se ignora
+        `inmobiliariaId`). Para staff, `inmobiliariaId` debe ser una inmobiliaria OPERATIVO: una
+        ELIMINADO responde 409 "La inmobiliaria seleccionada no está disponible para operar."
+
+
+        El lote debe estar DISPONIBLE, EN_PROMOCION o CON_PRIORIDAD (400) y sin otra reserva vigente
+        (409). Un lote con prioridad solo lo reserva el dueño de la prioridad (403).
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/PostReservaRequest' }
+            schema: { $ref: '#/components/schemas/ReservaCrear' }
       responses:
         '201':
-          description: Creado
+          description: Reserva creada
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/PostReservaResponse' }
-
-  /reservas/{idReserva}:
+              schema: { $ref: '#/components/schemas/ReservaMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /reservas/{id}:
     parameters:
-      - $ref: '#/components/parameters/IdReserva'
+      - $ref: '#/components/parameters/Id'
     get:
-      tags: [reservas]
-      summary: Obtener reserva por ID
+      tags: [Reservas]
+      operationId: obtenerReserva
+      summary: Obtener reserva
+      description: INMOBILIARIA solo accede a reservas de su inmobiliaria (403).
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
       responses:
         '200':
-          description: OK
+          description: Reserva
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/GetReservaResponse' }
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data: { $ref: '#/components/schemas/Reserva' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
     put:
-      tags: [reservas]
+      tags: [Reservas]
+      operationId: actualizarReserva
       summary: Actualizar reserva
+      description: >-
+        Actualización parcial (al menos un campo). No se puede cambiar `loteId` ni `inmobiliariaId`
+        de una reserva creada (400); reenviar el mismo valor no es un cambio. Los cambios de `estado`
+        respetan las transiciones del lifecycle (400/409).
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/PutReservaRequest' }
+            schema: { $ref: '#/components/schemas/ReservaActualizar' }
       responses:
         '200':
-          description: OK
+          description: Reserva actualizada
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/PutReservaResponse' }
+              schema: { $ref: '#/components/schemas/ReservaMutacionResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-    delete:
-      tags: [reservas]
-      summary: Eliminar reserva
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /reservas/inmob/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Id de la inmobiliaria
+        schema: { $ref: '#/components/schemas/IdPath' }
+    get:
+      tags: [Reservas]
+      operationId: listarReservasPorInmobiliaria
+      summary: Listar reservas de una inmobiliaria
+      description: INMOBILIARIA solo puede consultar su propia inmobiliaria (403).
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
       responses:
         '200':
-          description: OK
+          description: Reservas de la inmobiliaria
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/DeleteReservaResponse' }
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data: { type: array, items: { $ref: '#/components/schemas/Reserva' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /reservas/{id}/eliminar:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Reservas]
+      operationId: eliminarReserva
+      summary: Dar de baja una reserva (baja lógica)
+      description: >-
+        Marca `estadoOperativo` ELIMINADO. Solo reservas CANCELADA, EXPIRADA o RECHAZADA (409); una ya
+        eliminada responde 409. INMOBILIARIA solo sobre las propias (403).
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Reserva dada de baja
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReservaMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /reservas/{id}/reactivar:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Reservas]
+      operationId: reactivarReserva
+      summary: Reactivar una reserva dada de baja
+      description: Vuelve `estadoOperativo` a OPERATIVO (409 si no estaba eliminada). INMOBILIARIA solo sobre las propias.
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Reserva reactivada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReservaMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /reservas/{id}/ofertas:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Reservas]
+      operationId: listarOfertasReserva
+      summary: Listar ofertas de una reserva
+      description: INMOBILIARIA solo sobre reservas propias (403).
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Ofertas (más reciente primero)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data: { type: array, items: { $ref: '#/components/schemas/OfertaReserva' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [Reservas]
+      operationId: crearOfertaReserva
+      summary: Registrar oferta, contraoferta, aceptación o rechazo
+      description: INMOBILIARIA solo sobre reservas propias (403). Una reserva ya consumida por una venta no admite ofertas (400).
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OfertaCrear' }
+      responses:
+        '201':
+          description: Oferta registrada
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  message: { type: string, example: Oferta registrada }
+                  data:
+                    type: object
+                    required: [oferta, reserva]
+                    properties:
+                      oferta: { $ref: '#/components/schemas/OfertaReserva' }
+                      reserva: { $ref: '#/components/schemas/Reserva' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  # ============================================================ VENTAS
+  /ventas:
+    get:
+      tags: [Ventas]
+      operationId: listarVentas
+      summary: Listar ventas
+      description: Sin `estadoOperativo` devuelve solo ventas OPERATIVO.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: estado, in: query, schema: { $ref: '#/components/schemas/EstadoVenta' } }
+        - { name: estadoOperativo, in: query, schema: { $ref: '#/components/schemas/EstadoOperativo' } }
+        - { name: loteId, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
+      responses:
+        '200':
+          description: Ventas
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VentaListaResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [Ventas]
+      operationId: crearVenta
+      summary: Crear venta
+      description: >-
+        Requiere al menos un comprador (`compradores[]` o `compradorId`). Si el lote tiene una reserva
+        vigente de una inmobiliaria, la venta debe ser de esa misma inmobiliaria y por el monto de la
+        reserva (400). `inmobiliariaId` debe ser una inmobiliaria OPERATIVO: una ELIMINADO responde
+        409 "La inmobiliaria seleccionada no está disponible para operar."
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VentaCrear' }
+      responses:
+        '201':
+          description: Venta creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VentaMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /ventas/inmobiliaria/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Id de la inmobiliaria
+        schema: { $ref: '#/components/schemas/IdPath' }
+    get:
+      tags: [Ventas]
+      operationId: listarVentasPorInmobiliaria
+      summary: Listar ventas de una inmobiliaria
+      description: INMOBILIARIA solo puede consultar su propia inmobiliaria (403). Sin resultados responde 404.
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: estadoOperativo, in: query, schema: { $ref: '#/components/schemas/EstadoOperativo' } }
+      responses:
+        '200':
+          description: Ventas de la inmobiliaria
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VentaListaResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /ventas/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Ventas]
+      operationId: obtenerVenta
+      summary: Obtener venta
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Venta
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data: { $ref: '#/components/schemas/Venta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    put:
+      tags: [Ventas]
+      operationId: actualizarVenta
+      summary: Actualizar venta
+      description: >-
+        Actualización parcial (al menos un campo). Los cambios de `estado` respetan las transiciones
+        válidas. Reasignar `inmobiliariaId` a una inmobiliaria ELIMINADO responde 409; reenviar la
+        inmobiliaria actual de una venta histórica no es una reasignación.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VentaActualizar' }
+      responses:
+        '200':
+          description: Venta actualizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VentaMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /ventas/{id}/eliminar:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Ventas]
+      operationId: eliminarVenta
+      summary: Dar de baja una venta (baja lógica)
+      description: Marca `estadoOperativo` ELIMINADO si el estado de la venta lo permite (409).
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Venta dada de baja
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VentaMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /ventas/{id}/reactivar:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Ventas]
+      operationId: reactivarVenta
+      summary: Reactivar una venta dada de baja
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Venta reactivada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VentaMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  # ============================================================ PAGOS
+  /ventas/{ventaId}/pagos:
+    parameters:
+      - $ref: '#/components/parameters/VentaId'
+    get:
+      tags: [Pagos]
+      operationId: obtenerContextoPagos
+      summary: Contexto de pagos de una venta
+      description: Plan vigente, cuotas, pagos, planes históricos y resumen. Montos como number. Venta eliminada → 409.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Contexto de pagos
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data: { $ref: '#/components/schemas/ContextoPagos' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [Pagos]
+      operationId: registrarPago
+      summary: Registrar un pago sobre una cuota
+      description: Venta eliminada → 409.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PagoRegistrar' }
+      responses:
+        '201':
+          description: Pago registrado (montos como number)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  message: { type: string, example: Pago registrado correctamente }
+                  data: { $ref: '#/components/schemas/PagoRegistrado' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /ventas/{ventaId}/pagos/recargo:
+    parameters:
+      - $ref: '#/components/parameters/VentaId'
+    post:
+      tags: [Pagos]
+      operationId: aplicarRecargo
+      summary: Aplicar un recargo manual a una cuota
+      description: Venta eliminada → 409.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecargoAplicar' }
+      responses:
+        '201':
+          description: Recargo aplicado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MensajeResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /ventas/{ventaId}/pagos/plan:
+    parameters:
+      - $ref: '#/components/parameters/VentaId'
+    post:
+      tags: [Pagos]
+      operationId: crearPlanPago
+      summary: Crear el plan de pago inicial
+      description: >-
+        La suma de las cuotas debe coincidir con el monto esperado según el tipo de financiación (400).
+        Venta eliminada o con plan vigente → 409. La respuesta es el plan tal como queda persistido:
+        sus montos son Decimal serializados como string.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlanPagoCrear' }
+      responses:
+        '201':
+          description: Plan creado
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  message: { type: string, example: Plan de pago creado exitosamente }
+                  data: { $ref: '#/components/schemas/PlanPagoPersistido' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /ventas/{ventaId}/pagos/plan/reemplazar:
+    parameters:
+      - $ref: '#/components/parameters/VentaId'
+    post:
+      tags: [Pagos]
+      operationId: reemplazarPlanPago
+      summary: Reemplazar el plan de pago vigente
+      description: El plan nuevo cubre el saldo pendiente real; el anterior queda REEMPLAZADO. Montos como number.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlanPagoReemplazar' }
+      responses:
+        '201':
+          description: Plan reemplazado
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  message: { type: string, example: Plan de pago reemplazado correctamente }
+                  data: { $ref: '#/components/schemas/ReemplazoPlanResultado' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  # ============================================================ FILES
+  /files:
+    post:
+      tags: [Files]
+      operationId: subirArchivo
+      summary: Subir archivo
+      description: >-
+        `multipart/form-data` con el archivo en el campo `file` (PDF, JPG/JPEG, PNG o WebP; máx. 20 MB).
+        BOLETO, ESCRITURA y OTRO requieren `ventaId` de una venta del mismo lote; PLANO e IMAGEN no lo
+        admiten. TECNICO solo puede subir PLANO e IMAGEN (403).
+      x-roles: [ADMINISTRADOR, GESTOR, TECNICO]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/ArchivoSubir' }
+      responses:
+        '201':
+          description: Archivo subido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArchivoMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/FilesInternalError' }
+  /files/venta/{ventaId}:
+    parameters:
+      - $ref: '#/components/parameters/VentaId'
+    get:
+      tags: [Files]
+      operationId: listarArchivosPorVenta
+      summary: Listar archivos de una venta
+      description: >-
+        INMOBILIARIA solo para ventas de su inmobiliaria (404 si no lo es). TECNICO solo recibe PLANO e
+        IMAGEN. `includeDeleted` solo tiene efecto para ADMINISTRADOR y GESTOR.
+      x-roles: [ADMINISTRADOR, GESTOR, TECNICO, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: tipo, in: query, schema: { $ref: '#/components/schemas/TipoArchivo' } }
+        - { name: includeDeleted, in: query, schema: { type: string, enum: ['true', 'false'] } }
+      responses:
+        '200':
+          description: Archivos (array, sin envoltorio)
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Archivo' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/FilesInternalError' }
+  /files/lote/{idLoteAsociado}:
+    parameters:
+      - name: idLoteAsociado
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/IdPath' }
+    get:
+      tags: [Files]
+      operationId: listarArchivosPorLote
+      summary: Listar archivos de un lote
+      description: >-
+        Cada rol recibe solo los tipos que puede ver (TECNICO: PLANO e IMAGEN; INMOBILIARIA: documentos
+        de lote y de ventas propias). `includeDeleted` solo tiene efecto para ADMINISTRADOR y GESTOR.
+      x-roles: [ADMINISTRADOR, GESTOR, TECNICO, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: includeDeleted, in: query, schema: { type: string, enum: ['true', 'false'] } }
+      responses:
+        '200':
+          description: Archivos (array, sin envoltorio)
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Archivo' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/FilesInternalError' }
+  /files/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Files]
+      operationId: obtenerArchivo
+      summary: Obtener metadata de un archivo
+      description: Un archivo que el rol no puede ver responde 404 (TECNICO fuera de PLANO/IMAGEN, INMOBILIARIA fuera de sus ventas).
+      x-roles: [ADMINISTRADOR, GESTOR, TECNICO, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Archivo (sin envoltorio)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Archivo' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/FilesInternalError' }
+    delete:
+      tags: [Files]
+      operationId: eliminarArchivo
+      summary: Dar de baja un archivo (baja lógica)
+      description: Lo marca ELIMINADO; se puede restaurar. Para borrarlo del storage usar `DELETE /files/{id}/purge`.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Archivo dado de baja }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/FilesInternalError' }
+  /files/{id}/url:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Files]
+      operationId: generarUrlFirmada
+      summary: Generar URL firmada de descarga
+      description: Solo archivos OPERATIVO que el rol puede ver (404 si no). La URL es temporal; `expiresAt` indica su vencimiento.
+      x-roles: [ADMINISTRADOR, GESTOR, TECNICO, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: URL firmada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UrlFirmada' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/FilesInternalError' }
+  /files/{id}/restore:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Files]
+      operationId: restaurarArchivo
+      summary: Restaurar un archivo dado de baja
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Archivo restaurado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArchivoMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/FilesInternalError' }
+  /files/{id}/purge:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [Files]
+      operationId: purgarArchivo
+      summary: Borrar un archivo definitivamente (storage y metadata)
+      x-roles: [ADMINISTRADOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Archivo purgado }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/FilesInternalError' }
+  /files/{id}/aprobaciones:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Files]
+      operationId: actualizarAprobacionArchivo
+      summary: Actualizar la aprobación de un plano
+      description: >-
+        Solo archivos PLANO (400). `COMISION` lo pueden aprobar ADMINISTRADOR, GESTOR y TECNICO;
+        `MUNICIPIO`, solo ADMINISTRADOR y GESTOR (403).
+      x-roles: [ADMINISTRADOR, GESTOR, TECNICO]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AprobacionActualizar' }
+      responses:
+        '200':
+          description: Aprobación actualizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArchivoMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/FilesInternalError' }
+  /files/{id}/sustituir:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Files]
+      operationId: sustituirArchivo
+      summary: Sustituir el contenido de un archivo
+      description: >-
+        `multipart/form-data` con el archivo nuevo en el campo `file`. Solo BOLETO, ESCRITURA, OTRO o
+        PLANO; TECNICO solo PLANO (404 para tipos que no puede ver).
+      x-roles: [ADMINISTRADOR, GESTOR, TECNICO]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '200':
+          description: Archivo sustituido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArchivoMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/FilesInternalError' }
+
+  # ============================================================ PRIORIDADES
+  /prioridades:
+    get:
+      tags: [Prioridades]
+      operationId: listarPrioridades
+      summary: Listar prioridades
+      description: INMOBILIARIA ve solo las de su inmobiliaria.
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: estado, in: query, schema: { $ref: '#/components/schemas/EstadoPrioridad' } }
+        - { name: estadoOperativo, in: query, schema: { $ref: '#/components/schemas/EstadoOperativo' } }
+        - { name: ownerType, in: query, schema: { $ref: '#/components/schemas/OwnerPrioridad' } }
+        - { name: inmobiliariaId, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
+        - { name: loteId, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
+        - { name: fechaInicioDesde, in: query, schema: { type: string, format: date-time } }
+        - { name: fechaInicioHasta, in: query, schema: { type: string, format: date-time } }
+        - { name: fechaFinDesde, in: query, schema: { type: string, format: date-time } }
+        - { name: fechaFinHasta, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: Prioridades
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data:
+                    type: object
+                    required: [prioridades, total]
+                    properties:
+                      prioridades: { type: array, items: { $ref: '#/components/schemas/Prioridad' } }
+                      total: { type: integer, description: Cantidad devuelta }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [Prioridades]
+      operationId: crearPrioridad
+      summary: Crear prioridad
+      description: >-
+        INMOBILIARIA crea a nombre de su inmobiliaria, dentro de su cupo de prioridades activas (409).
+        Staff define `ownerType` (default CCLF) e `inmobiliariaId`; una inmobiliaria ELIMINADO responde
+        409 "La inmobiliaria seleccionada no está disponible para operar." El lote debe estar
+        DISPONIBLE o EN_PROMOCION y sin otra prioridad activa (409). La base garantiza una sola
+        prioridad ACTIVA por lote: de dos altas concurrentes para el mismo lote entra una y la otra
+        responde 409 "Ya existe una prioridad ACTIVA para este lote". Si el lote cambia de estado entre
+        la validación y el alta, también 409 y no se crea nada.
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PrioridadCrear' }
+      responses:
+        '201':
+          description: Prioridad creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PrioridadMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /prioridades/jobs/expire:
+    post:
+      tags: [Prioridades]
+      operationId: expirarPrioridades
+      summary: Expirar prioridades vencidas (ejecución manual)
+      description: >-
+        Expira las prioridades ACTIVA cuya `fechaFin` ya pasó. Es la misma operación que ejecuta el job
+        programado; sirve para forzarla sin esperar al scheduler. Idempotente.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Expiración ejecutada
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  message: { type: string, example: Se expiraron 2 prioridades }
+                  data:
+                    type: object
+                    required: [expired]
+                    properties:
+                      expired: { type: integer, minimum: 0 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /prioridades/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Prioridades]
+      operationId: obtenerPrioridad
+      summary: Obtener prioridad
+      description: INMOBILIARIA solo prioridades propias (403).
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Prioridad
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data: { $ref: '#/components/schemas/Prioridad' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [Prioridades]
+      operationId: actualizarPrioridad
+      summary: Actualizar prioridad
+      description: >-
+        INMOBILIARIA solo edita prioridades propias y no puede cambiar `inmobiliariaId` (403). Staff
+        puede reasignarla: a una inmobiliaria ELIMINADO responde 409 y sin cupo, 409. Mantener la
+        inmobiliaria actual de una prioridad histórica no es una reasignación.
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PrioridadActualizar' }
+      responses:
+        '200':
+          description: Prioridad actualizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PrioridadMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /prioridades/{id}/cancelar:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Prioridades]
+      operationId: cancelarPrioridad
+      summary: Cancelar prioridad
+      description: >-
+        Solo prioridades ACTIVA (400). El estado se verifica al escribir: si otra transición (expiración,
+        cancelación o finalización) la cerró antes, también responde 400 y no se modifica nada. Restaura el
+        lote si sigue CON_PRIORIDAD. INMOBILIARIA solo propias.
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Prioridad cancelada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PrioridadMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /prioridades/{id}/finalizar:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Prioridades]
+      operationId: finalizarPrioridad
+      summary: Finalizar prioridad
+      description: >-
+        Solo prioridades ACTIVA (400). El estado se verifica al escribir: si otra transición (expiración,
+        cancelación o finalización) la cerró antes, también responde 400 y no se modifica nada. Restaura el
+        lote si sigue CON_PRIORIDAD. INMOBILIARIA solo propias.
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Prioridad finalizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PrioridadMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /prioridades/{id}/eliminar:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Prioridades]
+      operationId: eliminarPrioridad
+      summary: Dar de baja una prioridad (baja lógica)
+      description: Marca `estadoOperativo` ELIMINADO (409 si ya lo está o su estado no lo permite). INMOBILIARIA solo propias.
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Prioridad dada de baja
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PrioridadMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /prioridades/{id}/reactivar:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Prioridades]
+      operationId: reactivarPrioridad
+      summary: Reactivar una prioridad dada de baja
+      description: INMOBILIARIA solo propias. 409 si no estaba eliminada.
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Prioridad reactivada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PrioridadMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  # ============================================================ PERSONAS
+  /personas:
+    get:
+      tags: [Personas]
+      operationId: listarPersonas
+      summary: Listar personas
+      description: >-
+        Sin `limit` devuelve el listado completo (sin paginación); `limit` acota la cantidad (las más
+        recientes primero) y `total` es siempre la cantidad total que cumple el filtro. INMOBILIARIA
+        ve solo sus clientes operativos (se ignoran `view`, `includeInactive` y `estado`).
+      x-roles: [ADMINISTRADOR, GESTOR, TECNICO, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: view
+          in: query
+          schema: { type: string, enum: [ALL, PROPIETARIOS, INQUILINOS, CLIENTES, MIS_CLIENTES] }
+        - { name: q, in: query, description: Búsqueda por nombre, apellido, razón social o identificador, schema: { type: string } }
+        - { name: includeInactive, in: query, schema: { type: string, enum: ['true', 'false'] } }
+        - { name: estado, in: query, schema: { $ref: '#/components/schemas/EstadoOperativo' } }
+        - { name: limit, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
+      responses:
+        '200':
+          description: Personas
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, personas, total]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  message: { type: string, example: Personas obtenidas exitosamente }
+                  personas: { type: array, items: { $ref: '#/components/schemas/Persona' } }
+                  total: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [Personas]
+      operationId: crearPersona
+      summary: Crear persona
+      description: >-
+        INMOBILIARIA crea clientes de su inmobiliaria (se ignora `inmobiliariaId`). Staff puede asignar
+        `inmobiliariaId` (null = La Federala); una inmobiliaria ELIMINADO responde 409 "La inmobiliaria
+        seleccionada no está disponible para operar." Identificador duplicado → 409.
+        Grupo familiar plano: `jefeDeFamiliaId` debe existir (400 "El jefe de familia especificado no
+        existe") y no ser miembro de otra familia (409 "El titular indicado ya es miembro de otro grupo
+        familiar").
+      x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PersonaCrear' }
+      responses:
+        '201':
+          description: Persona creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PersonaMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /personas/cuil/{cuil}:
+    parameters:
+      - name: cuil
+        in: path
+        required: true
+        description: CUIL de 11 dígitos; se aceptan guiones, puntos y espacios.
+        schema: { type: string, example: 20-12345678-3 }
+    get:
+      tags: [Personas]
+      operationId: obtenerPersonaPorCuil
+      summary: Buscar persona por CUIL
+      x-roles: [ADMINISTRADOR, GESTOR, TECNICO]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Persona
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PersonaMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /personas/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Personas]
+      operationId: obtenerPersona
+      summary: Obtener persona
+      x-roles: [ADMINISTRADOR, GESTOR, TECNICO]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Persona
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PersonaMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    put:
+      tags: [Personas]
+      operationId: actualizarPersona
+      summary: Actualizar persona
+      description: >-
+        Actualización parcial (al menos un campo). Una persona eliminada no se edita (409). Reasignar
+        `inmobiliariaId` a una inmobiliaria ELIMINADO responde 409; conservar la actual no es una
+        reasignación. No modifica el grupo familiar (`jefeDeFamiliaId` se ignora).
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PersonaActualizar' }
+      responses:
+        '200':
+          description: Persona actualizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PersonaMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [Personas]
+      operationId: eliminarPersonaDefinitivamente
+      summary: Eliminar persona definitivamente
+      description: >-
+        Borrado físico. 409 si tiene asociaciones (lotes propios o alquilados, alquileres, reservas,
+        ventas como comprador principal o co-comprador) o si es titular de un grupo familiar con
+        miembros. Una asociación creada mientras corre el borrado también lo impide (409). Solo
+        ADMINISTRADOR.
+      x-roles: [ADMINISTRADOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Persona eliminada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MensajeResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /personas/{id}/desactivar:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Personas]
+      operationId: desactivarPersona
+      summary: Dar de baja una persona (baja lógica)
+      description: 409 si ya está eliminada.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Persona dada de baja
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MensajeResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /personas/{id}/reactivar:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Personas]
+      operationId: reactivarPersona
+      summary: Reactivar una persona dada de baja
+      description: 409 si no estaba eliminada.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Persona reactivada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PersonaMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /personas/{id}/grupo-familiar:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Personas]
+      operationId: obtenerGrupoFamiliar
+      summary: Obtener el grupo familiar de un titular
+      x-roles: [ADMINISTRADOR, GESTOR, TECNICO]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Grupo familiar
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    required: [success]
+                    properties:
+                      success: { type: boolean, enum: [true] }
+                  - $ref: '#/components/schemas/GrupoFamiliar'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /personas/{id}/grupo-familiar/miembros:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Personas]
+      operationId: crearMiembroFamiliar
+      summary: Agregar un miembro al grupo familiar
+      description: >-
+        El titular debe ser propietario o inquilino activo (400), no estar eliminado (409) y no ser
+        miembro de otra familia (409 "El titular indicado ya es miembro de otro grupo familiar": no hay
+        familias anidadas). El miembro hereda la inmobiliaria del titular: si esa inmobiliaria está
+        ELIMINADO responde 409 "La inmobiliaria seleccionada no está disponible para operar."
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MiembroFamiliarCrear' }
+      responses:
+        '201':
+          description: Miembro agregado
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, miembro, message]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  miembro: { $ref: '#/components/schemas/MiembroFamiliarCreado' }
+                  message: { type: string, example: Miembro familiar creado exitosamente }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /personas/{id}/grupo-familiar/miembros/{miembroId}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: miembroId
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/IdPath' }
+    delete:
+      tags: [Personas]
+      operationId: eliminarMiembroFamiliar
+      summary: Quitar un miembro del grupo familiar
+      description: >-
+        Borrado físico del miembro, con los mismos guards que el borrado definitivo de personas: 409 si
+        tiene asociaciones (lotes, alquileres, reservas, ventas o co-compras).
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Miembro quitado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MensajeResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  # ============================================================ INMOBILIARIAS
+  /inmobiliarias:
+    get:
+      tags: [Inmobiliarias]
+      operationId: listarInmobiliarias
+      summary: Listar inmobiliarias
+      description: >-
+        Sin `estadoOperativo` devuelve solo las OPERATIVO (uso operativo: selects de asignación). La
+        administración consulta las dadas de baja con `estadoOperativo=ELIMINADO`. `total` cuenta todas
+        las inmobiliarias, sin aplicar el filtro.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: estadoOperativo, in: query, schema: { $ref: '#/components/schemas/EstadoOperativo' } }
+      responses:
+        '200':
+          description: Inmobiliarias
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data:
+                    type: object
+                    required: [inmobiliarias, total]
+                    properties:
+                      inmobiliarias: { type: array, items: { $ref: '#/components/schemas/InmobiliariaConMetricas' } }
+                      total: { type: integer, description: Total de inmobiliarias (sin filtro) }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [Inmobiliarias]
+      operationId: crearInmobiliaria
+      summary: Crear inmobiliaria
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InmobiliariaCrear' }
+      responses:
+        '201':
+          description: Inmobiliaria creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InmobiliariaMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /inmobiliarias/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Inmobiliarias]
+      operationId: obtenerInmobiliaria
+      summary: Obtener inmobiliaria
+      description: Incluye las dadas de baja (ELIMINADO), para historial y reactivación.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Inmobiliaria
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data:
+                    type: object
+                    required: [inmobiliaria]
+                    properties:
+                      inmobiliaria: { $ref: '#/components/schemas/InmobiliariaConMetricas' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    put:
+      tags: [Inmobiliarias]
+      operationId: actualizarInmobiliaria
+      summary: Actualizar inmobiliaria
+      description: Actualización parcial (al menos un campo). Una inmobiliaria ELIMINADO no se edita (409).
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InmobiliariaActualizar' }
+      responses:
+        '200':
+          description: Inmobiliaria actualizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InmobiliariaMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /inmobiliarias/{id}/eliminar:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Inmobiliarias]
+      operationId: eliminarInmobiliaria
+      summary: Dar de baja una inmobiliaria (baja lógica)
+      description: >-
+        Pasa a ELIMINADO (409 si ya lo está). Desde ese momento: su usuario no puede iniciar sesión y
+        sus tokens dejan de operar (401), no aparece en el listado operativo y no puede asignarse a
+        operaciones nuevas (409). Sus reservas, ventas, prioridades y clientes conservan la relación.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Inmobiliaria dada de baja
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InmobiliariaMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /inmobiliarias/{id}/reactivar:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Inmobiliarias]
+      operationId: reactivarInmobiliaria
+      summary: Reactivar una inmobiliaria dada de baja
+      description: Vuelve a OPERATIVO (409 si ya lo está) y recupera acceso, visibilidad operativa y asignabilidad.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Inmobiliaria reactivada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InmobiliariaMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  # ============================================================ USUARIOS
+  /usuarios:
+    get:
+      tags: [Usuarios]
+      operationId: listarUsuarios
+      summary: Listar usuarios
+      description: Listado completo, sin paginación. Nunca incluye la contraseña.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Usuarios
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data: { type: array, items: { $ref: '#/components/schemas/Usuario' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [Usuarios]
+      operationId: crearUsuario
+      summary: Crear usuario
+      description: Un GESTOR no puede crear usuarios con rol ADMINISTRADOR (403). Username o email duplicado → 409.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UsuarioCrear' }
+      responses:
+        '201':
+          description: Usuario creado
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  message: { type: string, example: Usuario creado exitosamente }
+                  data:
+                    type: object
+                    required: [usuario, message]
+                    properties:
+                      usuario: { $ref: '#/components/schemas/Usuario' }
+                      message: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /usuarios/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Usuarios]
+      operationId: obtenerUsuario
+      summary: Obtener usuario
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Usuario
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data: { $ref: '#/components/schemas/Usuario' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    put:
+      tags: [Usuarios]
+      operationId: actualizarUsuario
+      summary: Actualizar usuario
+      description: >-
+        Actualización parcial (al menos un campo). Un GESTOR no puede asignar el rol ADMINISTRADOR (ni
+        a sí mismo) ni modificar a un usuario que ya es ADMINISTRADOR (403).
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UsuarioActualizar' }
+      responses:
+        '200':
+          description: Usuario actualizado
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, data]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  message: { type: string, example: Usuario actualizado exitosamente }
+                  data:
+                    type: object
+                    required: [user, message]
+                    properties:
+                      user: { $ref: '#/components/schemas/Usuario' }
+                      message: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [Usuarios]
+      operationId: eliminarUsuario
+      summary: Eliminar usuario
+      description: Solo ADMINISTRADOR. Es la única revocación de acceso de una cuenta.
+      x-roles: [ADMINISTRADOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Usuario eliminado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MensajeResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  # ============================================================ FRACCIONES
+  /fracciones:
+    get:
+      tags: [Fracciones]
+      operationId: listarFracciones
+      summary: Listar fracciones
+      description: Devuelve hasta 10 fracciones (el dominio tiene como máximo 8), con sus lotes. `total` cuenta todas.
+      x-roles: [ADMINISTRADOR, GESTOR, TECNICO]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Fracciones
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, fracciones, total]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  message: { type: string, example: Fracciones obtenidas exitosamente }
+                  fracciones: { type: array, items: { $ref: '#/components/schemas/Fraccion' } }
+                  total: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [Fracciones]
+      operationId: crearFraccion
+      summary: Crear fracción
+      description: El número de fracción es único (409).
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FraccionCrear' }
+      responses:
+        '201':
+          description: Fracción creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FraccionMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /fracciones/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Fracciones]
+      operationId: obtenerFraccion
+      summary: Obtener fracción
+      x-roles: [ADMINISTRADOR, GESTOR, TECNICO]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Fracción
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, fraccion, message]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  fraccion: { $ref: '#/components/schemas/Fraccion' }
+                  message: { type: string, example: Fracción obtenida exitosamente }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    put:
+      tags: [Fracciones]
+      operationId: actualizarFraccion
+      summary: Actualizar fracción
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FraccionActualizar' }
+      responses:
+        '200':
+          description: Fracción actualizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FraccionMutacionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [Fracciones]
+      operationId: eliminarFraccion
+      summary: Eliminar fracción
+      description: Borrado físico; no se permite si tiene lotes asociados (400). Solo ADMINISTRADOR.
+      x-roles: [ADMINISTRADOR]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Fracción eliminada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MensajeResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  # ============================================================ UBICACIONES
+  /ubicaciones:
+    get:
+      tags: [Ubicaciones]
+      operationId: listarUbicaciones
+      summary: Listar ubicaciones
+      description: Listado completo, sin paginación; `total` es la cantidad devuelta.
+      x-roles: [ADMINISTRADOR, GESTOR, TECNICO]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Ubicaciones
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, ubicaciones, total]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  message: { type: string, example: Ubicaciones obtenidas exitosamente }
+                  ubicaciones: { type: array, items: { $ref: '#/components/schemas/Ubicacion' } }
+                  total: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /ubicaciones/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Ubicaciones]
+      operationId: obtenerUbicacion
+      summary: Obtener ubicación
+      x-roles: [ADMINISTRADOR, GESTOR, TECNICO]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Ubicación
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, ubicacion, message]
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  ubicacion: { $ref: '#/components/schemas/Ubicacion' }
+                  message: { type: string, example: Ubicación obtenida exitosamente }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token obtenido con POST /auth/login, enviado como `Authorization Bearer`.
+
   parameters:
-    IdLote:
-      name: idLote
+    Id:
+      name: id
       in: path
       required: true
-      schema: { type: integer }
-    IdVenta:
-      name: idVenta
+      schema: { $ref: '#/components/schemas/IdPath' }
+    VentaId:
+      name: ventaId
       in: path
       required: true
-      schema: { type: integer }
-    IdInmobiliaria:
-      name: idInmobiliaria
-      in: path
-      required: true
-      schema: { type: integer }
-    IdReserva:
-      name: idReserva
-      in: path
-      required: true
-      schema: { type: integer }
-    IdUsuario:
-      name: idUsuario
-      in: path
-      required: true
-      schema: { type: integer }
+      schema: { $ref: '#/components/schemas/IdPath' }
 
   responses:
     BadRequest:
       description: >-
-        Datos inválidos (body, params o query). En un PUT también se devuelve cuando el body no trae
-        ningún campo válido: `{}` o solo claves desconocidas (que se descartan).
+        Datos inválidos. Validación de body, params o query → `VALIDATION_ERROR` con `errors[]`.
+        Regla de negocio o input inválido detectado por la operación → `BAD_REQUEST`.
       content:
         application/json:
           schema:
-            type: object
-            required: [success, message, errors]
-            properties:
-              success: { type: boolean, enum: [false] }
-              message: { type: string, example: 'Datos inválidos' }
-              errors:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    field: { type: string }
-                    message: { type: string }
-    NotFound:
-      description: Recurso no encontrado
+            oneOf:
+              - $ref: '#/components/schemas/ValidationErrorResponse'
+              - $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            validacion:
+              value:
+                success: false
+                code: VALIDATION_ERROR
+                message: Datos inválidos
+                errors: [{ field: id, message: Debe ser un entero positivo }]
+            negocio:
+              value: { success: false, code: BAD_REQUEST, message: El lote no está disponible para reservar. }
+    Unauthorized:
+      description: Token ausente, inválido o vencido, o identidad que ya no opera (usuario eliminado o inmobiliaria dada de baja).
       content:
         application/json:
-          schema:
-            type: object
-            properties:
-              message: { type: string }
+          schema: { $ref: '#/components/schemas/AuthErrorResponse' }
+          example: { success: false, code: UNAUTHORIZED, message: Token inválido, error: Token inválido }
     Forbidden:
       description: >-
-        El usuario autenticado no tiene permiso. Si lo rechaza la ruta (rol no admitido), el body es
-        `{ success: false, error }`; si lo rechaza una regla del service, `{ success: false, code, message }`.
+        Rol no admitido por la ruta (incluye el campo legacy `error`) o regla de autorización de la
+        operación (tenant, rol sobre un recurso).
       content:
         application/json:
-          schema:
-            type: object
-            required: [success]
-            properties:
-              success: { type: boolean, enum: [false] }
-              error: { type: string, example: 'No tienes permisos para esta acción' }
-              code: { type: string, example: 'ERROR' }
-              message: { type: string, example: 'Solo un ADMINISTRADOR puede asignar el rol ADMINISTRADOR' }
+          schema: { $ref: '#/components/schemas/AuthErrorResponse' }
+          example: { success: false, code: FORBIDDEN, message: No tienes permisos para esta acción, error: No tienes permisos para esta acción }
+    NotFound:
+      description: Recurso inexistente (o ruta inexistente → "Ruta no encontrada").
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example: { success: false, code: NOT_FOUND, message: Registro no encontrado. }
+    Conflict:
+      description: >-
+        Conflicto con el estado actual. `CONFLICT`: regla de negocio (incluye inmobiliaria ELIMINADO:
+        "La inmobiliaria seleccionada no está disponible para operar."). `CONFLICT_UNIQUE` /
+        `CONFLICT_FK`: restricción de base de datos no traducida por la operación.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ConflictResponse' }
+          example: { success: false, code: CONFLICT, message: La inmobiliaria seleccionada no está disponible para operar. }
+    PayloadTooLarge:
+      description: Body JSON mayor a 1 MB.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example: { success: false, code: PAYLOAD_TOO_LARGE, message: El cuerpo de la solicitud supera el tamaño máximo permitido (1mb). }
+    TooManyRequests:
+      description: Demasiados intentos fallidos de login (10 cada 15 minutos por cliente).
+      headers:
+        RateLimit-Policy:
+          schema: { type: string }
+        RateLimit:
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example: { success: false, code: TOO_MANY_REQUESTS, message: Demasiados intentos de inicio de sesión. Intentá nuevamente más tarde. }
+    InternalError:
+      description: Error inesperado. El detalle queda solo en el log del servidor.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example: { success: false, code: INTERNAL_ERROR, message: Error interno. }
+    FilesInternalError:
+      description: Error inesperado en Files. Mismo formato; el mensaje público es propio de la operación.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example: { success: false, code: INTERNAL_ERROR, message: Error al subir archivo }
 
   schemas:
-    # ====== Tipos base / enums ======
-    Identificador:
+    # ------------------------------------------------------------ Errores
+    ErrorCode:
       type: string
-      enum: [DNI, CUIT, CUIL, Pasaporte]
-    Calle:
+      enum: [BAD_REQUEST, VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, CONFLICT_UNIQUE, CONFLICT_FK, PAYLOAD_TOO_LARGE, TOO_MANY_REQUESTS, INTERNAL_ERROR]
+    ErrorResponse:
+      type: object
+      required: [success, code, message]
+      properties:
+        success: { type: boolean, enum: [false] }
+        code: { $ref: '#/components/schemas/ErrorCode' }
+        message: { type: string, description: Mensaje público }
+    ValidationErrorResponse:
+      type: object
+      required: [success, code, message, errors]
+      properties:
+        success: { type: boolean, enum: [false] }
+        code: { type: string, enum: [VALIDATION_ERROR] }
+        message: { type: string, enum: [Datos inválidos] }
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field: { type: string, description: Ruta del campo (vacía si la regla es de todo el objeto) }
+              message: { type: string }
+    AuthErrorResponse:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          properties:
+            error:
+              type: string
+              deprecated: true
+              description: >-
+                Legacy: repite `message`. Lo envían los rechazos de autenticación y de rol de la ruta,
+                por compatibilidad con clientes previos. Usar `message`.
+    ConflictResponse:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          properties:
+            code: { type: string, enum: [CONFLICT, CONFLICT_UNIQUE, CONFLICT_FK] }
+    MensajeResponse:
+      type: object
+      required: [success, message]
+      properties:
+        success: { type: boolean, enum: [true] }
+        message: { type: string }
+
+    # ------------------------------------------------------------ Tipos base
+    IdPath:
+      type: integer
+      minimum: 1
+      maximum: 2147483647
+      description: Entero positivo canónico (sin ceros a la izquierda, signo, decimales ni exponente).
+    IdQuery:
       type: string
-      enum: [Reinamora, Maca, Zorzal, Cauquén, Alondra, Jacana, Tacuarito, Jilguero, Golondrina, Calandria, Aguilamora, Lorca, Milano]
-    EstadoLote:
-      type: string
-      enum: [Disponible, Reservado, Vendido, No Disponible, Alquilado, En Promoción]
-    SubestadoLote:
-      type: string
-      enum: [En Construccion, No Construido, Construido]
-    UbicacionOpc:
-      type: string
-      enum: [Norte, Sur, Este, Oeste]
-    Rol:
-      type: string
-      enum: [Administrador, Inmobiliaria, Gestor, Tecnico]
-    TipoLote:
-      type: string
-      enum: [Lote Venta, Espacio Comun]
-    DateTime:
+      pattern: '^[1-9][0-9]*$'
+      description: Entero positivo canónico (máximo 2147483647).
+    IdEntrada:
+      description: Id entero positivo; se acepta también como string decimal canónico ("12").
+      oneOf:
+        - { type: integer, minimum: 1, maximum: 2147483647 }
+        - { type: string, pattern: '^[1-9][0-9]*$' }
+    NumeroEntrada:
+      description: Número; se acepta también como string decimal ("1500.50").
+      oneOf:
+        - { type: number }
+        - { type: string, pattern: '^-?[0-9]+(\.[0-9]+)?$' }
+    FechaEntrada:
       type: string
       format: date-time
-      description: ISO 8601
-
-    EstadoVenta:
+      description: Fecha parseable (ISO 8601 recomendado).
+    Decimal:
       type: string
-      description: Enum proveniente de Prisma `EstadoVenta` 
-      enum:
-        - INICIADA
-        - CON_BOLETO
-        - ESCRITURA_PROGRAMADA
-        - ESCRITURADO
-      example: INICIADA
+      pattern: '^-?[0-9]+(\.[0-9]+)?$'
+      description: Decimal serializado como string (p. ej. "15000.5").
+      example: '15000.5'
 
-    # ====== Entidades ======
-    Usuario:
+    # ------------------------------------------------------------ Enums
+    Rol: { type: string, enum: [ADMINISTRADOR, GESTOR, INMOBILIARIA, TECNICO] }
+    EstadoOperativo: { type: string, enum: [OPERATIVO, ELIMINADO] }
+    EstadoLote:
+      type: string
+      description: Estado del lote en las respuestas.
+      enum: [DISPONIBLE, RESERVADO, VENDIDO, NO_DISPONIBLE, EN_PROMOCION, CON_PRIORIDAD, ALQUILADO, OPERATIVO, ELIMINADO]
+    EstadoLoteEntrada:
+      type: string
+      description: Estado del lote en requests y filtros.
+      enum: [Disponible, Reservado, Vendido, No Disponible, En Promoción]
+    SubestadoLote: { type: string, enum: [CONSTRUIDO, NO_CONSTRUIDO, EN_CONSTRUCCION] }
+    SubestadoLoteEntrada: { type: string, enum: [En Construccion, No Construido, Construido] }
+    TipoLote: { type: string, enum: [LOTE_VENTA, ESPACIO_COMUN] }
+    TipoLoteEntrada: { type: string, enum: [Lote Venta, Espacio Comun] }
+    Ocupacion: { type: string, enum: [ALQUILADO, NO_ALQUILADO] }
+    NombreCalle: { type: string, enum: [REINAMORA, MACA, ZORZAL, CAUQUEN, ALONDRA, JACANA, TACUARITO, JILGUERO, GOLONDRINA, CALANDRIA, AGUILAMORA, LORCA, MILANO] }
+    CalleUbicacion:
+      type: string
+      enum: [Reinamora, Maca, Zorzal, Cauquén, Alondra, Jacana, Tacuarito, Jilguero, Golondrina, Calandria, Aguilamora, Lorca, Milano]
+    EstadoReserva: { type: string, enum: [ACTIVA, CANCELADA, ACEPTADA, RECHAZADA, CONTRAOFERTA, EXPIRADA] }
+    EstadoPrioridad: { type: string, enum: [ACTIVA, CANCELADA, FINALIZADA, EXPIRADA] }
+    OwnerPrioridad: { type: string, enum: [INMOBILIARIA, CCLF] }
+    EstadoVenta: { type: string, enum: [INICIADA, CON_BOLETO, ESCRITURADO, CANCELADA] }
+    EstadoCobro: { type: string, enum: [PENDIENTE, EN_CURSO, PAGO_COMPLETO] }
+    TipoArchivo: { type: string, enum: [BOLETO, ESCRITURA, PLANO, IMAGEN, OTRO] }
+    EstadoAprobacion: { type: string, enum: [PENDIENTE, APROBADO, RECHAZADO] }
+    IdentificadorTipo: { type: string, enum: [DNI, CUIL, CUIT, PASAPORTE, OTRO] }
+    TipoFinanciacion: { type: string, enum: [CONTADO, ANTICIPO_CUOTAS, CUOTAS_FIJAS, PERSONALIZADO] }
+    Moneda: { type: string, enum: [ARS, USD] }
+    TipoCuota: { type: string, enum: [ANTICIPO, CUOTA, OTRO] }
+    EstadoCuota: { type: string, enum: [PENDIENTE, PAGO_PARCIAL, PAGA] }
+    MedioPago: { type: string, enum: [EFECTIVO, TRANSFERENCIA, DEPOSITO, CHEQUE, OTRO] }
+    EstadoPlanPago: { type: string, enum: [VIGENTE, REEMPLAZADO, CANCELADO] }
+
+    # ------------------------------------------------------------ Auth
+    LoginRequest:
       type: object
-      required: [idUsuario, username, password, rol, email]
+      required: [email, password]
       properties:
-        idUsuario: { type: integer }
-        username: { type: string }
-        password: { type: string }
-        rol: { $ref: '#/components/schemas/Rol' }
-        email: { type: string, format: email }
+        email: { type: string, format: email, description: Se normaliza (trim y minúsculas) }
+        password: { type: string, minLength: 6 }
+    LoginData:
+      type: object
+      required: [user, token]
+      properties:
+        token: { type: string, description: JWT para el header Authorization Bearer }
+        user:
+          type: object
+          required: [id, username, email, role, createdAt, inmobiliariaId, inmobiliariaNombre]
+          properties:
+            id: { type: integer }
+            username: { type: string }
+            email: { type: string }
+            role: { $ref: '#/components/schemas/Rol' }
+            createdAt: { type: string, format: date-time }
+            inmobiliariaId: { type: integer, nullable: true }
+            inmobiliariaNombre: { type: string, nullable: true }
 
+    # ------------------------------------------------------------ Lotes
+    LoteCrear:
+      type: object
+      required: [numero, fraccionId, subestado, tipo, propietarioId]
+      properties:
+        numero: { $ref: '#/components/schemas/NumeroEntrada' }
+        fraccionId: { $ref: '#/components/schemas/IdEntrada' }
+        numPartido: { allOf: [{ $ref: '#/components/schemas/NumeroEntrada' }], description: Default 62 }
+        superficie: { $ref: '#/components/schemas/NumeroEntrada' }
+        estado: { $ref: '#/components/schemas/EstadoLoteEntrada' }
+        subestado: { $ref: '#/components/schemas/SubestadoLoteEntrada' }
+        tipo: { $ref: '#/components/schemas/TipoLoteEntrada' }
+        precio: { $ref: '#/components/schemas/NumeroEntrada' }
+        ocupacion: { $ref: '#/components/schemas/Ocupacion' }
+        alquiler: { type: boolean, deprecated: true, description: Legacy; usar `ocupacion` }
+        deuda: { type: boolean }
+        nombreEspacioComun: { type: string, maxLength: 100 }
+        capacidad: { $ref: '#/components/schemas/NumeroEntrada' }
+        descripcion: { type: string }
+        propietarioId: { $ref: '#/components/schemas/IdEntrada' }
+        inquilinoId: { $ref: '#/components/schemas/IdEntrada' }
+        ubicacionId: { $ref: '#/components/schemas/IdEntrada' }
+        calle: { $ref: '#/components/schemas/NombreCalle' }
+        numeroCalle: { $ref: '#/components/schemas/NumeroEntrada' }
+    LoteActualizar:
+      type: object
+      minProperties: 1
+      description: Mismos campos que LoteCrear, todos opcionales.
+      properties:
+        numero: { $ref: '#/components/schemas/NumeroEntrada' }
+        fraccionId: { $ref: '#/components/schemas/IdEntrada' }
+        numPartido: { $ref: '#/components/schemas/NumeroEntrada' }
+        superficie: { $ref: '#/components/schemas/NumeroEntrada' }
+        estado: { $ref: '#/components/schemas/EstadoLoteEntrada' }
+        subestado: { $ref: '#/components/schemas/SubestadoLoteEntrada' }
+        tipo: { $ref: '#/components/schemas/TipoLoteEntrada' }
+        precio: { $ref: '#/components/schemas/NumeroEntrada' }
+        ocupacion: { $ref: '#/components/schemas/Ocupacion' }
+        alquiler: { type: boolean, deprecated: true }
+        deuda: { type: boolean }
+        nombreEspacioComun: { type: string, maxLength: 100 }
+        capacidad: { $ref: '#/components/schemas/NumeroEntrada' }
+        descripcion: { type: string }
+        propietarioId: { $ref: '#/components/schemas/IdEntrada' }
+        inquilinoId: { $ref: '#/components/schemas/IdEntrada' }
+        ubicacionId: { $ref: '#/components/schemas/IdEntrada' }
+        calle: { $ref: '#/components/schemas/NombreCalle' }
+        numeroCalle: { $ref: '#/components/schemas/NumeroEntrada' }
+    Lote:
+      type: object
+      description: >-
+        Lote con sus relaciones de presentación (ubicación, propietario, fracción, alquiler activo,
+        promoción). Para TECNICO no incluye `deuda`, ventas ni reservas.
+      required: [id, tipo, estado, subestado, numPartido, fraccionId, propietarioId, createdAt]
+      properties:
+        id: { type: integer }
+        numero: { type: integer, nullable: true }
+        mapId: { type: string, nullable: true }
+        tipo: { $ref: '#/components/schemas/TipoLote' }
+        descripcion: { type: string, nullable: true }
+        estado: { $ref: '#/components/schemas/EstadoLote' }
+        subestado: { $ref: '#/components/schemas/SubestadoLote' }
+        fondo: { allOf: [{ $ref: '#/components/schemas/Decimal' }], nullable: true }
+        frente: { allOf: [{ $ref: '#/components/schemas/Decimal' }], nullable: true }
+        superficie: { allOf: [{ $ref: '#/components/schemas/Decimal' }], nullable: true }
+        precio: { allOf: [{ $ref: '#/components/schemas/Decimal' }], nullable: true }
+        numPartido: { type: integer }
+        alquiler: { type: boolean, nullable: true }
+        deuda: { type: boolean, nullable: true }
+        nombreEspacioComun: { type: string, nullable: true }
+        capacidad: { type: integer, nullable: true }
+        fraccionId: { type: integer }
+        propietarioId: { type: integer }
+        inquilinoId: { type: integer, nullable: true }
+        ocupacion: { $ref: '#/components/schemas/Ocupacion' }
+        createdAt: { type: string, format: date-time }
+        updateAt: { type: string, format: date-time, nullable: true }
+    LoteMutacionResponse:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, enum: [true] }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/Lote' }
+
+    # ------------------------------------------------------------ Promociones
+    PromocionAplicar:
+      type: object
+      required: [precioPromocional]
+      properties:
+        precioPromocional: { $ref: '#/components/schemas/NumeroEntrada' }
+        fin: { type: string, format: date-time, nullable: true, description: Futura; vacía o null = sin fin }
+        explicacion: { type: string, maxLength: 500, nullable: true }
+    Promocion:
+      type: object
+      required: [id, loteId, precioAnterior, precioPromocional, estadoAnterior, inicio, activa]
+      properties:
+        id: { type: integer }
+        loteId: { type: integer }
+        precioAnterior: { $ref: '#/components/schemas/Decimal' }
+        precioPromocional: { $ref: '#/components/schemas/Decimal' }
+        estadoAnterior: { $ref: '#/components/schemas/EstadoLote' }
+        inicio: { type: string, format: date-time }
+        fin: { type: string, format: date-time, nullable: true }
+        activa: { type: boolean }
+        explicacion: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PromocionMutacionResponse:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, enum: [true] }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/Promocion' }
+
+    # ------------------------------------------------------------ Reservas
+    ReservaCrear:
+      type: object
+      required: [fechaReserva, loteId, clienteId, numero, ofertaInicial, fechaFinReserva]
+      properties:
+        fechaReserva: { $ref: '#/components/schemas/FechaEntrada' }
+        loteId: { $ref: '#/components/schemas/IdEntrada' }
+        clienteId: { $ref: '#/components/schemas/IdEntrada' }
+        inmobiliariaId:
+          allOf: [{ $ref: '#/components/schemas/IdEntrada' }]
+          nullable: true
+          description: null o ausente = La Federala. Ignorado para INMOBILIARIA.
+        sena: { allOf: [{ $ref: '#/components/schemas/NumeroEntrada' }], nullable: true }
+        numero: { type: string, minLength: 3, maxLength: 30 }
+        ofertaInicial: { $ref: '#/components/schemas/NumeroEntrada' }
+        fechaFinReserva: { $ref: '#/components/schemas/FechaEntrada' }
+    ReservaActualizar:
+      type: object
+      minProperties: 1
+      properties:
+        fechaReserva: { $ref: '#/components/schemas/FechaEntrada' }
+        loteId: { allOf: [{ $ref: '#/components/schemas/IdEntrada' }], description: No se puede cambiar (400) }
+        clienteId: { $ref: '#/components/schemas/IdEntrada' }
+        inmobiliariaId:
+          allOf: [{ $ref: '#/components/schemas/IdEntrada' }]
+          nullable: true
+          description: No se puede cambiar (400)
+        sena: { allOf: [{ $ref: '#/components/schemas/NumeroEntrada' }], nullable: true, description: null quita la seña }
+        estado: { $ref: '#/components/schemas/EstadoReserva' }
+        numero: { type: string, minLength: 3, maxLength: 30 }
+        fechaFinReserva: { $ref: '#/components/schemas/FechaEntrada' }
+    Reserva:
+      type: object
+      description: Reserva con sus relaciones de presentación (cliente, inmobiliaria, lote).
+      required: [id, numero, fechaReserva, estado, estadoOperativo, loteId, clienteId, ofertaInicial, ofertaActual, fechaFinReserva, createdAt]
+      properties:
+        id: { type: integer }
+        numero: { type: string }
+        fechaReserva: { type: string, format: date-time }
+        estado: { $ref: '#/components/schemas/EstadoReserva' }
+        estadoPrevio: { allOf: [{ $ref: '#/components/schemas/EstadoReserva' }], nullable: true }
+        estadoOperativo: { $ref: '#/components/schemas/EstadoOperativo' }
+        fechaBaja: { type: string, format: date-time, nullable: true }
+        loteId: { type: integer }
+        clienteId: { type: integer }
+        inmobiliariaId: { type: integer, nullable: true, description: null = La Federala }
+        sena: { allOf: [{ $ref: '#/components/schemas/Decimal' }], nullable: true }
+        ofertaInicial: { $ref: '#/components/schemas/Decimal' }
+        ofertaActual: { $ref: '#/components/schemas/Decimal' }
+        fechaFinReserva: { type: string, format: date-time }
+        loteEstadoAlCrear: { $ref: '#/components/schemas/EstadoLote' }
+        ventaId: { type: integer, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ReservaMutacionResponse:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, enum: [true] }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/Reserva' }
+    OfertaCrear:
+      type: object
+      required: [monto]
+      properties:
+        monto: { $ref: '#/components/schemas/NumeroEntrada' }
+        motivo: { type: string }
+        action: { type: string, enum: [CONTRAOFERTAR, ACEPTAR, RECHAZAR] }
+    OfertaReserva:
+      type: object
+      required: [id, reservaId, monto, nombreEfector, ownerType, createdAt]
+      properties:
+        id: { type: integer }
+        reservaId: { type: integer }
+        monto: { $ref: '#/components/schemas/Decimal' }
+        motivo: { type: string, nullable: true }
+        nombreEfector: { type: string }
+        efectorId: { type: integer, nullable: true }
+        ownerType: { $ref: '#/components/schemas/OwnerPrioridad' }
+        createdAt: { type: string, format: date-time }
+
+    # ------------------------------------------------------------ Ventas
+    CompradorEntrada:
+      type: object
+      required: [personaId]
+      properties:
+        personaId: { $ref: '#/components/schemas/IdEntrada' }
+    VentaCrear:
+      type: object
+      required: [loteId, fechaVenta, monto, tipoPago, numero]
+      description: >-
+        Requiere `compradores[]` o `compradorId`. ESCRITURADO exige `fechaEscrituraReal`; CANCELADA exige
+        `fechaCancelacion` y `motivoCancelacion`.
+      properties:
+        loteId: { $ref: '#/components/schemas/IdEntrada' }
+        fechaVenta: { $ref: '#/components/schemas/FechaEntrada' }
+        monto: { $ref: '#/components/schemas/NumeroEntrada' }
+        estado: { $ref: '#/components/schemas/EstadoVenta' }
+        estadoCobro: { $ref: '#/components/schemas/EstadoCobro' }
+        plazoEscritura: { $ref: '#/components/schemas/FechaEntrada' }
+        fechaEscrituraReal: { $ref: '#/components/schemas/FechaEntrada' }
+        fechaCancelacion: { $ref: '#/components/schemas/FechaEntrada' }
+        motivoCancelacion: { type: string, minLength: 1 }
+        tipoPago: { type: string, minLength: 1 }
+        compradorId: { allOf: [{ $ref: '#/components/schemas/IdEntrada' }], deprecated: true, description: Legacy; usar `compradores` }
+        compradores: { type: array, minItems: 1, items: { $ref: '#/components/schemas/CompradorEntrada' } }
+        inmobiliariaId: { allOf: [{ $ref: '#/components/schemas/IdEntrada' }], description: Ausente = La Federala }
+        reservaId: { allOf: [{ $ref: '#/components/schemas/IdEntrada' }], nullable: true }
+        numero: { type: string, minLength: 3, maxLength: 30 }
+    VentaActualizar:
+      type: object
+      minProperties: 1
+      properties:
+        loteId: { $ref: '#/components/schemas/IdEntrada' }
+        fechaVenta: { $ref: '#/components/schemas/FechaEntrada' }
+        monto: { $ref: '#/components/schemas/NumeroEntrada' }
+        estado: { $ref: '#/components/schemas/EstadoVenta' }
+        estadoCobro: { $ref: '#/components/schemas/EstadoCobro' }
+        plazoEscritura: { $ref: '#/components/schemas/FechaEntrada' }
+        fechaEscrituraReal: { $ref: '#/components/schemas/FechaEntrada' }
+        fechaCancelacion: { $ref: '#/components/schemas/FechaEntrada' }
+        motivoCancelacion: { type: string, minLength: 1 }
+        tipoPago: { type: string, minLength: 1 }
+        compradorId: { allOf: [{ $ref: '#/components/schemas/IdEntrada' }], deprecated: true }
+        compradores: { type: array, minItems: 1, items: { $ref: '#/components/schemas/CompradorEntrada' } }
+        inmobiliariaId: { $ref: '#/components/schemas/IdEntrada' }
+        numero: { type: string, minLength: 3, maxLength: 30 }
+    Venta:
+      type: object
+      description: Venta con sus relaciones de presentación (lote, compradores, inmobiliaria).
+      required: [id, numero, loteId, fechaVenta, monto, estado, estadoOperativo, estadoCobro, tipoPago, compradorId, createdAt]
+      properties:
+        id: { type: integer }
+        numero: { type: string }
+        loteId: { type: integer }
+        fechaVenta: { type: string, format: date-time }
+        monto: { $ref: '#/components/schemas/Decimal' }
+        estado: { $ref: '#/components/schemas/EstadoVenta' }
+        estadoPrevio: { allOf: [{ $ref: '#/components/schemas/EstadoVenta' }], nullable: true }
+        estadoOperativo: { $ref: '#/components/schemas/EstadoOperativo' }
+        fechaBaja: { type: string, format: date-time, nullable: true }
+        estadoCobro: { $ref: '#/components/schemas/EstadoCobro' }
+        plazoEscritura: { type: string, format: date-time, nullable: true }
+        fechaEscrituraReal: { type: string, format: date-time, nullable: true }
+        fechaCancelacion: { type: string, format: date-time, nullable: true }
+        motivoCancelacion: { type: string, nullable: true }
+        tipoPago: { type: string }
+        compradorId: { type: integer }
+        inmobiliariaId: { type: integer, nullable: true, description: null = La Federala }
+        createdAt: { type: string, format: date-time }
+        updateAt: { type: string, format: date-time, nullable: true }
+    VentaListaResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, enum: [true] }
+        data: { type: array, items: { $ref: '#/components/schemas/Venta' } }
+    VentaMutacionResponse:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, enum: [true] }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/Venta' }
+
+    # ------------------------------------------------------------ Pagos
+    CuotaEntrada:
+      type: object
+      required: [numeroCuota, tipoCuota, fechaVencimiento, montoOriginal]
+      properties:
+        numeroCuota: { $ref: '#/components/schemas/NumeroEntrada' }
+        tipoCuota: { $ref: '#/components/schemas/TipoCuota' }
+        fechaVencimiento: { $ref: '#/components/schemas/FechaEntrada' }
+        montoOriginal: { $ref: '#/components/schemas/NumeroEntrada' }
+        descripcion: { type: string }
+    PlanPagoCrear:
+      type: object
+      required: [nombre, tipoFinanciacion, cantidadCuotas, fechaInicio, cuotas, moneda, montoTotalPlanificado]
+      description: >-
+        `cantidadCuotas` debe coincidir con `cuotas.length`, sin números repetidos ni vencimientos
+        anteriores a `fechaInicio`. CONTADO no admite anticipo; ANTICIPO_CUOTAS lo exige (> 0 y menor al total).
+      properties:
+        nombre: { type: string, minLength: 1, maxLength: 100 }
+        tipoFinanciacion: { $ref: '#/components/schemas/TipoFinanciacion' }
+        moneda: { $ref: '#/components/schemas/Moneda' }
+        montoTotalPlanificado: { $ref: '#/components/schemas/NumeroEntrada' }
+        cantidadCuotas: { $ref: '#/components/schemas/NumeroEntrada' }
+        fechaInicio: { $ref: '#/components/schemas/FechaEntrada' }
+        cuotas: { type: array, minItems: 1, items: { $ref: '#/components/schemas/CuotaEntrada' } }
+        descripcion: { type: string }
+        montoAnticipo: { $ref: '#/components/schemas/NumeroEntrada' }
+        observaciones: { type: string }
+    PlanPagoReemplazar:
+      type: object
+      required: [nombre, tipoFinanciacion, cantidadCuotas, fechaInicio, cuotas]
+      description: Mismas reglas de cuotas que PlanPagoCrear; el total lo fija el saldo pendiente real.
+      properties:
+        nombre: { type: string, minLength: 1, maxLength: 100 }
+        tipoFinanciacion: { $ref: '#/components/schemas/TipoFinanciacion' }
+        moneda: { $ref: '#/components/schemas/Moneda' }
+        cantidadCuotas: { $ref: '#/components/schemas/NumeroEntrada' }
+        fechaInicio: { $ref: '#/components/schemas/FechaEntrada' }
+        cuotas: { type: array, minItems: 1, items: { $ref: '#/components/schemas/CuotaEntrada' } }
+        descripcion: { type: string }
+        montoAnticipo: { $ref: '#/components/schemas/NumeroEntrada' }
+        observaciones: { type: string }
+    PagoRegistrar:
+      type: object
+      required: [cuotaId, fechaPago, monto, medioPago]
+      properties:
+        cuotaId: { $ref: '#/components/schemas/IdEntrada' }
+        fechaPago: { $ref: '#/components/schemas/FechaEntrada' }
+        monto: { $ref: '#/components/schemas/NumeroEntrada' }
+        medioPago: { $ref: '#/components/schemas/MedioPago' }
+        referencia: { type: string }
+        observacion: { type: string }
+    RecargoAplicar:
+      type: object
+      required: [cuotaId, montoRecargo]
+      properties:
+        cuotaId: { $ref: '#/components/schemas/IdEntrada' }
+        montoRecargo: { $ref: '#/components/schemas/NumeroEntrada' }
+    CuotaPago:
+      type: object
+      description: Cuota con montos como number.
+      properties:
+        id: { type: integer }
+        numeroCuota: { type: integer }
+        tipoCuota: { $ref: '#/components/schemas/TipoCuota' }
+        fechaVencimiento: { type: string, format: date-time }
+        montoOriginal: { type: number }
+        montoRecargoManual: { type: number }
+        montoTotalExigible: { type: number }
+        montoPagado: { type: number }
+        saldoPendiente: { type: number }
+        estadoCuota: { $ref: '#/components/schemas/EstadoCuota' }
+    PlanPagoResumen:
+      type: object
+      description: Plan con montos como number.
+      required: [id, nombre, estadoPlan, tipoFinanciacion, moneda, cantidadCuotas, montoTotalPlanificado, montoFinanciado, montoAnticipo, fechaInicio, version]
+      properties:
+        id: { type: integer }
+        nombre: { type: string }
+        estadoPlan: { $ref: '#/components/schemas/EstadoPlanPago' }
+        tipoFinanciacion: { $ref: '#/components/schemas/TipoFinanciacion' }
+        moneda: { $ref: '#/components/schemas/Moneda' }
+        cantidadCuotas: { type: integer }
+        montoTotalPlanificado: { type: number }
+        montoFinanciado: { type: number }
+        montoAnticipo: { type: number }
+        fechaInicio: { type: string, format: date-time }
+        version: { type: integer }
+        descripcion: { type: string, nullable: true }
+        observaciones: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        createdBy: { type: string, nullable: true }
+    PlanPagoPersistido:
+      type: object
+      description: Plan tal como queda en la base, con sus cuotas. Montos Decimal como string.
+      required: [id, nombre, estadoPlan, tipoFinanciacion, moneda, cantidadCuotas, montoTotalPlanificado, montoFinanciado, montoAnticipo, fechaInicio]
+      properties:
+        id: { type: integer }
+        nombre: { type: string }
+        estadoPlan: { $ref: '#/components/schemas/EstadoPlanPago' }
+        tipoFinanciacion: { $ref: '#/components/schemas/TipoFinanciacion' }
+        moneda: { $ref: '#/components/schemas/Moneda' }
+        cantidadCuotas: { type: integer }
+        montoTotalPlanificado: { $ref: '#/components/schemas/Decimal' }
+        montoFinanciado: { $ref: '#/components/schemas/Decimal' }
+        montoAnticipo: { $ref: '#/components/schemas/Decimal' }
+        fechaInicio: { type: string, format: date-time }
+    ContextoPagos:
+      type: object
+      description: Montos como number.
+      required: [venta, planVigente, cuotas, pagos, resumen, planificacion]
+      properties:
+        venta:
+          type: object
+          properties:
+            id: { type: integer }
+            numero: { type: string }
+            fechaVenta: { type: string, format: date-time }
+            monto: { type: number }
+            estado: { $ref: '#/components/schemas/EstadoVenta' }
+            estadoCobro: { $ref: '#/components/schemas/EstadoCobro' }
+        planVigente:
+          allOf: [{ $ref: '#/components/schemas/PlanPagoResumen' }]
+          nullable: true
+        cuotas: { type: array, items: { $ref: '#/components/schemas/CuotaPago' } }
+        pagos:
+          type: array
+          description: Pagos registrados y la seña de la reserva de origen, del más reciente al más antiguo.
+          items:
+            type: object
+            properties:
+              monto: { type: number }
+              fechaPago: { type: string, format: date-time }
+              esPagoPrevioReserva: { type: boolean }
+        planesHistoricos: { type: array, items: { type: object } }
+        resumen:
+          type: object
+          properties:
+            montoTotalPlanificado: { type: number }
+            montoTotalPagado: { type: number }
+            saldoPendienteTotal: { type: number }
+            cantidadCuotas: { type: integer }
+            cuotasPagas: { type: integer }
+            cuotasPendientes: { type: integer }
+            cuotasVencidas: { type: integer }
+        planificacion:
+          type: object
+          properties:
+            montoVenta: { type: number }
+            montoSenaReserva: { type: number }
+            saldoAPlanificar: { type: number }
+    PagoRegistrado:
+      type: object
+      description: Montos como number.
+      required: [pago, cuota, resumen]
+      properties:
+        pago:
+          type: object
+          properties:
+            id: { type: integer }
+            cuotaId: { type: integer }
+            fechaPago: { type: string, format: date-time }
+            monto: { type: number }
+            medioPago: { $ref: '#/components/schemas/MedioPago' }
+        cuota: { $ref: '#/components/schemas/CuotaPago' }
+        resumen:
+          type: object
+          properties:
+            montoTotalPagado: { type: number }
+            saldoPendienteTotal: { type: number }
+            cuotasPagas: { type: integer }
+            cuotasPendientes: { type: integer }
+            cuotasVencidas: { type: integer }
+    ReemplazoPlanResultado:
+      type: object
+      description: Montos como number.
+      required: [planAnterior, planNuevo, cuotas, saldoPendienteRealUsado, versionAnterior, versionNueva, monedaAplicada]
+      properties:
+        planAnterior: { type: object }
+        planNuevo: { $ref: '#/components/schemas/PlanPagoResumen' }
+        cuotas: { type: array, items: { $ref: '#/components/schemas/CuotaPago' } }
+        saldoPendienteRealUsado: { type: number }
+        versionAnterior: { type: integer }
+        versionNueva: { type: integer }
+        monedaAplicada: { $ref: '#/components/schemas/Moneda' }
+
+    # ------------------------------------------------------------ Files
+    ArchivoSubir:
+      type: object
+      required: [file, idLoteAsociado, tipo]
+      properties:
+        file: { type: string, format: binary, description: PDF, JPG/JPEG, PNG o WebP; máx. 20 MB }
+        idLoteAsociado: { $ref: '#/components/schemas/IdQuery' }
+        tipo: { $ref: '#/components/schemas/TipoArchivo' }
+        ventaId:
+          allOf: [{ $ref: '#/components/schemas/IdQuery' }]
+          description: Obligatorio para BOLETO, ESCRITURA y OTRO; no admitido para PLANO e IMAGEN.
+    Archivo:
+      type: object
+      required: [id, filename, url, tipo, uploadedAt, idLoteAsociado, ventaId, estadoOperativo]
+      properties:
+        id: { type: integer }
+        filename: { type: string }
+        url:
+          type: string
+          description: Ruta interna del objeto en el storage. No es una URL de descarga; usar POST /files/{id}/url.
+        tipo: { $ref: '#/components/schemas/TipoArchivo' }
+        uploadedAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        uploadedBy: { type: string, nullable: true }
+        idLoteAsociado: { type: integer }
+        ventaId: { type: integer, nullable: true }
+        ventaNumero: { type: string, nullable: true }
+        estadoOperativo: { $ref: '#/components/schemas/EstadoOperativo' }
+        fechaBaja: { type: string, format: date-time, nullable: true }
+        deletedBy: { type: string, nullable: true }
+        estadoAprobacionComision: { allOf: [{ $ref: '#/components/schemas/EstadoAprobacion' }], nullable: true }
+        fechaAprobacionComision: { type: string, format: date-time, nullable: true }
+        aprobadoComisionBy: { type: string, nullable: true }
+        observacionAprobacionComision: { type: string, nullable: true }
+        estadoAprobacionMunicipio: { allOf: [{ $ref: '#/components/schemas/EstadoAprobacion' }], nullable: true }
+        fechaAprobacionMunicipio: { type: string, format: date-time, nullable: true }
+        aprobadoMunicipioBy: { type: string, nullable: true }
+        observacionAprobacionMunicipio: { type: string, nullable: true }
+    ArchivoMutacionResponse:
+      type: object
+      required: [message, data]
+      description: Files no incluye `success` en sus respuestas exitosas.
+      properties:
+        message: { type: string }
+        data: { $ref: '#/components/schemas/Archivo' }
+    AprobacionActualizar:
+      type: object
+      required: [target, estado]
+      properties:
+        target: { type: string, enum: [COMISION, MUNICIPIO] }
+        estado: { $ref: '#/components/schemas/EstadoAprobacion' }
+        observacion: { type: string, maxLength: 500 }
+    UrlFirmada:
+      type: object
+      required: [signedUrl, signedURL, expiresAt]
+      properties:
+        signedUrl: { type: string, format: uri }
+        signedURL: { type: string, format: uri, deprecated: true, description: Legacy; repite signedUrl }
+        expiresAt: { type: string, format: date-time }
+
+    # ------------------------------------------------------------ Prioridades
+    PrioridadCrear:
+      type: object
+      required: [numero, loteId, fechaInicio, fechaFin]
+      description: fechaFin debe ser posterior a fechaInicio y a la fecha actual.
+      properties:
+        numero: { type: string, minLength: 1 }
+        loteId: { $ref: '#/components/schemas/IdEntrada' }
+        fechaInicio: { $ref: '#/components/schemas/FechaEntrada' }
+        fechaFin: { $ref: '#/components/schemas/FechaEntrada' }
+        ownerType: { allOf: [{ $ref: '#/components/schemas/OwnerPrioridad' }], description: Solo staff; default CCLF }
+        inmobiliariaId:
+          allOf: [{ $ref: '#/components/schemas/IdEntrada' }]
+          nullable: true
+          description: Solo staff con ownerType INMOBILIARIA. Ignorado para INMOBILIARIA.
+    PrioridadActualizar:
+      type: object
+      minProperties: 1
+      properties:
+        numero: { type: string, minLength: 1 }
+        inmobiliariaId:
+          allOf: [{ $ref: '#/components/schemas/IdEntrada' }]
+          nullable: true
+          description: Solo staff; null la pasa a CCLF.
+        fechaFin: { allOf: [{ $ref: '#/components/schemas/FechaEntrada' }], description: Posterior a la fecha actual }
+    Prioridad:
+      type: object
+      description: Prioridad con su lote e inmobiliaria de presentación. No tiene campos Decimal.
+      required: [id, numero, loteId, estado, estadoOperativo, ownerType, fechaInicio, fechaFin, createdAt]
+      properties:
+        id: { type: integer }
+        numero: { type: string }
+        loteId: { type: integer }
+        estado: { $ref: '#/components/schemas/EstadoPrioridad' }
+        estadoOperativo: { $ref: '#/components/schemas/EstadoOperativo' }
+        ownerType: { $ref: '#/components/schemas/OwnerPrioridad' }
+        inmobiliariaId: { type: integer, nullable: true, description: null cuando el dueño es CCLF }
+        fechaInicio: { type: string, format: date-time }
+        fechaFin: { type: string, format: date-time }
+        loteEstadoAlCrear: { $ref: '#/components/schemas/EstadoLote' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PrioridadMutacionResponse:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, enum: [true] }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/Prioridad' }
+
+    # ------------------------------------------------------------ Personas
+    PersonaCrear:
+      type: object
+      required: [identificadorTipo, identificadorValor]
+      description: >-
+        Requiere `razonSocial` (persona jurídica) o `nombre` y `apellido` (persona física). Formato del
+        identificador: DNI 8 dígitos; CUIL/CUIT 11 dígitos (se quitan guiones); PASAPORTE 6 a 9
+        caracteres alfanuméricos en mayúscula.
+      properties:
+        identificadorTipo: { $ref: '#/components/schemas/IdentificadorTipo' }
+        identificadorValor: { type: string, minLength: 1 }
+        nombre: { type: string, maxLength: 100 }
+        apellido: { type: string, maxLength: 100 }
+        razonSocial: { type: string, maxLength: 200 }
+        telefono: { type: integer, minimum: 1 }
+        email: { type: string, format: email }
+        jefeDeFamiliaId: { $ref: '#/components/schemas/IdEntrada' }
+        inmobiliariaId:
+          allOf: [{ $ref: '#/components/schemas/IdEntrada' }]
+          nullable: true
+          description: Solo staff; null = La Federala. Ignorado para INMOBILIARIA.
+    PersonaActualizar:
+      type: object
+      minProperties: 1
+      description: identificadorTipo e identificadorValor deben venir juntos.
+      properties:
+        identificadorTipo: { $ref: '#/components/schemas/IdentificadorTipo' }
+        identificadorValor: { type: string, minLength: 1 }
+        nombre: { type: string, minLength: 1, maxLength: 100 }
+        apellido: { type: string, minLength: 1, maxLength: 100 }
+        razonSocial: { type: string, maxLength: 200 }
+        telefono: { type: integer, minimum: 1, nullable: true }
+        email: { type: string, format: email, nullable: true }
+        jefeDeFamiliaId: { allOf: [{ $ref: '#/components/schemas/IdEntrada' }], description: Se ignora; el grupo familiar no se modifica por PUT }
+        estado: { allOf: [{ $ref: '#/components/schemas/EstadoOperativo' }], description: Se ignora; usar desactivar/reactivar }
+        inmobiliariaId: { allOf: [{ $ref: '#/components/schemas/IdEntrada' }], nullable: true }
     Persona:
       type: object
-      required: [idPersona, nombre, apellido, identificador]
+      required: [idPersona, nombre, apellido, razonSocial, identificadorTipo, identificadorValor, estado, inmobiliariaId, esPropietario, esInquilino, esJefeDeFamilia]
       properties:
         idPersona: { type: integer }
         nombre: { type: string }
         apellido: { type: string }
-        identificador: { $ref: '#/components/schemas/Identificador' }
-        telefono: { type: number }
-        email: { type: string, format: email }
+        razonSocial: { type: string }
+        identificador: { type: string }
+        identificadorTipo: { $ref: '#/components/schemas/IdentificadorTipo' }
+        identificadorValor: { type: string }
+        email: { type: string }
+        telefono: { type: integer }
+        contacto: { type: string }
+        estado: { $ref: '#/components/schemas/EstadoOperativo' }
+        createdAt: { type: string, format: date-time }
+        inmobiliariaId: { type: integer, nullable: true, description: null = La Federala }
+        inmobiliaria:
+          type: object
+          nullable: true
+          properties:
+            id: { type: integer }
+            nombre: { type: string }
+        esPropietario: { type: boolean }
+        esInquilino: { type: boolean }
+        esJefeDeFamilia: { type: boolean }
+        jefeDeFamilia:
+          type: object
+          nullable: true
+          properties:
+            idPersona: { type: integer }
+            nombre: { type: string }
+            apellido: { type: string }
+            cuil: { type: string }
+        miembrosFamilia:
+          type: array
+          items:
+            type: object
+            properties:
+              idPersona: { type: integer }
+              nombre: { type: string }
+              apellido: { type: string }
+              cuil: { type: string }
+    PersonaMutacionResponse:
+      type: object
+      required: [success, persona, message]
+      properties:
+        success: { type: boolean, enum: [true] }
+        persona: { $ref: '#/components/schemas/Persona' }
+        message: { type: string }
+    GrupoFamiliar:
+      type: object
+      required: [titular, miembros]
+      properties:
+        titular:
+          type: object
+          properties:
+            id: { type: integer }
+            nombre: { type: string }
+            apellido: { type: string }
+            razonSocial: { type: string, nullable: true }
+            identificadorTipo: { $ref: '#/components/schemas/IdentificadorTipo' }
+            identificadorValor: { type: string }
+        miembros:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: integer }
+              nombre: { type: string }
+              apellido: { type: string }
+              identificadorTipo: { $ref: '#/components/schemas/IdentificadorTipo' }
+              identificadorValor: { type: string }
+    MiembroFamiliarCrear:
+      type: object
+      required: [nombre, apellido, identificadorTipo, identificadorValor]
+      properties:
+        nombre: { type: string, minLength: 1, maxLength: 100 }
+        apellido: { type: string, minLength: 1, maxLength: 100 }
+        identificadorTipo: { $ref: '#/components/schemas/IdentificadorTipo' }
+        identificadorValor: { type: string, minLength: 1 }
+    MiembroFamiliarCreado:
+      type: object
+      required: [id, nombre, apellido, identificadorTipo, identificadorValor]
+      properties:
+        id: { type: integer }
+        nombre: { type: string }
+        apellido: { type: string }
+        identificadorTipo: { $ref: '#/components/schemas/IdentificadorTipo' }
+        identificadorValor: { type: string }
 
+    # ------------------------------------------------------------ Inmobiliarias
+    InmobiliariaCrear:
+      type: object
+      required: [nombre, razonSocial]
+      properties:
+        nombre: { type: string, minLength: 1, maxLength: 100 }
+        razonSocial: { type: string, minLength: 1, maxLength: 150 }
+        contacto: { type: string, maxLength: 100 }
+        comxventa:
+          allOf: [{ $ref: '#/components/schemas/NumeroEntrada' }]
+          nullable: true
+          description: Comisión por venta (0 a 100); null equivale a 0.
+        userId: { $ref: '#/components/schemas/IdEntrada' }
+        maxPrioridadesActivas: { allOf: [{ $ref: '#/components/schemas/NumeroEntrada' }], nullable: true }
+        estado: { allOf: [{ $ref: '#/components/schemas/EstadoOperativo' }], description: Default OPERATIVO }
+    InmobiliariaActualizar:
+      type: object
+      minProperties: 1
+      properties:
+        nombre: { type: string, minLength: 1, maxLength: 100 }
+        razonSocial: { type: string, minLength: 1, maxLength: 150 }
+        contacto: { type: string, maxLength: 100 }
+        comxventa: { allOf: [{ $ref: '#/components/schemas/NumeroEntrada' }], nullable: true }
+        userId: { $ref: '#/components/schemas/IdEntrada' }
+        maxPrioridadesActivas: { allOf: [{ $ref: '#/components/schemas/NumeroEntrada' }], nullable: true }
+        estado: { $ref: '#/components/schemas/EstadoOperativo' }
+        fechaBaja: { type: string, format: date-time, nullable: true }
+    Inmobiliaria:
+      type: object
+      required: [idInmobiliaria, nombre, razonSocial, estado]
+      properties:
+        idInmobiliaria: { type: integer }
+        nombre: { type: string }
+        razonSocial: { type: string }
+        contacto: { type: string }
+        comxventa: { type: number, description: Comisión por venta (number); ausente si no está definida }
+        maxPrioridadesActivas: { type: integer }
+        estado: { $ref: '#/components/schemas/EstadoOperativo' }
+        fechaBaja: { type: string, format: date-time }
+    InmobiliariaConMetricas:
+      allOf:
+        - $ref: '#/components/schemas/Inmobiliaria'
+        - type: object
+          properties:
+            ventasTotales: { type: integer }
+            ventasActivas: { type: integer }
+            reservasTotales: { type: integer }
+            reservasActivas: { type: integer }
+            prioridadesTotales: { type: integer }
+            prioridadesActivas: { type: integer }
+            cantidadVentas: { type: integer, deprecated: true, description: Legacy; igual a ventasTotales }
+            cantidadReservas: { type: integer, deprecated: true, description: Legacy; igual a reservasTotales }
+    InmobiliariaMutacionResponse:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, enum: [true] }
+        message: { type: string }
+        data:
+          type: object
+          required: [inmobiliaria, message]
+          properties:
+            inmobiliaria: { $ref: '#/components/schemas/InmobiliariaConMetricas' }
+            message: { type: string }
+
+    # ------------------------------------------------------------ Usuarios
+    UsuarioCrear:
+      type: object
+      required: [username, password, rol, email]
+      properties:
+        username: { type: string, minLength: 1, maxLength: 30 }
+        password: { type: string, minLength: 6 }
+        rol: { $ref: '#/components/schemas/Rol' }
+        email: { type: string, format: email, maxLength: 100 }
+    UsuarioActualizar:
+      type: object
+      minProperties: 1
+      properties:
+        username: { type: string, minLength: 1, maxLength: 30 }
+        password: { type: string, minLength: 6 }
+        rol: { $ref: '#/components/schemas/Rol' }
+        email: { type: string, format: email, maxLength: 100 }
+    Usuario:
+      type: object
+      description: Nunca incluye la contraseña.
+      required: [id, username, email, role, createdAt]
+      properties:
+        id: { type: integer }
+        username: { type: string }
+        email: { type: string }
+        role: { $ref: '#/components/schemas/Rol' }
+        createdAt: { type: string, format: date-time }
+
+    # ------------------------------------------------------------ Fracciones y ubicaciones
+    FraccionCrear:
+      type: object
+      required: [numero]
+      properties:
+        numero: { $ref: '#/components/schemas/IdEntrada' }
+    FraccionActualizar:
+      type: object
+      minProperties: 1
+      properties:
+        numero: { $ref: '#/components/schemas/IdEntrada' }
+    Fraccion:
+      type: object
+      required: [idFraccion, numero, lotes]
+      properties:
+        idFraccion: { type: integer }
+        numero: { type: integer }
+        lotes:
+          type: array
+          description: Lotes de la fracción (montos Decimal como string). Vacío en las respuestas de alta y edición.
+          items: { type: object }
+    FraccionMutacionResponse:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, enum: [true] }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/Fraccion' }
     Ubicacion:
       type: object
       required: [id, calle, numero]
       properties:
         id: { type: integer }
-        calle: { $ref: '#/components/schemas/Calle' }
+        calle: { $ref: '#/components/schemas/CalleUbicacion' }
         numero: { type: integer }
-
-    Lote:
-      type: object
-      required: [idLote, fraccion, estado, subestado]
-      properties:
-        idLote: { type: integer }
-        fraccion: { type: integer, description: 'ID o número de fracción' }
-        numPartido:
-          type: integer
-          maximum: 2147483647
-          default: 62  # valor por defecto al crear un lote
-        frente: { type: number }
-        fondo: { type: number }
-        superficie: { type: number }
-        estado: { $ref: '#/components/schemas/EstadoLote' }
-        subestado: { $ref: '#/components/schemas/SubestadoLote' }
-        descripcion: { type: string }
-
-    LoteVenta:
-      allOf:
-        - $ref: '#/components/schemas/Lote'
-        - type: object
-          required: [precio, propietario, ubicacion]
-          properties:
-            deuda: { type: boolean }
-            precio: { type: number }
-            propietario: { $ref: '#/components/schemas/Persona' }
-            ubicacion: { $ref: '#/components/schemas/Ubicacion' }
-
-    EspacioComun:
-      allOf:
-        - $ref: '#/components/schemas/Lote'
-        - type: object
-          required: [capacidad, nombre]
-          properties:
-            capacidad: { type: integer }
-            nombre: { type: string }
-
-    Fraccion:
-      type: object
-      required: [idFraccion, numero]
-      properties:
-        idFraccion: { type: integer }
-        numero: { type: integer, minimum: 1, maximum: 2147483647 }  # Fraccion.numero es Int @unique
-        lotes:
-          type: array
-          items: { $ref: '#/components/schemas/Lote' }
-
-    CambioEstado:
-      type: object
-      required: [idCambio, lote, estadoAnterior, estadoNuevo, fechaCambio]
-      properties:
-        idCambio: { type: integer }
-        lote: { $ref: '#/components/schemas/Lote' }
-        estadoAnterior: { $ref: '#/components/schemas/EstadoLote' }
-        estadoNuevo: { $ref: '#/components/schemas/EstadoLote' }
-        fechaCambio: { type: string }
-
-    Venta:
-      type: object
-      required: [id, loteId, fechaVenta, monto, estado, tipoPago, compradorId]
-      properties:
-        id: { type: integer }
-        loteId: { type: integer }
-        fechaVenta: { $ref: '#/components/schemas/DateTime' }
-        monto: { type: number }
-        estado: { $ref: '#/components/schemas/EstadoVenta' }
-        plazoEscritura: { $ref: '#/components/schemas/DateTime' }
-        tipoPago: { type: string }
-        compradorId: { type: integer }
-        inmobiliariaId: { type: integer }
-        createdAt: { $ref: '#/components/schemas/DateTime' }
-        updateAt: { $ref: '#/components/schemas/DateTime' }
-
-    Inmobiliaria:
-      type: object
-      required: [idInmobiliaria, nombre]
-      properties:
-        idInmobiliaria: { type: integer }
-        nombre: { type: string }
-        razonSocial: { type: string }
-        comxventa: { type: number }
-        contacto: { type: string }
-        reservas:
-          type: array
-          items: { $ref: '#/components/schemas/Reserva' }
-        venta: { $ref: '#/components/schemas/Venta' }
-        user: { $ref: '#/components/schemas/Usuario' }
-
-    Reserva:
-      type: object
-      required: [idReserva, lote, cliente, fechaReserva]
-      properties:
-        idReserva: { type: integer }
-        lote: { $ref: '#/components/schemas/LoteVenta' }
-        cliente: { $ref: '#/components/schemas/Persona' }
-        fechaReserva: { type: string }
-        seña: { type: number }
-        inmobiliaria: { $ref: '#/components/schemas/Inmobiliaria' }
-
-    # ====== DTOs Lotes ======
-    GetLotesResponse:
-      type: object
-      required: [lotes, total]
-      properties:
-        lotes:
-          type: array
-          items: { $ref: '#/components/schemas/LoteVenta' }
-        total: { type: integer }
-
-    GetLoteResponse:
-      type: object
-      required: [lote]
-      properties:
-        lote:
-          oneOf:
-            - $ref: '#/components/schemas/LoteVenta'
-            - type: 'object'
-        message: { type: string }
-
-    PostLoteRequest:
-      type: object
-      required: [id, fraccion, frente, fondo, tipo, estado, subestado, propietario, precio]
-      properties:
-        id: { type: integer }
-        fraccion: { $ref: '#/components/schemas/Fraccion' }
-        frente: { type: number }
-        fondo: { type: number }
-        tipo: { $ref: '#/components/schemas/TipoLote' }
-        estado: { $ref: '#/components/schemas/EstadoLote' }
-        subestado: { $ref: '#/components/schemas/SubestadoLote' }
-        propietario: { $ref: '#/components/schemas/Persona' }
-        precio: { type: number }
-        ubicacion: { $ref: '#/components/schemas/Ubicacion' }
-        superficie: { type: number }
-        descripcion: { type: string }
-        capacidad: { type: integer, minimum: 0, maximum: 2147483647 }
-        numPartido: { type: integer, maximum: 2147483647, default: 62 }
-        nombre: { type: string }
-        alquiler: { type: boolean }
-        deuda: { type: boolean }
-        nombreEspacioComun: { type: string }
-
-    PostLoteResponse:
-      type: object
-      required: [lote, message]
-      properties:
-        lote:
-          oneOf:
-            - $ref: '#/components/schemas/LoteVenta'
-            - type: 'object'
-        message: { type: string }
-
-    PutLoteRequest:
-      type: object
-      required: [id]
-      properties:
-        id: { type: integer }
-        fraccion: { $ref: '#/components/schemas/Fraccion' }
-        frente: { type: number }
-        fondo: { type: number }
-        tipo: { $ref: '#/components/schemas/TipoLote' }
-        estado: { $ref: '#/components/schemas/EstadoLote' }
-        subestado: { $ref: '#/components/schemas/SubestadoLote' }
-        propietario: { $ref: '#/components/schemas/Persona' }
-        precio: { type: number }
-        ubicacion: { $ref: '#/components/schemas/Ubicacion' }
-        superficie: { type: number }
-        descripcion: { type: string }
-        capacidad: { type: integer, minimum: 0, maximum: 2147483647 }
-        numPartido: { type: integer, maximum: 2147483647 }
-        nombre: { type: string }
-
-    PutLoteResponse:
-      type: object
-      required: [message]
-      properties:
-        message: { type: string }
-
-    DeleteLoteResponse:
-      type: object
-      required: [message]
-      properties:
-        message: { type: string }
-
-    # ====== DTOs Ventas ======
-    GetVentasResponse:
-      type: object
-      required: [ventas, total]
-      properties:
-        ventas:
-          type: array
-          items: { $ref: '#/components/schemas/Venta' }
-        total: { type: integer }
-
-    PostVentaRequest:
-      allOf:
-        - $ref: '#/components/schemas/Venta'
-      description: Algunos campos pueden ser opcionales al crear una venta.
-      required: [loteId, fechaVenta, monto, estado, tipoPago, compradorId]
-
-
-    PostVentaResponse:
-      type: object
-      required: [venta, message]
-      properties:
-        venta:
-          oneOf:
-            - $ref: '#/components/schemas/Venta'
-            - type: 'object'
-        message: { type: string }
-
-    GetVentaResponse:
-      type: object
-      required: [venta]
-      properties:
-        venta:
-          oneOf:
-            - $ref: '#/components/schemas/Venta'
-            - type: 'object'
-        message: { type: string }
-
-    PutVentaRequest:
-      type: object
-      required: [id, updateAt]
-      properties:
-        id: { type: integer }
-        loteId: { type: integer }
-        monto: { type: number }
-        compradorId: { type: integer }
-        fechaVenta: { $ref: '#/components/schemas/DateTime' }
-        estado: { $ref: '#/components/schemas/EstadoVenta' }
-        plazoEscritura: { $ref: '#/components/schemas/DateTime' }
-        tipoPago: { type: string }
-        inmobiliariaId: { type: integer }
-        updateAt: { $ref: '#/components/schemas/DateTime' }
-
-    PutVentaResponse:
-      type: object
-      required: [message]
-      properties:
-        message: { type: string }
-
-    DeleteVentaResponse:
-      type: object
-      required: [message]
-      properties:
-        message: { type: string }
-
-    # ====== DTOs Reservas ======
-    GetReservasResponse:
-      type: object
-      required: [reservas, total]
-      properties:
-        reservas:
-          type: array
-          items: { $ref: '#/components/schemas/Reserva' }
-        total: { type: integer }
-
-    PostReservaRequest:
-      type: object
-      required: [idLote, idCliente, fechaReserva]
-      properties:
-        idLote: { type: integer }
-        idCliente: { type: integer }
-        fechaReserva: { type: string }
-        seña: { type: number }
-        idInmobiliaria: { type: integer }
-
-    PostReservaResponse:
-      type: object
-      required: [reserva, message]
-      properties:
-        reserva:
-          oneOf:
-            - $ref: '#/components/schemas/Reserva'
-            - type: 'object'
-        message: { type: string }
-
-    GetReservaResponse:
-      type: object
-      required: [reserva]
-      properties:
-        reserva:
-          oneOf:
-            - $ref: '#/components/schemas/Reserva'
-            - type: 'object'
-        message: { type: string }
-
-    PutReservaRequest:
-      type: object
-      required: [idReserva]
-      properties:
-        idReserva: { type: integer }
-        idLote: { type: integer }
-        idCliente: { type: integer }
-        fechaReserva: { type: string }
-        seña: { type: number }
-        idInmobiliaria: { type: integer }
-
-    PutReservaResponse:
-      type: object
-      required: [message]
-      properties:
-        message: { type: string }
-
-    DeleteReservaResponse:
-      type: object
-      required: [message]
-      properties:
-        message: { type: string }
-
-    # ====== DTOs Inmobiliarias ======
-    GetInmobiliariasResponse:
-      type: object
-      required: [inmobiliarias, total]
-      properties:
-        inmobiliarias:
-          type: array
-          items: { $ref: '#/components/schemas/Inmobiliaria' }
-        total: { type: integer }
-
-    PostInmobiliariaRequest:
-      type: object
-      required: [nombre]
-      properties:
-        nombre: { type: string }
-        razonSocial: { type: string }
-        comxventa: { type: number, minimum: 0, maximum: 100, nullable: true, description: 'Porcentaje de comisión (0 a 100). null se normaliza a 0.' }
-        contacto: { type: string }
-        reservas:
-          type: array
-          items: { $ref: '#/components/schemas/Reserva' }
-        ventaId: { type: integer }
-        userId: { type: integer }
-
-    PostInmobiliariaResponse:
-      type: object
-      required: [inmobiliaria, message]
-      properties:
-        inmobiliaria:
-          oneOf:
-            - $ref: '#/components/schemas/Inmobiliaria'
-            - type: 'object'
-        message: { type: string }
-
-    GetInmobiliariaResponse:
-      type: object
-      required: [inmobiliaria]
-      properties:
-        inmobiliaria:
-          oneOf:
-            - $ref: '#/components/schemas/Inmobiliaria'
-            - type: 'object'
-        message: { type: string }
-
-    PutInmobiliariaRequest:
-      type: object
-      required: [idInmobiliaria, nombre]
-      properties:
-        idInmobiliaria: { type: integer }
-        nombre: { type: string }
-        contacto: { type: string }
-        razonSocial: {type: string}
-        comxventa: { type: number, minimum: 0, maximum: 100, nullable: true, description: 'Porcentaje de comisión (0 a 100). null se normaliza a 0.' }
-        userId: { type: integer }
-        reservas:
-          type: array
-          items: { $ref: '#/components/schemas/Reserva' }
-        ventaId: { type: integer } 
-
-    PutInmobiliariaResponse:
-      type: object
-      required: [message]
-      properties:
-        message: { type: string }
-
-    DeleteInmobiliariaResponse:
-      type: object
-      required: [message]
-      properties:
-        message: { type: string }
-
-    # ====== DTOs Usuarios ======
-    GetUsuariosResponse:
-      type: object
-      required: [usuarios, total]
-      properties:
-        usuarios:
-          type: array
-          items: { $ref: '#/components/schemas/Usuario' }
-        total: { type: integer }
-
-    PostUsuarioRequest:
-      type: object
-      required: [username, password, rol, email]
-      properties:
-        username: { type: string }
-        password: { type: string }
-        rol: { $ref: '#/components/schemas/Rol' }
-        email: { type: string, format: email }
-
-    PostUsuarioResponse:
-      type: object
-      required: [usuario, message]
-      properties:
-        usuario:
-          oneOf:
-            - $ref: '#/components/schemas/Usuario'
-            - type: 'object'
-        message: { type: string }
-
-    GetUsuarioResponse:
-      type: object
-      required: [usuario]
-      properties:
-        usuario:
-          oneOf:
-            - $ref: '#/components/schemas/Usuario'
-            - type: 'object'
-        message: { type: string }
-
-    PutUsuarioRequest:
-      type: object
-      properties:
-        username: { type: string }
-        password: { type: string }
-        rol: { $ref: '#/components/schemas/Rol' }
-        email: { type: string, format: email }
-
-    PutUsuarioResponse:
-      type: object
-      required: [message]
-      properties:
-        message: { type: string }
-
-    DeleteUsuarioResponse:
-      type: object
-      required: [message]
-      properties:
-        message: { type: string }
-
-security: []

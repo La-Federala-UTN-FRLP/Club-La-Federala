@@ -42,6 +42,8 @@ const db = prisma as any;
 
 useTestWebEnv();
 
+const CODE_POR_STATUS: Record<number, string> = { 400: 'BAD_REQUEST', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 409: 'CONFLICT' };
+
 const MARKER = 'SECRET-MARKER-7f3a';
 const META_MARKER = 'PROVIDER-META-91bc';
 const DSN = 'postgres://admin:hunter2@10.0.0.5:5432/federala';
@@ -162,13 +164,14 @@ describe('errores de dominio conocidos conservan status y mensaje', () => {
         service[metodo].mockRejectedValue(errorHttp(message, status));
         const res = await enviar();
         expect(res.status).toBe(status);
-        expect(res.body).toEqual({ message });
+        // Contrato de error (D4): status y mensaje de dominio intactos, más success y code.
+        expect(res.body).toEqual({ success: false, code: CODE_POR_STATUS[status], message });
     });
 
     test('POST / con venta de otro lote conserva el 400 de dominio', async () => {
         db.venta.findUnique.mockResolvedValue({ loteId: 99 });
         const res = await adjuntarPdf(request(app).post('/api/files').set(ADMIN).field('idLoteAsociado', '3').field('tipo', 'BOLETO').field('ventaId', '21'));
         expect(res.status).toBe(400);
-        expect(res.body).toEqual({ message: 'La venta no pertenece al mismo lote que idLoteAsociado' });
+        expect(res.body).toEqual({ success: false, code: 'BAD_REQUEST', message: 'La venta no pertenece al mismo lote que idLoteAsociado' });
     });
 });

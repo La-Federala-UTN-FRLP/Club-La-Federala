@@ -3,6 +3,7 @@
 import prisma from '../config/prisma';
 import { EstadoOperativo, EstadoReserva } from '../generated/prisma';
 import { updateReserva } from '../services/reserva.service';
+import { safeErrorForLog } from '../utils/safeErrorLog';
 
 /**
  * Expira reservas vencidas
@@ -50,7 +51,7 @@ export async function expireReservas(): Promise<number> {
       expiradas++;
       console.log(`[expireReservas] Reserva ${reserva.id} expirada (Lote ${reserva.loteId})`);
     } catch (error) {
-      console.error(`[expireReservas] Error al expirar reserva ${reserva.id}:`, error);
+      console.error(`[expireReservas] Error al expirar reserva ${reserva.id}:`, safeErrorForLog(error));
       // Continuar con las siguientes
     }
   }

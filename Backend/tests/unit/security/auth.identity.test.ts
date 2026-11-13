@@ -72,7 +72,7 @@ describe('JWT válido de un usuario que ya no existe', () => {
 
         expect(res.status).toBe(401);
         // Mismo cuerpo que un token inválido: no revela que la cuenta fue eliminada.
-        expect(res.body).toEqual({ success: false, error: 'Token inválido' });
+        expect(res.body).toEqual({ success: false, code: 'UNAUTHORIZED', message: 'Token inválido', error: 'Token inválido' });
         expect(prisma.user.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 999 } }));
         expect(getAllLotesMock).not.toHaveBeenCalled();
         expect(consoleOutput()).not.toContain(jwt);
@@ -102,7 +102,7 @@ describe('consulta de identidad', () => {
     ])('token %s → 401 sin consultar la DB', async (_caso, claims) => {
         const res = await request(app).get('/api/lotes').set(bearer(token({ ...claims, role: 'ADMINISTRADOR' })));
         expect(res.status).toBe(401);
-        expect(res.body).toEqual({ success: false, error: 'Token inválido' });
+        expect(res.body).toEqual({ success: false, code: 'UNAUTHORIZED', message: 'Token inválido', error: 'Token inválido' });
         expect(prisma.user.findUnique).not.toHaveBeenCalled();
         expect(getAllLotesMock).not.toHaveBeenCalled();
     });

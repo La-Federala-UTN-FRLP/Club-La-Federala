@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import * as inmobiliariaService from '../services/inmobiliaria.service';
 import { validatedParams, validatedQuery } from '../middlewares/validation.middleware';
-import { getInmobiliariaSchema, deleteInmobiliariaSchema, idParamSchema, listInmobiliariasQuerySchema } from '../validations/inmobiliaria.validation';
+import { getInmobiliariaSchema, idParamSchema, listInmobiliariasQuerySchema } from '../validations/inmobiliaria.validation';
 import {
     PostInmobiliariaRequest,
     // PutInmobiliariaRequest // No se estaba usando explícitamente en el código anterior, pero está bien tenerlo
@@ -38,7 +38,7 @@ export async function getInmobiliariaByIdController(req: Request, res: Response,
         // El servicio devuelve un objeto, por lo que !result siempre era falso.
         // Debemos verificar si la propiedad interna inmobiliaria es null.
         if (!result.inmobiliaria) {
-            res.status(404).json({ success: false, message: result.message });
+            res.status(404).json({ success: false, code: 'NOT_FOUND', message: result.message });
             return;
         }
         
@@ -58,7 +58,7 @@ export async function createInmobiliariaController(req: Request, res: Response, 
 
         // Validación simple de seguridad
         if (!result) {
-            res.status(400).json({ success: false, message: "No se pudo crear la inmobiliaria" });
+            res.status(400).json({ success: false, code: 'BAD_REQUEST', message: "No se pudo crear la inmobiliaria" });
             return;
         }
         res.status(201).json({ success: true, message: "Inmobiliaria creada exitosamente", data: result });
@@ -111,23 +111,4 @@ export async function reactivarInmobiliariaController(req: Request, res: Respons
   } catch (error) {
     next(error);
   }
-}
-
-// ==============================
-// Eliminar Inmobiliaria (Hard Delete)
-// ==============================
-export async function deleteInmobiliariaController(req: Request, res: Response, next: NextFunction) {
-    try {
-        const { id: idInmobiliaria } = validatedParams(req, deleteInmobiliariaSchema);
-        const result = await inmobiliariaService.deleteInmobiliaria({ idInmobiliaria });
-
-        // Aquí la lógica sí funcionaba porque el servicio lanzaba error o mensaje específico
-        if (result.message === 'Inmobiliaria no encontrada') {
-            res.status(404).json(result);
-            return;
-        }
-        res.json({ success: true, message: "Inmobiliaria eliminada exitosamente", data: result });
-    } catch (error) {
-        next(error);
-    }
 }

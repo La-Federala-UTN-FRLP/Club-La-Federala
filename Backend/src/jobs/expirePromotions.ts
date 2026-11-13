@@ -2,6 +2,7 @@
 // Job para expirar promociones automáticamente
 import prisma from '../config/prisma';
 import { EstadoLote } from '../generated/prisma';
+import { safeErrorForLog } from '../utils/safeErrorLog';
 
 /**
  * Expira promociones vencidas
@@ -68,7 +69,7 @@ export async function expirePromotions(): Promise<number> {
         console.log(`[expirePromotions] Promoción ${promocion.id} expirada para lote ${promocion.loteId}`);
       });
     } catch (error) {
-      console.error(`[expirePromotions] Error al expirar promoción ${promocion.id}:`, error);
+      console.error(`[expirePromotions] Error al expirar promoción ${promocion.id}:`, safeErrorForLog(error));
       // Continuar con las siguientes aunque una falle
     }
   }

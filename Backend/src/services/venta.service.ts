@@ -1,6 +1,6 @@
 import prisma from '../config/prisma';
 import { Venta, EstadoReserva, EstadoPrioridad, EstadoLote, EstadoOperativo, EstadoVenta, Prisma } from '../generated/prisma';
-import { PostVentaRequest, PutVentaRequest, DeleteVentaResponse } from '../types/interfacesCCLF'; 
+import { PostVentaRequest, PutVentaRequest } from '../types/interfacesCCLF';
 import { updateLoteState } from './lote.service';
 import { ESTADO_LOTE_OP } from '../domain/loteState/loteState.types';
 import { assertLoteOperableFor } from '../domain/loteState/loteState.rules';
@@ -9,7 +9,7 @@ import {
     assertCamposObligatoriosPorEstado,
     assertVentaEliminable
 } from '../domain/ventaState/ventaState.rules';
-import { isFederalaInmobiliaria } from '../utils/inmobiliaria.utils';
+import { isFederalaInmobiliaria, assertInmobiliariaAsignable, assertInmobiliariaOperativa } from '../utils/inmobiliaria.utils';
 import {
     montoVentaEsperadoDesdeReserva,
     MONTO_VENTA_RESERVA_TOLERANCIA,
@@ -281,6 +281,9 @@ export async function createVenta(data: PostVentaRequest): Promise<Venta> {
         motivoCancelacion: data.motivoCancelacion,
     } as any);
 
+    // D1: la venta no puede quedar a nombre de una inmobiliaria ELIMINADO
+    await assertInmobiliariaAsignable(data.inmobiliariaId);
+
     // Transacción atómica: crear venta, marcar lote VENDIDO, finalizar prioridad, consumir reserva
     const newVenta = await prisma.$transaction(async (tx) => {
         const venta = await tx.venta.create({
@@ -311,15 +314,12 @@ export async function createVenta(data: PostVentaRequest): Promise<Venta> {
             data: { estado: EstadoLote.VENDIDO },
         });
 
-        const prioridadActiva = await tx.prioridad.findFirst({
+        // Finaliza la prioridad ACTIVA del lote, si la hay. Escritura condicionada: si otra
+        // transición ya la cerró (p. ej. expiró), no se pisa su estado.
+        await tx.prioridad.updateMany({
             where: { loteId: data.loteId, estado: EstadoPrioridad.ACTIVA },
+            data: { estado: EstadoPrioridad.FINALIZADA },
         });
-        if (prioridadActiva) {
-            await tx.prioridad.update({
-                where: { id: prioridadActiva.id },
-                data: { estado: EstadoPrioridad.FINALIZADA },
-            });
-        }
 
         if (reserva) {
             await tx.reserva.update({
@@ -347,6 +347,7 @@ export async function updateVenta(id: number, updateData: PutVentaRequest): Prom
             estadoCobro: true, 
             loteId: true,
             estadoOperativo: true,
+            inmobiliariaId: true,
             fechaEscrituraReal: true,
             fechaCancelacion: true,
             motivoCancelacion: true
@@ -434,6 +435,10 @@ export async function updateVenta(id: number, updateData: PutVentaRequest): Prom
             (error as any).statusCode = 404;
             throw error;
         }
+        // D1: reasignar a una inmobiliaria ELIMINADO no; reenviar la actual (aunque esté ELIMINADO) sí
+        if (updateData.inmobiliariaId !== ventaActual.inmobiliariaId) {
+            assertInmobiliariaOperativa(inmobiliariaExists);
+        }
     }
 
     try {
@@ -470,21 +475,6 @@ export async function updateVenta(id: number, updateData: PutVentaRequest): Prom
     }
 }
 
-export async function deleteVenta(id: number): Promise<DeleteVentaResponse> {
-    try {
-        await prisma.venta.delete({
-            where: { id },
-        });
-        return { message: 'Venta eliminada correctamente' };
-    } catch (e: any) {
-        if (e.code === 'P2025') { 
-            const error = new Error('Venta no encontrada');
-            (error as any).statusCode = 404;
-            throw error;
-        }
-        throw e;
-    }
-}
 
 export async function eliminarVenta(
   id: number,

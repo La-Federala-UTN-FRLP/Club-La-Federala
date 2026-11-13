@@ -2,7 +2,6 @@ import {
     createVenta,
     getAllVentas,
     getVentaById,
-    deleteVenta,
     getVentasByInmobiliaria,
     eliminarVenta,
     reactivarVenta,
@@ -14,7 +13,7 @@ import type { PostVentaRequest } from '../../../src/types/interfacesCCLF';
 const mockTx = {
     venta: { create: jest.fn() },
     lote: { update: jest.fn() },
-    prioridad: { findFirst: jest.fn(), update: jest.fn() },
+    prioridad: { updateMany: jest.fn() },
     reserva: { update: jest.fn() },
 };
 
@@ -31,6 +30,10 @@ jest.mock('../../../src/config/prisma', () => ({
         update: jest.fn(),
     },
     persona: {
+        findUnique: jest.fn(),
+    },
+    // D1: createVenta/updateVenta leen el estado de la inmobiliaria asignada
+    inmobiliaria: {
         findUnique: jest.fn(),
     },
     reserva: {
@@ -106,7 +109,7 @@ function setupBaseMocks(loteOverrides: any = {}) {
     });
     (prisma.persona.findUnique as jest.Mock).mockResolvedValue({ id: 100 });
     (prisma.reserva.findMany as jest.Mock).mockResolvedValue([]);
-    mockTx.prioridad.findFirst.mockResolvedValue(null);
+    mockTx.prioridad.updateMany.mockResolvedValue({ count: 0 });
     mockTx.venta.create.mockResolvedValue({
         id: 1, loteId: 10, compradorId: 100, monto: 80000,
     });
@@ -406,19 +409,6 @@ describe('getVentaById', () => {
     });
 });
 
-describe('deleteVenta', () => {
-    test('debe eliminar una venta y retornar mensaje', async () => {
-        (prisma.venta.delete as jest.Mock).mockResolvedValue({ id: 1 });
-        const result = await deleteVenta(1);
-        expect(result).toEqual({ message: 'Venta eliminada correctamente' });
-    });
-
-    test('debe lanzar error 404 si la venta no existe', async () => {
-        (prisma.venta.delete as jest.Mock).mockRejectedValue({ code: 'P2025' });
-        await expect(deleteVenta(999)).rejects.toThrow('Venta no encontrada');
-    });
-});
-
 describe('createVenta', () => {
     test('crea venta en lote DISPONIBLE sin reserva', async () => {
         setupBaseMocks();
@@ -545,14 +535,15 @@ describe('createVenta', () => {
         warnSpy.mockRestore();
     });
 
-    test('finaliza prioridad activa del lote dentro de la transacción', async () => {
+    test('finaliza prioridad activa del lote dentro de la transacción (escritura condicionada a ACTIVA)', async () => {
         setupBaseMocks();
-        mockTx.prioridad.findFirst.mockResolvedValue({ id: 200, loteId: 10, estado: 'ACTIVA' });
+        mockTx.prioridad.updateMany.mockResolvedValue({ count: 1 });
 
         await createVenta(baseVentaRequest());
 
-        expect(mockTx.prioridad.update).toHaveBeenCalledWith({
-            where: { id: 200 },
+        // Condicionada: si otra transición ya cerró la prioridad (p. ej. la expiró), no se pisa.
+        expect(mockTx.prioridad.updateMany).toHaveBeenCalledWith({
+            where: { loteId: 10, estado: 'ACTIVA' },
             data: { estado: 'FINALIZADA' },
         });
     });
@@ -659,6 +650,94 @@ describe('updateVenta — allowlist de campos escribibles', () => {
             estadoCobro: 'EN_CURSO',
             compradores: { set: [{ id: 3 }, { id: 4 }] },
             compradorId: 3,
+        });
+    });
+});
+
+describe('D1 — inmobiliaria ELIMINADO en ventas', () => {
+    const MENSAJE = 'La inmobiliaria seleccionada no está disponible para operar.';
+    const BAJA = 7;
+    const OPERATIVA = 8;
+    let estados: Record<number, 'OPERATIVO' | 'ELIMINADO'>;
+
+    beforeEach(() => {
+        estados = { [BAJA]: 'OPERATIVO', [OPERATIVA]: 'OPERATIVO' };
+        (prisma.inmobiliaria.findUnique as jest.Mock).mockImplementation(async ({ where }: { where: { id: number } }) =>
+            estados[where.id] ? { id: where.id, estadoOperativo: estados[where.id] } : null,
+        );
+    });
+
+    describe('createVenta', () => {
+        test('inmobiliaria OPERATIVO → crea la venta con esa inmobiliaria', async () => {
+            setupBaseMocks();
+
+            await createVenta(baseVentaRequest({ inmobiliariaId: BAJA }));
+
+            expect(mockTx.venta.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ inmobiliariaId: BAJA }) }));
+        });
+
+        test('inmobiliaria ELIMINADO → 409 sin abrir la transacción', async () => {
+            setupBaseMocks();
+            estados[BAJA] = 'ELIMINADO';
+
+            await expect(createVenta(baseVentaRequest({ inmobiliariaId: BAJA }))).rejects.toThrow(MENSAJE);
+            await expectStatus(() => createVenta(baseVentaRequest({ inmobiliariaId: BAJA })), 409);
+            expect(mockTx.venta.create).not.toHaveBeenCalled();
+        });
+
+        test('reactivada → vuelve a ser asignable', async () => {
+            setupBaseMocks();
+            estados[BAJA] = 'ELIMINADO';
+            await expectStatus(() => createVenta(baseVentaRequest({ inmobiliariaId: BAJA })), 409);
+
+            estados[BAJA] = 'OPERATIVO';
+            await expect(createVenta(baseVentaRequest({ inmobiliariaId: BAJA }))).resolves.toBeDefined();
+        });
+
+        test('sin inmobiliaria (La Federala) → no consulta inmobiliarias', async () => {
+            setupBaseMocks();
+
+            await createVenta(baseVentaRequest());
+
+            expect(prisma.inmobiliaria.findUnique).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('updateVenta — venta histórica de una inmobiliaria que pasó a ELIMINADO', () => {
+        const ventaActual = {
+            estado: 'INICIADA', estadoCobro: 'PENDIENTE', loteId: 10, estadoOperativo: 'OPERATIVO',
+            inmobiliariaId: BAJA, fechaEscrituraReal: null, fechaCancelacion: null, motivoCancelacion: null,
+        };
+
+        beforeEach(() => {
+            estados[BAJA] = 'ELIMINADO';
+            (prisma.venta.findUnique as jest.Mock).mockResolvedValue(ventaActual);
+            (prisma.venta.update as jest.Mock).mockResolvedValue({ id: 1 });
+        });
+
+        test('update que no toca la inmobiliaria → se aplica', async () => {
+            await updateVenta(1, { monto: 10 } as any);
+
+            expect(prisma.venta.update).toHaveBeenCalledWith(expect.objectContaining({ data: { monto: 10 } }));
+        });
+
+        test('reenviar la misma inmobiliaria (ELIMINADO) → se aplica', async () => {
+            await updateVenta(1, { monto: 10, inmobiliariaId: BAJA } as any);
+
+            expect(prisma.venta.update).toHaveBeenCalledTimes(1);
+        });
+
+        test('reasignar a una OPERATIVO → se aplica', async () => {
+            await updateVenta(1, { inmobiliariaId: OPERATIVA } as any);
+
+            expect(prisma.venta.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ inmobiliariaId: OPERATIVA }) }));
+        });
+
+        test('reasignar a una ELIMINADO → 409 sin actualizar', async () => {
+            (prisma.venta.findUnique as jest.Mock).mockResolvedValue({ ...ventaActual, inmobiliariaId: OPERATIVA });
+
+            await expectStatus(() => updateVenta(1, { inmobiliariaId: BAJA } as any), 409);
+            expect(prisma.venta.update).not.toHaveBeenCalled();
         });
     });
 });

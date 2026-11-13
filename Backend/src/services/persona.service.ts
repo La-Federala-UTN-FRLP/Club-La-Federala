@@ -1,7 +1,106 @@
 import prisma from '../config/prisma';
 import type { Persona as PrismaPersona, IdentificadorTipo, PersonaCategoria, EstadoLote } from "../generated/prisma";
 import type { Identificador, Persona, DeletePersonaResponse, GetPersonaRequest, GetPersonasResponse, PutPersonaResponse, PostPersonaRequest, PostPersonaResponse } from '../types/interfacesCCLF';
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import { Prisma } from '../generated/prisma';
+import { assertInmobiliariaAsignable, assertInmobiliariaOperativa } from '../utils/inmobiliaria.utils';
+
+// ==============================
+// Grupo familiar (modelo plano)
+// ==============================
+// Una familia tiene un único titular y N miembros directos; una persona pertenece como máximo a una
+// familia. No hay familias anidadas: un miembro no puede ser titular, un titular con miembros no
+// puede pasar a ser miembro, y nadie es su propio jefe. Estas reglas valen en todo camino que asigne
+// un jefe de familia (alta de persona con jefeDeFamiliaId y alta de miembro familiar). PUT /personas
+// no modifica el jefe de familia.
+export const MENSAJE_JEFE_INEXISTENTE = 'El jefe de familia especificado no existe';
+export const MENSAJE_JEFE_PROPIO = 'Una persona no puede ser su propio jefe de familia';
+export const MENSAJE_JEFE_ES_MIEMBRO = 'El titular indicado ya es miembro de otro grupo familiar';
+export const MENSAJE_TITULAR_NO_PUEDE_SER_MIEMBRO = 'Un titular con miembros no puede pasar a ser miembro de otro grupo familiar';
+
+function errorConStatus(message: string, statusCode: number): Error & { statusCode: number } {
+  const error = new Error(message) as Error & { statusCode: number };
+  error.statusCode = statusCode;
+  return error;
+}
+
+/** Un miembro de otra familia no puede ser titular (no hay familias anidadas). */
+function assertPuedeSerTitular(jefe: { jefeDeFamiliaId: number | null }): void {
+  if (jefe.jefeDeFamiliaId !== null) throw errorConStatus(MENSAJE_JEFE_ES_MIEMBRO, 409);
+}
+
+/**
+ * Valida que jefeId pueda ser el jefe de familia de personaId (undefined = persona nueva).
+ * - no es la propia persona (400);
+ * - existe (400, como cualquier referencia del body inexistente);
+ * - no es miembro de otra familia (409);
+ * - la persona no es titular de una familia con miembros (409).
+ * Una persona existente nunca pasa a ser miembro (ningún camino asigna jefe a una persona ya creada),
+ * así que lo validado no cambia entre esta lectura y la escritura.
+ */
+export async function assertJefeDeFamiliaAsignable(jefeId: number, personaId?: number): Promise<void> {
+  if (personaId !== undefined && jefeId === personaId) throw errorConStatus(MENSAJE_JEFE_PROPIO, 400);
+
+  const jefe = await prisma.persona.findUnique({ where: { id: jefeId }, select: { jefeDeFamiliaId: true } });
+  if (!jefe) throw errorConStatus(MENSAJE_JEFE_INEXISTENTE, 400);
+  assertPuedeSerTitular(jefe);
+
+  if (personaId !== undefined) {
+    const miembros = await prisma.persona.count({ where: { jefeDeFamiliaId: personaId } });
+    if (miembros > 0) throw errorConStatus(MENSAJE_TITULAR_NO_PUEDE_SER_MIEMBRO, 409);
+  }
+}
+
+// ==============================
+// Borrado definitivo
+// ==============================
+export const MENSAJE_PERSONA_CON_ASOCIACIONES =
+  'No se puede eliminar definitivamente porque tiene asociaciones (lotes, reservas o ventas)';
+export const MENSAJE_TITULAR_CON_MIEMBROS =
+  'No se puede eliminar definitivamente porque es titular de un grupo familiar con miembros';
+
+/**
+ * Borra una persona solo si no tiene asociaciones comerciales (lotes propios o alquilados,
+ * alquileres, reservas, ventas como comprador principal o como co-comprador) ni miembros familiares.
+ *
+ * Carreras: el chequeo y el DELETE corren en una transacción que primero bloquea la fila de la persona
+ * (SELECT … FOR UPDATE). Toda alta que la referencie (co-compra, miembro familiar, inquilino, etc.)
+ * verifica su FK con un lock FOR KEY SHARE sobre esa misma fila, incompatible con FOR UPDATE:
+ * - si el alta llegó antes, este borrado espera a que confirme y el conteo posterior la ve → 409;
+ * - si el borrado llegó antes, el alta espera y después falla por FK: nunca se borra en cascada
+ *   (ni se desvincula con SET NULL) una relación creada entre el chequeo y el DELETE.
+ */
+async function borrarPersonaSinAsociaciones(id: number): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const bloqueada = await tx.$queryRaw<Array<{ id: number }>>`SELECT "id" FROM "public"."Persona" WHERE "id" = ${id} FOR UPDATE`;
+    if (bloqueada.length === 0) throw errorConStatus('Persona no encontrada', 404);
+
+    const persona = await tx.persona.findUnique({
+      where: { id },
+      select: {
+        _count: {
+          select: {
+            lotesPropios: true,
+            lotesAlquilados: true,
+            alquileres: true,
+            Reserva: true,
+            Venta: true,
+            // Co-comprador (relación muchos-a-muchos): su FK es CASCADE, borrarla la quitaría de la venta.
+            ventasComoComprador: true,
+            miembrosFamilia: true,
+          },
+        },
+      },
+    });
+    if (!persona) throw errorConStatus('Persona no encontrada', 404);
+
+    const { miembrosFamilia, ...comerciales } = persona._count;
+    if (Object.values(comerciales).some((n) => n > 0)) throw errorConStatus(MENSAJE_PERSONA_CON_ASOCIACIONES, 409);
+    // Un titular con miembros no se borra: su FK SET NULL desarmaría la familia en silencio.
+    if (miembrosFamilia > 0) throw errorConStatus(MENSAJE_TITULAR_CON_MIEMBROS, 409);
+
+    await tx.persona.delete({ where: { id } });
+  });
+}
 
 // Tipos para views
 export type PersonaView = 'ALL' | 'PROPIETARIOS' | 'INQUILINOS' | 'CLIENTES' | 'MIS_CLIENTES';
@@ -298,7 +397,8 @@ export async function getAllPersonas(
   const q = query?.q;
   const includeInactive = query?.includeInactive === true;
   const estadoOperativo = query?.estadoOperativo;
-  const limit = query?.limit || 100;
+  // Sin limit explícito no se trunca (antes: 100 por defecto, silencioso). Con limit válido se respeta.
+  const limit = query?.limit;
 
   // RBAC: INMOBILIARIA solo puede ver MIS_CLIENTES (forzar view, ignorar query)
   if (user?.role === 'INMOBILIARIA') {
@@ -529,6 +629,8 @@ export async function createPersona(
           error.statusCode = 400;
           throw error;
         }
+        // D1: no se asigna una inmobiliaria ELIMINADO
+        assertInmobiliariaOperativa(inmobiliariaExists);
       }
       finalInmobiliariaId = req.inmobiliariaId;
     }
@@ -551,31 +653,26 @@ export async function createPersona(
     createData.inmobiliariaId = finalInmobiliariaId;
   }
 
-  // Normalizar jefe de familia
-  const jefeIdNormalized =
-    req.jefeDeFamiliaId !== undefined &&
-    req.jefeDeFamiliaId !== null &&
-    !Number.isNaN(Number(req.jefeDeFamiliaId))
-      ? Number(req.jefeDeFamiliaId)
-      : undefined;
+  // Jefe de familia (el schema ya entrega un id entero positivo): se valida el modelo plano y se
+  // persiste en el mismo INSERT, sin un segundo update que pueda fallar con la persona ya creada.
+  if (req.jefeDeFamiliaId !== undefined && req.jefeDeFamiliaId !== null) {
+    await assertJefeDeFamiliaAsignable(req.jefeDeFamiliaId);
+    createData.jefeDeFamiliaId = req.jefeDeFamiliaId;
+  }
 
   let created;
   try {
     created = await prisma.persona.create({ data: createData });
-
-    // Si vino jefeDeFamiliaId, vincularlo
-    if (jefeIdNormalized !== undefined) {
-      await prisma.persona.update({
-        where: { id: created.id },
-        data: { jefeDeFamilia: { connect: { id: jefeIdNormalized } } },
-      });
-    }
   } catch (e: any) {
-    if (e instanceof PrismaClientKnownRequestError) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError) {
       if (e.code === 'P2002') {
         const error = new Error('Ya existe una persona con ese identificador') as any;
         error.statusCode = 409;
         throw error;
+      }
+      // El jefe se borró entre la validación y el INSERT
+      if (e.code === 'P2003' && createData.jefeDeFamiliaId !== undefined) {
+        throw errorConStatus(MENSAJE_JEFE_INEXISTENTE, 400);
       }
     }
     throw e;
@@ -704,6 +801,10 @@ export async function updatePersona(idActual: number, req: UpdatePersonaDto): Pr
 
     // inmobiliariaId solo para ADMIN/GESTOR (validar en controller si es necesario)
     if (req.inmobiliariaId !== undefined) {
+      // D1: reasignar a una inmobiliaria ELIMINADO no; conservar la actual (aunque esté ELIMINADO) sí
+      if (req.inmobiliariaId !== existingPersona.inmobiliariaId) {
+        await assertInmobiliariaAsignable(req.inmobiliariaId);
+      }
       updateData.inmobiliariaId = req.inmobiliariaId;
     }
 
@@ -738,7 +839,7 @@ export async function updatePersona(idActual: number, req: UpdatePersonaDto): Pr
       message: 'La persona se actualizó con éxito',
     };
   } catch (e: any) {
-    if (e instanceof PrismaClientKnownRequestError) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError) {
       if (e.code === 'P2025') {
         const error = new Error('Persona no encontrada') as any;
         error.statusCode = 404;
@@ -800,7 +901,7 @@ export async function eliminarPersona(
 
     return { message: 'Persona desactivada con éxito' };
   } catch (e: any) {
-    if (e instanceof PrismaClientKnownRequestError) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError) {
       if (e.code === 'P2025') {
         const error = new Error('Persona no encontrada') as any;
         error.statusCode = 404;
@@ -851,7 +952,7 @@ export async function reactivarPersona(
       message: 'Persona reactivada con éxito',
     };
   } catch (e: any) {
-    if (e instanceof PrismaClientKnownRequestError) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError) {
       if (e.code === 'P2025') {
         const error = new Error('Persona no encontrada') as any;
         error.statusCode = 404;
@@ -865,51 +966,10 @@ export async function reactivarPersona(
 // Eliminar persona definitivamente (hard delete) - solo si no tiene asociaciones
 export async function deletePersonaDefinitivo(id: number): Promise<DeletePersonaResponse> {
   try {
-    const existingPersona = await prisma.persona.findUnique({
-      where: { id },
-      include: {
-        _count: {
-          select: {
-            lotesPropios: true,
-            lotesAlquilados: true,
-            alquileres: true,
-            Reserva: true,
-            Venta: true,
-          },
-        },
-      },
-    });
-
-    if (!existingPersona) {
-      const error = new Error('Persona no encontrada') as any;
-      error.statusCode = 404;
-      throw error;
-    }
-
-    // Validar que no tenga asociaciones
-    const counts = existingPersona._count || {};
-    const tieneAsociaciones = 
-      (counts.lotesPropios || 0) > 0 ||
-      (counts.lotesAlquilados || 0) > 0 ||
-      (counts.alquileres || 0) > 0 ||
-      (counts.Reserva || 0) > 0 ||
-      (counts.Venta || 0) > 0;
-
-    if (tieneAsociaciones) {
-      const error = new Error(
-        'No se puede eliminar definitivamente porque tiene asociaciones (lotes, reservas o ventas)'
-      ) as any;
-      error.statusCode = 409;
-      throw error;
-    }
-
-    await prisma.persona.delete({
-      where: { id },
-    });
-
+    await borrarPersonaSinAsociaciones(id);
     return { message: 'Persona eliminada definitivamente' };
   } catch (e: any) {
-    if (e instanceof PrismaClientKnownRequestError) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError) {
       if (e.code === 'P2025') {
         const error = new Error('Persona no encontrada') as any;
         error.statusCode = 404;
@@ -1213,6 +1273,9 @@ export async function crearMiembroFamiliar(
     throw error;
   }
 
+  // Modelo plano: un miembro de otra familia no puede tener miembros
+  assertPuedeSerTitular(titular);
+
   // Normalizar identificadorValor
   const identificadorValorNormalized = normalizeIdentificador(data.identificadorTipo, data.identificadorValor);
 
@@ -1231,6 +1294,9 @@ export async function crearMiembroFamiliar(
     error.statusCode = 409;
     throw error;
   }
+
+  // D1: el miembro nuevo hereda la inmobiliaria del titular; si está ELIMINADO no se asigna
+  await assertInmobiliariaAsignable(titular.inmobiliariaId);
 
   // Crear miembro familiar
   const miembro = await prisma.persona.create({
@@ -1302,10 +1368,8 @@ export async function eliminarMiembroFamiliar(titularId: number, miembroId: numb
     throw error;
   }
 
-  // Eliminar el miembro (hard delete)
-  await prisma.persona.delete({
-    where: { id: miembroId },
-  });
+  // Hard delete con los mismos guards que el borrado definitivo (asociaciones comerciales, co-compras)
+  await borrarPersonaSinAsociaciones(miembroId);
 
   return { success: true };
 }

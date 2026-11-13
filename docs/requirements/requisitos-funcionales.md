@@ -11,4 +11,4 @@
 | RF-007 | Cargar y gestionar archivos de lotes o ventas. | Alta | Implementado | CU-007 |
 | RF-008 | Gestionar personas, propietarios, clientes, inquilinos y grupos familiares. | Alta | Implementado | CU-008 |
 | RF-009 | Mostrar lotes mediante mapa interactivo. | Media | Implementado | CU-009 |
-| RF-010 | Expirar reservas y promociones vencidas. | Media | Implementado | CU-010 |
+| RF-010 | Expirar reservas, promociones y prioridades vencidas. | Media | Implementado | CU-010 |

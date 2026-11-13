@@ -42,6 +42,8 @@ Durante la validación humana se decidió no usar una rama permanente `develop` 
 
 Durante la validación humana se adoptó GitHub Flow liviano: `main` única rama estable, sin `develop`, ramas cortas, PR obligatorio, revisión cruzada y Squash & Merge. Commits con `tipo(scope): descripción`. GitHub Projects con Kanban Backlog / In Progress / Review / Done y WIP de una tarea principal In Progress por integrante. Issues opcionales. `docs/` es la Knowledge Base. OpenAPI no es contrato oficial hasta reconciliarlo. `experiment/*` es excepcional. Checkpoints futuros por tags sobre `main` validado. `AI-DECISIONS.md` es el registro obligatorio de usos relevantes de IA. La integración formal al repositorio queda a cargo del PR y de la revisión posterior.
 
+> **SUPERSEDED (AI-013):** la OpenAPI (`Backend/documents/documentacionApi.yaml`) se reconcilió con la API real y es el contrato vigente, validado por test contra las rutas montadas.
+
 #### Evidencia / archivos relacionados
 
 - `CONTRIBUTING.md`
@@ -753,7 +755,7 @@ Cerrar esas superficies en un único Issue ejecutado por bloques con checkpoint 
 #### Decisión adoptada
 
 - **Identidad vigente:** el JWT prueba identidad; rol e inmobiliaria salen de la DB en cada request. `sub` inválido o usuario inexistente → `401`; un error de DB → `500`. Un cambio de rol o de tenant rige en el siguiente request.
-- **Bearer-only:** token en `localStorage`, header `Authorization: Bearer`. Se eliminan `credentials: true` del CORS y los 8 `credentials: "include"` del frontend. No hay cookies ni protección CSRF basada en cookies. El código legacy de refresh del frontend (`/auth/refresh`, inexistente en el backend) queda pendiente de limpieza.
+- **Bearer-only:** token en `localStorage`, header `Authorization: Bearer`. Se eliminan `credentials: true` del CORS y los 8 `credentials: "include"` del frontend. No hay cookies ni protección CSRF basada en cookies. El código legacy de refresh del frontend (`/auth/refresh`, inexistente en el backend) queda pendiente de limpieza. **SUPERSEDED (AI-013):** el código de refresh y `/auth/me` del frontend se eliminó; un `401` limpia la sesión y redirige a `/login`.
 - **Rate limiting de login:** 15 minutos, 10 intentos fallidos, `skipSuccessfulRequests`, `429` con `TOO_MANY_REQUESTS`, headers estándar `draft-8`. Store en memoria por proceso (válido con una instancia).
 - **Client IP en Render:** `RENDER=true` → `CF-Connecting-IP` validado como IP única; si no, `req.ip` → `socket.remoteAddress` → key constante. `X-Forwarded-For` no se usa como key. Revalidar al migrar a Cloud Run.
 - **Login timing:** bcrypt contra un hash dummy del mismo costo cuando el email no existe.
@@ -764,7 +766,7 @@ Cerrar esas superficies en un único Issue ejecutado por bloques con checkpoint 
 - **Files fail-closed por tipo:** `TECNICO` accede solo a `PLANO` e `IMAGEN`; `BOLETO`, `ESCRITURA`, `OTRO` y cualquier tipo desconocido quedan denegados en listados, detalle, signed URL, upload, sustituir y aprobaciones. Los errores inesperados de Files responden `500` genérico sin serializar el error.
 - **CORS sin credentials:** la allowlist de AI-004 no cambia. CORS se documenta como política del navegador, no como autorización del recurso.
 - **Dependencia nueva:** `express-rate-limit` 8.7.3 (fuera del rango vulnerable 8.0.0–8.2.1); única dependencia productiva agregada.
-- **Fuera de alcance (PR final pre-Cloud):** error handler global y 404 JSON, mappers Prisma, password policy, refresh/cookies, código frontend muerto, Dockerfile del backend, OpenAPI de auth/files/prioridades, paginación, nullable y Cloud.
+- **Fuera de alcance (PR final pre-Cloud):** error handler global y 404 JSON, mappers Prisma, password policy, refresh/cookies, código frontend muerto, Dockerfile del backend, OpenAPI de auth/files/prioridades, paginación, nullable y Cloud. **SUPERSEDED (AI-013):** el error handler global, el 404 JSON, los mappers Prisma, el refresh del frontend, el Dockerfile productivo y la OpenAPI completa se resolvieron en AI-013. Siguen fuera: password policy, paginación, nullable y Cloud.
 
 #### Resultado
 
@@ -791,6 +793,93 @@ Cerrar esas superficies en un único Issue ejecutado por bloques con checkpoint 
 - `Backend/documents/documentacionApi.yaml`
 - `docs/architecture/backend.md`
 - `AI-DECISIONS.md`
+
+### AI-013 — Final Hardening pre-Cloud: contrato de errores, lifecycle, runtime y freeze de API
+
+**Fecha:** 2026-11-13
+**Área:** Backend / Frontend / API / Runtime
+**Herramientas:** ChatGPT + Claude
+
+#### Problema
+
+Después de AI-012 quedaban abiertas, antes del checkpoint Cloud:
+
+- **Errores:** catches locales (Persona, Fracción, Ubicación) respondían `500` con `error.message`; errores de dominio de Reservas sin status terminaban en `500`; el middleware global devolvía `err.message` también en los 5xx; los mappers de Prisma usaban la clase de `@prisma/client/runtime/library`, que no reconoce los errores del cliente generado; sin 404 JSON global ni límite explícito de body.
+- **Lifecycle:** una inmobiliaria dada de baja seguía pudiendo loguearse y recibir operaciones nuevas; las prioridades vencidas no expiraban solas; aliases y hard deletes incoherentes en el contrato público.
+- **Runtime:** sin imagen productiva (`npm run dev` en Docker), validación de env sin reglas para `JWT_SECRET`/`JWT_EXPIRES_IN`, logs de requests con query string y Prisma volcando mensajes crudos.
+- **API:** la OpenAPI no estaba reconciliada con las rutas reales.
+- **Correctness:** cancelar/finalizar una prioridad podían competir con su expiración; `DELETE /lotes` podía borrar a medias; el borrado definitivo de personas no contaba a los co-compradores.
+
+#### Prompt / intención
+
+Un único PR por bloques con checkpoint humano entre cada uno (0: RED; 1: errores y Prisma; 2: lifecycle, contratos muertos y listados; 3: runtime productivo y configuración; 4: freeze de API/OpenAPI; 5: correctness final, documentación e higiene), regression-first y sin iniciar Cloud. Las decisiones funcionales las tomó el equipo antes de implementar; la IA no eligió alternativas de negocio.
+
+#### Propuesta generada por IA
+
+- Contrato de error único en el middleware global y migración de los catches locales a `next(error)`.
+- Mappers Prisma con la clase del cliente generado.
+- Reglas D1 en un helper (`assertInmobiliariaAsignable`) y en la identidad (`findAuthIdentity`, login).
+- Job de prioridades reutilizando la operación del endpoint manual.
+- Dockerfile multi-stage y validación de env con la propia librería JWT.
+- Guard de inventario OpenAPI vs rutas montadas, con seguridad y roles.
+- Escritura condicionada (`WHERE estado = ACTIVA`) para las transiciones de prioridades.
+
+#### Validación humana
+
+- D1–D6 y "Ubicaciones B" se decidieron antes de implementar; cada bloque se aprobó por separado.
+- Durante el Block 5 apareció una decisión nueva (cascada de `DELETE /lotes`, que borraba ventas, reservas y metadata de archivos). Se reportó sin elegirla; producto decidió hard delete solo de lotes sin asociaciones y `409` en el resto, sin baja lógica.
+- La auditoría adversarial final reportó F1–F6. Producto definió el modelo familiar plano (F4). F1 no se reprodujo como fallo de build (`prisma generate` 6.18 no exige las URLs; sí `validate`/`migrate`); igual se blindó el stage `build`. Para F3 se evaluó cambiar la FK de `_VentaCompradores` a RESTRICT: se descartó con evidencia, porque `prisma migrate diff` la revierte a CASCADE (tabla implícita de Prisma). Queda pendiente repetir la auditoría adversarial.
+- La decisión final de integración corresponde a validación humana.
+
+#### Decisión adoptada
+
+Decisiones del Final Hardening (vigentes; reemplazan lo marcado como SUPERSEDED en AI-001 y AI-012):
+
+- **D1 — Inmobiliaria `ELIMINADO`:** no puede loguearse (`401` genérico) ni operar con un JWT previo, no participa en operaciones nuevas (`409` al asociarla) y no aparece en los listados operativos por defecto. Persiste para el historial y recupera el acceso al reactivarse.
+- **D2 — Aliases y hard deletes:** se eliminan `DELETE /ventas/:id` y `DELETE /reservas/:id` (aliases de la baja lógica) y `DELETE /inmobiliarias/:id` (hard delete incompatible con D1). Se conservan los hard deletes con capacidad real del dominio: fracciones (guard de lotes), usuarios (única revocación), personas (guard de asociaciones, incluidos co-compradores), purge de archivos (ADMIN) y lotes (solo sin historia ni asociaciones: con ventas, reservas, ofertas, prioridades, promociones, alquileres o archivos responde `409` sin borrar nada).
+- **D3 — Expiración de prioridades:** el job de expiraciones expira las prioridades vencidas con todo su lifecycle, incluida la restauración del lote. Cancelar, finalizar y expirar escriben condicionadas a que la prioridad siga `ACTIVA`: la transición que pierde una carrera no pisa el estado ni restaura el lote dos veces.
+- **D4 — Contrato de errores:** `{ success: false, code, message, errors? }`, migración compatible. `error` de auth se mantiene como campo deprecated porque el frontend todavía lo lee.
+- **D5 — Listados:** Usuarios y Ubicaciones sin `take: 10`; Personas sin truncar cuando no llega `limit`; Fracciones conserva su tope (dominio: máximo 8).
+- **D6 — Decimal:** no se normaliza en este PR; la OpenAPI documenta string vs number. DTO de Decimal post-Cloud.
+- **Ubicaciones B:** Ubicaciones es de solo lectura en el API; se eliminan `POST`, `PUT` y `DELETE /ubicaciones`. Las ubicaciones se crean y modifican dentro del lifecycle de Lote.
+- **Runtime:** producción = `npm ci` → `npm run build` → `node dist/server.js` (imagen multi-stage, stage `runtime`); el job usa la misma imagen con `node dist/jobs/runExpirations.js`. `docker-compose.yml` es desarrollo (stage `deps`, `npm run dev`).
+- **Configuración:** `JWT_SECRET` ≥ 32 caracteres en `production`; `JWT_EXPIRES_IN` con unidad; `FRONTEND_URL` requerido en `production`.
+- **Freeze de API:** 78 operaciones `/api` + `GET /health`; la OpenAPI es el contrato y un test la compara con las rutas reales.
+- **Deprecations, Cloud checkpoint y backlog post-Cloud:** registrados en `docs/architecture/freeze-pre-cloud.md`.
+- **`npm audit`:** las 4 advertencias high del backend (cadena de Prisma CLI) se aceptan antes de Cloud porque su remediación requiere la migración mayor a Prisma 7.
+
+Correcciones de la auditoría adversarial final:
+
+- **F1 — Build Docker reproducible sin `.env`:** el stage `build` corre `prisma generate` con `DATABASE_URL`/`DIRECT_URL` dummy solo en ese comando; no son secretos y no quedan en `ENV`/`ARG` ni en la imagen final.
+- **F2 — Una prioridad ACTIVA por lote:** índice único parcial `Prioridad_loteId_activa_key` (migración nueva, con precondición de datos explícita); el alta inserta y después marca el lote con un UPDATE condicionado; el cierre restaura con un único UPDATE condicionado a `CON_PRIORIDAD`. Venta y reserva finalizan la prioridad activa con escritura condicionada.
+- **F3 — Borrado de persona vs co-compra concurrente:** `SELECT … FOR UPDATE` de la persona, conteo y DELETE en una transacción, compartida con el borrado de miembros familiares.
+- **F4 — Grupo familiar plano:** un titular y N miembros directos; un miembro no puede ser titular, un titular con miembros no puede pasar a ser miembro, nadie es su propio jefe; borrar un titular con miembros → `409`. `PUT /personas` no modifica el jefe.
+- **F5 — Detalle técnico:** el error de Supabase al purgar se loguea con `safeErrorForLog`; `CONFLICT_FK` ya no expone `field` (nombre interno de la constraint, sin consumidores).
+- **F6 — Jest:** `--forceExit` no es necesario (`npx jest` termina solo y `--detectOpenHandles` no reporta handles); queda como nota un aviso intermitente de salida forzada de un worker, sin handles persistentes.
+
+#### Resultado
+
+- RED previo en el Block 0 para errores, 404, Reservas y Prisma; RED previo a cada corrección de los bloques siguientes.
+- Correctness del Block 5 con tests deterministas (sin sleeps): carreras de prioridades (expire contra cancel y finalize en ambos órdenes, doble ejecución, sin doble restauración), `DELETE /lotes` (409 por cada asociación bloqueante, sin borrados parciales, carrera chequeo/DELETE resuelta por la FK) y guard de co-compradores en personas.
+- Backend: 79 suites, **3119** tests PASS; 0 omitidos, 0 enfocados.
+- Guard OpenAPI: 79 rutas reales = 79 operaciones documentadas; 0 faltantes, 0 obsoletas.
+- typecheck PASS; build backend PASS; build frontend PASS; `git diff --check` PASS.
+- `npm audit --omit=dev`: frontend 0; backend 4 high (cadena de Prisma CLI, requiere Prisma 7).
+- Índice de Git vacío al cerrar la ejecución; sin commits ni push.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/middlewares/error.middleware.ts`, `auth.middleware.ts`, `logger.middleware.ts`, `validation.middleware.ts`
+- `Backend/src/utils/safeErrorLog.ts`, `inmobiliaria.utils.ts`
+- `Backend/src/services/prioridad.service.ts`, `lote.service.ts`, `persona.service.ts`, `auth.service.ts`, `authIdentity.service.ts`
+- `Backend/src/jobs/expirePrioridades.ts`, `runExpirations.ts`
+- `Backend/src/config/env.ts`, `prisma.ts`
+- `Backend/Dockerfile`, `docker-compose.yml`
+- `Backend/documents/documentacionApi.yaml`, `Backend/tests/unit/openapi/openapi.contract.test.ts`
+- `Backend/tests/unit/services/prioridad.transiciones.test.ts`, `persona.delete.test.ts`, `listados.d5.test.ts`, `lote.service.test.ts`
+- `Backend/tests/unit/routes/d2.rutas-eliminadas.routes.test.ts`, `inmobiliaria-eliminada.asignacion.routes.test.ts`
+- `frontend/src/lib/http/http.js`, `lib/auth/api.js`, `lib/auth/token.js`
+- `docs/architecture/backend.md`, `docs/architecture/freeze-pre-cloud.md`
 
 ## Plantilla para entradas nuevas
 

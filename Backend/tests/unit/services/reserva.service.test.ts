@@ -16,11 +16,11 @@ jest.mock('../../../src/domain/loteState/loteState.effects', () => ({
     cancelPrioridadActivaOnReserva: jest.fn(),
 }));
 
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+// Clase del cliente generado: es la que lanza Prisma en runtime (la de @prisma/client/runtime/library es otra).
+import { Prisma } from '../../../src/generated/prisma';
 import {
     createOfertaReserva,
     createReserva,
-    deleteReserva,
     eliminarReserva,
     getAllReservas,
     getOfertasByReservaId,
@@ -122,7 +122,7 @@ function buildCreateBody(overrides: Record<string, unknown> = {}) {
 }
 
 function prismaError(code: string, meta?: Record<string, unknown>) {
-    return new PrismaClientKnownRequestError('prisma error', {
+    return new Prisma.PrismaClientKnownRequestError('prisma error', {
         code,
         clientVersion: '6.18.0',
         meta,
@@ -508,11 +508,12 @@ describe('createReserva — prioridad INMOBILIARIA', () => {
         );
     });
 
-    test('INMOBILIARIA sin inmobiliariaId lanza 400', async () => {
+    // Misma condición de autorización que la rama general (sin tenant): 403, no 400.
+    test('INMOBILIARIA sin inmobiliariaId lanza 403', async () => {
         stubPrioridadInmo();
         await expectStatus(
             () => createReserva(buildCreateBody(), buildUser('INMOBILIARIA', null)),
-            400,
+            403,
         );
     });
 
@@ -715,6 +716,19 @@ describe('updateReserva', () => {
         prismaMock.reserva.update.mockResolvedValue(buildReservaRow({ sena: 1 }));
         await updateReserva(1, { sena: 1 }, buildUser('ADMINISTRADOR'));
         expect(prismaMock.reserva.update).toHaveBeenCalled();
+    });
+
+    // D1: la reserva histórica conserva su inmobiliaria aunque esté ELIMINADO; un update que no la
+    // reasigna (reasignar no está permitido) no consulta su estado ni se bloquea.
+    test('reserva histórica de una inmobiliaria ELIMINADO: update sin reasignar se aplica', async () => {
+        prismaMock.reserva.findUnique.mockResolvedValue(buildReservaRow({ inmobiliariaId: 7 }));
+        prismaMock.reserva.update.mockResolvedValue(buildReservaRow({ inmobiliariaId: 7, sena: 500 }));
+        prismaMock.inmobiliaria.findUnique.mockResolvedValue({ id: 7, estadoOperativo: 'ELIMINADO' });
+
+        await updateReserva(1, { sena: 500, inmobiliariaId: 7 }, buildUser('ADMINISTRADOR'));
+
+        expect(prismaMock.reserva.update).toHaveBeenCalled();
+        expect(prismaMock.inmobiliaria.findUnique).not.toHaveBeenCalled();
     });
 
     test('update parcial convierte fechas a Date y no toca loteId', async () => {
@@ -1009,31 +1023,6 @@ describe('reactivarReserva', () => {
         expect(prismaMock.reserva.update.mock.calls[0][0].data).toEqual({
             estadoOperativo: 'OPERATIVO',
         });
-        expect(updateLote).not.toHaveBeenCalled();
-    });
-});
-
-describe('deleteReserva (hard delete — no usado por controller)', () => {
-    test('404 si no existe', async () => {
-        prismaMock.reserva.findUnique.mockResolvedValue(null);
-        await expectStatus(() => deleteReserva(1), 404);
-    });
-
-    test('si estaba ACTIVA restaura el lote tras borrar', async () => {
-        prismaMock.reserva.findUnique.mockResolvedValue(
-            buildReservaRow({ estado: 'ACTIVA', loteEstadoAlCrear: 'EN_PROMOCION' }),
-        );
-        prismaMock.reserva.delete.mockResolvedValue({ id: 1 });
-        computeRestore.mockResolvedValue('En Promoción');
-        await deleteReserva(1);
-        expect(prismaMock.reserva.delete).toHaveBeenCalledWith({ where: { id: 1 } });
-        expect(updateLote).toHaveBeenCalledWith(3, 'En Promoción');
-    });
-
-    test('si no estaba ACTIVA no restaura lote', async () => {
-        prismaMock.reserva.findUnique.mockResolvedValue(buildReservaRow({ estado: 'CANCELADA' }));
-        prismaMock.reserva.delete.mockResolvedValue({ id: 1 });
-        await deleteReserva(1);
         expect(updateLote).not.toHaveBeenCalled();
     });
 });

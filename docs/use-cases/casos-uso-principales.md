@@ -11,4 +11,4 @@
 | CU-007 | Gestionar archivo de lote o venta | Técnico / Gestor | Alta | Implementado |
 | CU-008 | Gestionar persona y grupo familiar | Administrador / Gestor | Alta | Implementado |
 | CU-009 | Consultar mapa interactivo | Usuario autorizado | Media | Implementado |
-| CU-010 | Expirar reservas y promociones | Proceso programado | Media | Implementado |
+| CU-010 | Expirar reservas, promociones y prioridades | Proceso programado | Media | Implementado |

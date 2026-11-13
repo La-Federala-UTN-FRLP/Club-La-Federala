@@ -1,3 +1,5 @@
+import { safeErrorForLog } from './utils/safeErrorLog';
+
 export const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 export type ShutdownServer = {
@@ -39,7 +41,7 @@ export function createShutdown(options: ShutdownOptions): (signal: string) => Pr
     const log = options.log ?? ((message) => console.log(message));
     const logError = options.logError ?? ((message, err) => {
         if (err !== undefined) {
-            console.error(message, err);
+            console.error(message, safeErrorForLog(err));
             return;
         }
         console.error(message);
