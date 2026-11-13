@@ -13,7 +13,8 @@ El [README](../README.md) presenta el producto y la navegación inicial. El segu
 - [`architecture/adr/`](architecture/adr/001-estructura-documentacion.md): decisiones arquitectónicas importantes.
 - [`development/`](development/setup-local.md): puesta en marcha, convenciones y [estrategia de ramas](development/git-flow.md).
 - [`AI-DECISIONS.md`](../AI-DECISIONS.md): registro obligatorio de usos relevantes de IA que afecten código, arquitectura, seguridad o decisiones técnicas.
-- [OpenAPI existente](../Backend/documents/documentacionApi.yaml): contrato HTTP pendiente de reconciliación exhaustiva con la implementación actual antes de volver a considerarlo contrato oficial.
+- [OpenAPI](../Backend/documents/documentacionApi.yaml): contrato HTTP de la API (78 operaciones `/api` + `GET /health`), verificado por test contra las rutas reales.
+- [`architecture/freeze-pre-cloud.md`](architecture/freeze-pre-cloud.md): deprecations, Cloud checkpoint y backlog post-Cloud.
 - [`Documentacion/`](../Documentacion/README.md): documentación histórica; no es la Knowledge Base activa.
 
 ## Transición y mantenimiento
