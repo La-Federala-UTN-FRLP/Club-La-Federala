@@ -4,6 +4,8 @@ module.exports = {
     testEnvironment: 'node',
     roots: ['<rootDir>/tests'],
     testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
+    // Integración contra PostgreSQL real: npm run test:integration (jest.integration.config.js).
+    testPathIgnorePatterns: ['/node_modules/', '<rootDir>/tests/integration/'],
     clearMocks: true,
     transform: {
         '^.+\\.tsx?$': [

@@ -55,6 +55,12 @@ export function canInmobiliariaAccessVenta(
 
 const TIPOS_DOC_VENTA: TipoFile[] = ["BOLETO", "ESCRITURA", "OTRO"];
 
+/** Tipos de archivo existentes (enum TipoFile). Un tipo fuera de esta lista se deniega a todos. */
+const TIPOS_VALIDOS: TipoFile[] = ["BOLETO", "ESCRITURA", "PLANO", "IMAGEN", "OTRO"];
+
+/** Roles con acceso a Documentos. Sin usuario o con un rol fuera de la lista: denegado. */
+const ROLES_CON_ACCESO = ["ADMINISTRADOR", "GESTOR", "TECNICO", "INMOBILIARIA"];
+
 /** Block 3: únicos tipos a los que accede TECNICO (lo no listado queda denegado). */
 const TIPOS_TECNICO: TipoFile[] = ["PLANO", "IMAGEN"];
 
@@ -65,8 +71,9 @@ export function isTecnico(user: FileAuthUser | undefined): boolean {
 
 /**
  * Determina si el usuario puede acceder (ver/descargar/operar) al archivo.
+ * Fail-closed: sin usuario, con un rol desconocido o con un tipo desconocido => false.
  * - Si user es TECNICO => solo PLANO/IMAGEN (Block 3; la venta no cambia nada).
- * - Si user NO es TECNICO ni INMOBILIARIA => true (sin restricción adicional).
+ * - Si user es ADMINISTRADOR o GESTOR => true (sin restricción adicional).
  * - Si user es INMOBILIARIA:
  *   - archivo eliminado => false
  *   - PLANO => true
@@ -82,6 +89,8 @@ export function canUserAccessArchivo(
   archivo: ArchivoForAuth,
   venta: VentaForAuth | null
 ): boolean {
+  if (!user || !ROLES_CON_ACCESO.includes(user.role)) return false;
+  if (!TIPOS_VALIDOS.includes(archivo.tipo)) return false;
   if (isTecnico(user)) return TIPOS_TECNICO.includes(archivo.tipo);
   if (!isInmobiliaria(user)) return true;
 
@@ -95,7 +104,7 @@ export function canUserAccessArchivo(
     return canInmobiliariaAccessVenta(user, venta);
   }
 
-  return true; // Tipos no contemplados: permitir por defecto (conservador)
+  return false; // Inalcanzable con TIPOS_VALIDOS; default deny
 }
 
 /** Etapa 5.4.3: Solo ADMINISTRADOR y GESTOR pueden usar includeDeleted=true. */

@@ -26,7 +26,10 @@ export async function login(data: LoginRequest): Promise<LoginResponse> {
 
   // 2. Verificar password (siempre una comparación bcrypt, exista o no el usuario)
   const validPassword = await bcrypt.compare(data.password, user?.password ?? DUMMY_PASSWORD_HASH);
-  if (!user || !validPassword) {
+  // D1: el usuario de una inmobiliaria dada de baja (ELIMINADO) no entra. Se chequea después de
+  // bcrypt y con la misma respuesta que unas credenciales inválidas: no revela que la cuenta existe.
+  const inmobiliariaDeBaja = user?.inmobiliaria?.estadoOperativo === 'ELIMINADO';
+  if (!user || !validPassword || inmobiliariaDeBaja) {
     const error = new Error('Credenciales inválidas') as any;
     error.statusCode = 401;
     throw error;

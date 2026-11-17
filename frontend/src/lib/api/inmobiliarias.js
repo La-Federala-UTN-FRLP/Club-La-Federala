@@ -1,13 +1,11 @@
 // src/lib/api/inmobiliarias.js
 // Adapter Inmobiliarias: desacopla UI del contrato del backend.
-// - Endpoint con fallback mayúsc/minúsculas.
 // - fromApi/toApi mapean español<->inglés según use el back.
 // - list() siempre entrega { data, meta } para paginar igual en la UI.
 
 import { http, normalizeApiListResponse } from "../http/http";
 
-const PRIMARY = "/Inmobiliarias";
-const FALLBACK = "/inmobiliarias";
+const PRIMARY = "/inmobiliarias";
 
 const ok = (data) => ({ data });
 
@@ -65,20 +63,10 @@ function qs(params = {}) {
   return str ? `?${str}` : "";
 }
 
-async function fetchWithFallback(path, options) {
-  let res = await http(path, options);
-  if (res.status === 404) {
-    const alt = path.startsWith(PRIMARY)
-      ? path.replace(PRIMARY, FALLBACK)
-      : path.replace(FALLBACK, PRIMARY);
-    res = await http(alt, options);
-  }
-  return res;
-}
 
 /* ------------------------------- API --------------------------------- */
 async function apiGetAll(params = {}) {
-  const res = await fetchWithFallback(`${PRIMARY}${qs(params)}`, { method: "GET" });
+  const res = await http(`${PRIMARY}${qs(params)}`, { method: "GET" });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.message || "Error al cargar inmobiliarias");
 
@@ -111,7 +99,7 @@ async function apiGetAll(params = {}) {
 }
 
 async function apiGetById(id) {
-  const res = await fetchWithFallback(`${PRIMARY}/${id}`, { method: "GET" });
+  const res = await http(`${PRIMARY}/${id}`, { method: "GET" });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.message || "Error al obtener inmobiliaria");
 
@@ -120,7 +108,7 @@ async function apiGetById(id) {
 }
 
 async function apiCreate(payload) {
-  const res = await fetchWithFallback(PRIMARY, { method: "POST", body: toApi(payload) });
+  const res = await http(PRIMARY, { method: "POST", body: toApi(payload) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.message || "Error al crear inmobiliaria");
   return ok(fromApi(data?.data ?? data));
@@ -196,7 +184,7 @@ async function apiUpdate(id, payload) {
     throw new Error("Debe enviar al menos un campo para actualizar");
   }
 
-  const res = await fetchWithFallback(`${PRIMARY}/${id}`, { method: "PUT", body });
+  const res = await http(`${PRIMARY}/${id}`, { method: "PUT", body });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     // Si hay errores de validación, mostrar el mensaje más específico
@@ -213,7 +201,7 @@ async function apiUpdate(id, payload) {
 
 async function apiDeactivate(id) {
   // Baja lógica: usar endpoint específico PATCH /api/inmobiliarias/:id/eliminar
-  const res = await fetchWithFallback(`${PRIMARY}/${id}/eliminar`, { method: "PATCH" });
+  const res = await http(`${PRIMARY}/${id}/eliminar`, { method: "PATCH" });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const errorMsg = data?.message || "Error al desactivar inmobiliaria";
@@ -228,7 +216,7 @@ async function apiDeactivate(id) {
 
 async function apiReactivate(id) {
   // Reactivar: usar endpoint específico PATCH /api/inmobiliarias/:id/reactivar
-  const res = await fetchWithFallback(`${PRIMARY}/${id}/reactivar`, { method: "PATCH" });
+  const res = await http(`${PRIMARY}/${id}/reactivar`, { method: "PATCH" });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const errorMsg = data?.message || "Error al reactivar inmobiliaria";

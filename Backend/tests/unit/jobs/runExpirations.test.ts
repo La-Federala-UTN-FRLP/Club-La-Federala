@@ -17,18 +17,25 @@ jest.mock('../../../src/jobs/expireReservas', () => ({
     expireReservas: jest.fn(),
 }));
 
+jest.mock('../../../src/jobs/expirePrioridades', () => ({
+    expirePrioridades: jest.fn(),
+}));
+
 import { loadLocalEnv } from '../../../src/config/loadEnv';
 import { expirePromotions } from '../../../src/jobs/expirePromotions';
 import { expireReservas } from '../../../src/jobs/expireReservas';
+import { expirePrioridades } from '../../../src/jobs/expirePrioridades';
 import { runExpirations, runExpirationsCli } from '../../../src/jobs/runExpirations';
 
 const expirePromotionsMock = expirePromotions as jest.Mock;
 const expireReservasMock = expireReservas as jest.Mock;
+const expirePrioridadesMock = expirePrioridades as jest.Mock;
 
 describe('runExpirations', () => {
     beforeEach(() => {
         expirePromotionsMock.mockReset();
         expireReservasMock.mockReset();
+        expirePrioridadesMock.mockReset();
         jest.spyOn(console, 'log').mockImplementation(() => undefined);
         jest.spyOn(console, 'error').mockImplementation(() => undefined);
     });
@@ -37,16 +44,36 @@ describe('runExpirations', () => {
         jest.restoreAllMocks();
     });
 
-    test('llama expirePromotions y luego expireReservas', async () => {
+    test('llama expirePromotions, luego expireReservas y luego expirePrioridades', async () => {
         expirePromotionsMock.mockResolvedValue(3);
         expireReservasMock.mockResolvedValue(2);
+        expirePrioridadesMock.mockResolvedValue(1);
 
         await runExpirations();
 
         expect(expirePromotionsMock).toHaveBeenCalledTimes(1);
         expect(expireReservasMock).toHaveBeenCalledTimes(1);
+        expect(expirePrioridadesMock).toHaveBeenCalledTimes(1);
         expect(expirePromotionsMock.mock.invocationCallOrder[0])
             .toBeLessThan(expireReservasMock.mock.invocationCallOrder[0]);
+        expect(expireReservasMock.mock.invocationCallOrder[0])
+            .toBeLessThan(expirePrioridadesMock.mock.invocationCallOrder[0]);
+    });
+
+    test('si expireReservas falla, no llama expirePrioridades', async () => {
+        expirePromotionsMock.mockResolvedValue(1);
+        expireReservasMock.mockRejectedValue(new Error('reserva fail'));
+
+        await expect(runExpirations()).rejects.toThrow('reserva fail');
+        expect(expirePrioridadesMock).not.toHaveBeenCalled();
+    });
+
+    test('si expirePrioridades falla, el error se propaga', async () => {
+        expirePromotionsMock.mockResolvedValue(1);
+        expireReservasMock.mockResolvedValue(1);
+        expirePrioridadesMock.mockRejectedValue(new Error('prioridad fail'));
+
+        await expect(runExpirations()).rejects.toThrow('prioridad fail');
     });
 
     test('si expirePromotions falla, rechaza y no llama expireReservas', async () => {

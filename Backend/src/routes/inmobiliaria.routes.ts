@@ -2,7 +2,7 @@ import { Router } from 'express';
 import * as inmobiliariaController from '../controllers/inmobiliaria.controller';
 import { validate, validateParams, validateQuery } from '../middlewares/validation.middleware';
 import { authenticate, authorize } from '../middlewares/auth.middleware';
-import { createInmobiliariaSchema, updateInmobiliariaSchema, getInmobiliariaSchema, deleteInmobiliariaSchema, idParamSchema, listInmobiliariasQuerySchema } from '../validations/inmobiliaria.validation';
+import { createInmobiliariaSchema, updateInmobiliariaSchema, getInmobiliariaSchema, idParamSchema, listInmobiliariasQuerySchema } from '../validations/inmobiliaria.validation';
 
 const router = Router();
 
@@ -54,13 +54,5 @@ router.patch(
     authorize('ADMINISTRADOR', 'GESTOR'),
     validateParams(idParamSchema),
     inmobiliariaController.reactivarInmobiliariaController);
-
-//DELETE /api/inmobiliarias/:id
-router.delete(
-    '/:id',
-    authenticate,
-    authorize('ADMINISTRADOR', 'GESTOR'),
-    validateParams(deleteInmobiliariaSchema),
-    inmobiliariaController.deleteInmobiliariaController);
 
 export const inmobRoutes = router;

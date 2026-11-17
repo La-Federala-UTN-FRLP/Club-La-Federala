@@ -4,6 +4,7 @@
 # PERO NO ignorar los archivos de configuración del proyecto
 !.env.development
 !.env.production
+!.env.example
 
 *.local
 *.local.*
@@ -19,15 +20,6 @@ coverage
 /package-lock.json
 /package-lock.local.json
 /package.local.json
-
-# ── No versionar manifests del frontend
-/frontend/package.json
-/frontend/package-lock.json
-
-# ── No versionar manifests del backend (tu carpeta es con B mayúscula)
-#   si tu backend fuese 'backend/' en minúscula, repetí esas rutas también
-/Backend/package.json
-/Backend/package-lock.json
 
 # ── Otros que ya tenías
 /src/generated/prisma

@@ -26,7 +26,25 @@ El foco del front es: **tablero reutilizable**, **barra de filtros reutilizable*
 - **lucide-react** (iconos)
 - **dnd-kit** (drag & drop en selector de columnas)
 - **ES Modules / Vite** (dev server y build)
-- **Fetch API** con capa HTTP propia (manejo de token, 401, etc.)
+- **Fetch API** con capa HTTP propia (header `Authorization: Bearer`, manejo de 401)
+
+---
+
+## Configuración (variables de entorno)
+
+Copiar `.env.example` a `.env.local` (no versionado). No hay secretos en el frontend.
+
+| Variable | Uso |
+|---|---|
+| `VITE_API_BASE_URL` | **Canónica.** Base de la API incluyendo `/api` (por ejemplo `https://<backend>/api`). En development, si apunta a localhost, se usa el proxy de Vite (`/api`). |
+| `VITE_API_FORCE_ABSOLUTE` | `true`: usar `VITE_API_BASE_URL` tal cual también en development. Opcional. |
+| `VITE_AUTH_TOKEN_KEY` | Clave de localStorage del token. Opcional (default `lf_token`). |
+| `VITE_RBAC_DISABLE_UI` | `true` desactiva el gating visual por rol, solo para maquetar. No usar fuera de desarrollo. |
+| `VITE_API_BASE` | Compatibilidad temporal: se lee solo si falta `VITE_API_BASE_URL`. No usar en configuraciones nuevas. |
+
+`VITE_API_URL` no existe: no usarla. Si tu `.env` local todavía tiene `VITE_AUTH_REFRESH_*`, `VITE_AUTH_ME_PATH`, `VITE_AUTH_LOGIN_PATH` o `VITE_API_URL`, borralas: el código ya no las lee.
+
+Sin `VITE_API_BASE_URL`, el build usa `/api` relativo al propio dominio del frontend; en producción hay que definirla en el hosting.
 
 ---
 
@@ -36,7 +54,7 @@ El foco del front es: **tablero reutilizable**, **barra de filtros reutilizable*
 src/
   app/
     providers/
-      AuthProvider.jsx        # contexto de usuario/rol y token
+      AuthProvider.jsx        # contexto de usuario/rol y sesión
   components/
     Table/
       TablaBase.jsx           # tabla genérica (paginación, selección, column picker)
@@ -77,7 +95,7 @@ src/
       reservas.js             # idem
       ...
     http/
-      http.js                 # capa HTTP (token, headers, 401/refresh)
+      http.js                 # capa HTTP (Bearer, headers, 401 → logout)
     filters/
       applyLoteFilters.js     # filtros en front 
   pages/
@@ -116,7 +134,10 @@ src/
   > Más adelante, los mismos params se enviarán al backend sin cambiar la UI.
 
 ### 4) Autenticación y Autorización (RBAC)
-- **AuthProvider** guarda token y rol del usuario.
+- **Bearer JWT, sin cookies:** `POST /auth/login` devuelve el token y el usuario; el token se guarda en `localStorage` (`lf_token`) y viaja en `Authorization: Bearer` en cada request (`lib/http/http.js` y los fetch de archivos en `lib/api/archivos.js`). Sin `credentials: "include"`.
+- **No hay refresh de sesión ni `/auth/me`.** Un `401` (token ausente, vencido o inválido) limpia la sesión y redirige a `/login`; solo decide el status, no el texto del body. Al vencer el token hay que volver a loguearse.
+- **AuthProvider** guarda el usuario (con su rol) y expone la sesión a la UI.
+- La autorización real la hace el backend: la UI solo oculta lo que el rol no puede usar.
 - **RBAC en UI**: helpers en `lib/auth/rbac.ui` gobiernan:
   - qué **acciones** por fila se muestran,
   - qué **columnas** aparecen por rol (plantillas en el preset),

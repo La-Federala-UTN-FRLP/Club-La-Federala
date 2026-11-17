@@ -25,6 +25,7 @@ declare global {
 function sendZodError(res: Response, e: ZodError) {
   return res.status(400).json({
     success: false,
+    code: 'VALIDATION_ERROR',
     message: 'Datos inválidos',
     errors: e.issues.map(i => ({ field: i.path.join('.'), message: i.message })),
   });

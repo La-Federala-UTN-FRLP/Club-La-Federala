@@ -1,7 +1,6 @@
 import { http, normalizeApiListResponse } from "../http/http";
 
 const PRIMARY = "/ventas";
-const FALLBACK = "/Ventas";
 
 const ok = (data) => ({ data });
 
@@ -99,17 +98,9 @@ function qs(params = {}) {
   return str ? `?${str}` : "";
 }
 
-async function fetchWithFallback(path, options) {
-  let res = await http(path, options);
-  if (res.status === 404) {
-    const alt = path.startsWith(PRIMARY) ? path.replace(PRIMARY, FALLBACK) : path.replace(FALLBACK, PRIMARY);
-    res = await http(alt, options);
-  }
-  return res;
-}
 
 async function apiGetAll(params = {}) {
-  const res = await fetchWithFallback(`${PRIMARY}${qs(params)}`, { method: "GET" });
+  const res = await http(`${PRIMARY}${qs(params)}`, { method: "GET" });
   let data;
   let invalidJson = false;
   try {
@@ -159,7 +150,7 @@ async function apiGetVentaAsociadaByLoteId(loteId) {
 }
 
 async function apiGetById(id) {
-  const res = await fetchWithFallback(`${PRIMARY}/${id}`, { method: "GET" });
+  const res = await http(`${PRIMARY}/${id}`, { method: "GET" });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.message || "Error al obtener la venta");
   
@@ -181,7 +172,7 @@ async function apiGetById(id) {
 }
 
 async function apiGetByInmobiliaria(inmobiliariaId, params = {}) {
-  const res = await fetchWithFallback(
+  const res = await http(
     `${PRIMARY}/inmobiliaria/${inmobiliariaId}${qs(params)}`,
     { method: "GET" }
   );
@@ -219,7 +210,7 @@ async function apiGetByInmobiliaria(inmobiliariaId, params = {}) {
 }
 
 async function apiCreate(payload) {
-  const res = await fetchWithFallback(PRIMARY, { method: "POST", body: payload });
+  const res = await http(PRIMARY, { method: "POST", body: payload });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     let errorMsg = data?.message || "Error al crear la venta";
@@ -272,7 +263,7 @@ async function apiUpdate(id, payload) {
   if (payload.fechaCancelacion != null) body.fechaCancelacion = payload.fechaCancelacion;
   if (payload.motivoCancelacion != null) body.motivoCancelacion = payload.motivoCancelacion;
   
-  const res = await fetchWithFallback(`${PRIMARY}/${id}`, { method: "PUT", body });
+  const res = await http(`${PRIMARY}/${id}`, { method: "PUT", body });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(data?.message || "Error al actualizar la venta");
@@ -295,77 +286,18 @@ async function apiUpdate(id, payload) {
   });
 }
 
-async function apiDelete(id) {
-  const res = await fetchWithFallback(`${PRIMARY}/${id}`, { method: "DELETE" });
-  if (!res.ok && res.status !== 204) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data?.message || "Error al eliminar la venta");
-  }
-  return ok(true);
-}
-
 async function apiDesactivar(id) {
-  const res = await fetchWithFallback(`${PRIMARY}/${id}/eliminar`, { method: "PATCH" });
+  const res = await http(`${PRIMARY}/${id}/eliminar`, { method: "PATCH" });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.message || "Error al eliminar venta");
   return ok(fromApi(data?.data ?? data));
 }
 
 async function apiReactivar(id) {
-  const res = await fetchWithFallback(`${PRIMARY}/${id}/reactivar`, { method: "PATCH" });
+  const res = await http(`${PRIMARY}/${id}/reactivar`, { method: "PATCH" });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.message || "Error al reactivar venta");
   return ok(fromApi(data?.data ?? data));
-}
-
-function getApiBase() {
-  const RAW_BASE = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || "";
-  const FORCE_ABS = import.meta.env.VITE_API_FORCE_ABSOLUTE === "true";
-  const isLocalAbs = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(RAW_BASE);
-  return (import.meta.env.DEV && isLocalAbs && !FORCE_ABS) ? "/api" : (RAW_BASE || "/api");
-}
-
-async function apiRegistrarBoleto(ventaId, file) {
-  const formData = new FormData();
-  formData.append("file", file);
-  const { getAccessToken } = await import("../auth/token");
-  const access = getAccessToken();
-  const res = await fetch(`${getApiBase()}${PRIMARY}/${ventaId}/registrar-boleto`, {
-    method: "POST",
-    headers: { ...(access ? { Authorization: `Bearer ${access}` } : {}) },
-    body: formData,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data?.message || "Error al registrar boleto");
-  }
-  const raw = data?.data ?? data;
-  return ok({
-    archivo: raw?.archivo ?? null,
-    venta: raw?.venta ? fromApi(raw.venta) : null,
-  });
-}
-
-async function apiRegistrarEscritura(ventaId, file, fechaEscritura) {
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("fechaEscritura", typeof fechaEscritura === "string" ? fechaEscritura : fechaEscritura?.toISOString?.() ?? String(fechaEscritura));
-  const { getAccessToken } = await import("../auth/token");
-  const access = getAccessToken();
-  const res = await fetch(`${getApiBase()}${PRIMARY}/${ventaId}/registrar-escritura`, {
-    method: "POST",
-    headers: { ...(access ? { Authorization: `Bearer ${access}` } : {}) },
-    body: formData,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data?.message || "Error al registrar escritura");
-  }
-  const raw = data?.data ?? data;
-  return ok({
-    archivo: raw?.archivo ?? null,
-    venta: raw?.venta ? fromApi(raw.venta) : null,
-  });
 }
 
 export const getAllVentas = apiGetAll;
@@ -374,9 +306,6 @@ export const getVentasByLoteId = apiGetByLoteId;
 export const getVentaAsociadaByLoteId = apiGetVentaAsociadaByLoteId;
 export const createVenta = apiCreate;
 export const updateVenta = apiUpdate;
-export const deleteVenta = apiDelete;
 export const desactivarVenta = apiDesactivar;
 export const reactivarVenta = apiReactivar;
 export const getVentasByInmobiliaria = apiGetByInmobiliaria;
-export const registrarBoleto = apiRegistrarBoleto;
-export const registrarEscritura = apiRegistrarEscritura;

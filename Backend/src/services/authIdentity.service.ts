@@ -11,7 +11,10 @@ export type AuthIdentity = {
 
 /**
  * El JWT prueba quién es el usuario; la DB dice qué puede hacer ahora.
- * Devuelve null si el usuario ya no existe. Solo lee los campos necesarios (nunca la password).
+ * Devuelve null si el usuario ya no existe o si su inmobiliaria está dada de baja (ELIMINADO, D1):
+ * en ambos casos la identidad deja de ser operativa y authenticate responde 401 genérico. Al
+ * reactivar la inmobiliaria la identidad vuelve a ser válida sin tocar el usuario ni el token.
+ * Solo lee los campos necesarios (nunca la password).
  * El tenant sale de la relación User ← Inmobiliaria (Inmobiliaria.userId), igual que en el login.
  */
 export async function findAuthIdentity(userId: number): Promise<AuthIdentity | null> {
@@ -21,10 +24,11 @@ export async function findAuthIdentity(userId: number): Promise<AuthIdentity | n
             id: true,
             email: true,
             role: true,
-            inmobiliaria: { select: { id: true } },
+            inmobiliaria: { select: { id: true, estadoOperativo: true } },
         },
     });
     if (!user) return null;
+    if (user.inmobiliaria?.estadoOperativo === 'ELIMINADO') return null;
     return {
         id: user.id,
         email: user.email,

@@ -183,6 +183,7 @@ describe('errores', () => {
         expect(res.status).toBe(400);
         expect(res.body).toEqual({
             success: false,
+            code: 'VALIDATION_ERROR',
             message: 'Datos inválidos',
             errors: [{ field: 'id', message: 'Debe ser un entero positivo' }],
         });
@@ -291,6 +292,7 @@ describe('validateQuery + validatedQuery', () => {
         expect(res.status).toBe(400);
         expect(res.body).toEqual({
             success: false,
+            code: 'VALIDATION_ERROR',
             message: 'Datos inválidos',
             errors: [{ field: 'loteId', message: 'Debe ser un entero positivo' }],
         });

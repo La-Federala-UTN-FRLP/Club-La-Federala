@@ -12,6 +12,7 @@ import { ensureVentaPerteneceALote } from "../utils/file.validation.utils";
 import prisma from "../config/prisma";
 import { getWebEnv } from "../config/env";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { safeErrorForLog } from '../utils/safeErrorLog';
 
 let supabaseClient: SupabaseClient | null = null;
 
@@ -297,7 +298,8 @@ export async function purgeFileById(id: number): Promise<void> {
   const objectPath = file.linkArchivo;
   const { error } = await getSupabaseClient().storage.from(getSupabaseBucket()).remove([objectPath]);
   if (error) {
-    console.warn(`Supabase remove: ${error.message} (continuando con borrado DB)`);
+    // El error de Supabase puede citar el path del objeto o detalles del storage: log saneado.
+    console.warn('Supabase remove falló (continuando con borrado DB):', safeErrorForLog(error));
   }
   await prisma.archivos.delete({ where: { id } });
 }

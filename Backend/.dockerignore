@@ -1,11 +1,28 @@
+# Dependencias y artefactos del host: la imagen los genera desde cero.
 node_modules
-npm-debug.log
-.env
-.git
-.gitignore
-README.md
-.vscode
-.idea
 dist
 build
+coverage
+src/generated
+
+# Secretos y configuración local (en Docker las variables llegan por el entorno).
+.env
+.env.*
+!.env.example
+
+# Tests, scripts de seed/backfill y material que no participa del build.
+tests
+jest.config.js
+tsconfig.test.json
+documents
+lotes_files.postman_colection.json
+README.md
+
+# VCS, editores, logs y SO.
+.git
+.gitignore
+.vscode
+.idea
+npm-debug.log
+*.log
 .DS_Store

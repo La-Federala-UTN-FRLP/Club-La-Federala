@@ -44,31 +44,21 @@ export async function cancelActivesOnNoDisponible(loteId: number): Promise<void>
  * Finaliza la prioridad activa del lote cuando se crea una venta
  */
 export async function finalizePrioridadActivaOnVenta(loteId: number): Promise<void> {
-  const prioridadActiva = await prisma.prioridad.findFirst({
+  // Escritura condicionada: si otra transición ya cerró la prioridad (p. ej. expiró), no se pisa.
+  await prisma.prioridad.updateMany({
     where: { loteId: loteId, estado: EstadoPrioridad.ACTIVA },
+    data: { estado: EstadoPrioridad.FINALIZADA },
   });
-  
-  if (prioridadActiva) {
-    await prisma.prioridad.update({
-      where: { id: prioridadActiva.id },
-      data: { estado: EstadoPrioridad.FINALIZADA },
-    });
-  }
 }
 
 /**
  * Finaliza la prioridad activa del lote cuando se crea una reserva (reserva consume prioridad)
  */
 export async function cancelPrioridadActivaOnReserva(loteId: number): Promise<void> {
-  const prioridadActiva = await prisma.prioridad.findFirst({
+  // Escritura condicionada: si otra transición ya cerró la prioridad (p. ej. expiró), no se pisa.
+  await prisma.prioridad.updateMany({
     where: { loteId: loteId, estado: EstadoPrioridad.ACTIVA },
+    data: { estado: EstadoPrioridad.FINALIZADA },
   });
-  
-  if (prioridadActiva) {
-    await prisma.prioridad.update({
-      where: { id: prioridadActiva.id },
-      data: { estado: EstadoPrioridad.FINALIZADA },
-    });
-  }
 }
 

@@ -5,7 +5,6 @@ import { validate, validateParams, validateQuery } from '../middlewares/validati
 import { authenticate, authorize } from '../middlewares/auth.middleware';
 import { createLoteSchema, updateLoteSchema, getLoteSchema, deleteLoteSchema, queryLoteSchema } from '../validations/lote.validation';
 import { aplicarPromocionSchema, quitarPromocionSchema, getPromocionActivaSchema } from '../validations/promocion.validation';
-import { checkLoteStatusForTecnico } from '../middlewares/lote.auth.middleware';
 
 const router = Router();
 
@@ -23,7 +22,6 @@ router.get(
     authenticate,
     authorize('ADMINISTRADOR', 'GESTOR', 'INMOBILIARIA', 'TECNICO'),
     validateParams(getLoteSchema),
-    checkLoteStatusForTecnico,
     loteController.obtenerLotePorId);
 
 // POST /api/lotes
@@ -41,7 +39,6 @@ router.put(
     authorize('ADMINISTRADOR', 'GESTOR', 'TECNICO'),
     validateParams(getLoteSchema),
     validate(updateLoteSchema),
-    checkLoteStatusForTecnico,
     loteController.actualizarLote);
 
 // DELETE /api/lotes/:id

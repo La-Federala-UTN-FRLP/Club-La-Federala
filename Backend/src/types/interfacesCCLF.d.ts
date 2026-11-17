@@ -312,9 +312,6 @@ export interface DeleteVentaRequest {
     idVenta: number;
 }
 
-export interface DeleteVentaResponse {
-    message: string;
-}
 //----------------------------------------//
 
 
@@ -593,33 +590,11 @@ export interface GetUbicacionesResponse {
     ubicaciones: Ubicacion[];
     total: number;
 }
-export interface PostUbicacionRequest {
-    calle: Calle;
-    numero: number;
-}
-export interface PostUbicacionResponse {
-    ubicacion: Ubicacion | null;
-    message: string;
-}
-
 export interface GetUbicacionRequest {
     idUbicacion: number;
 }
 export interface GetUbicacionResponse {
     ubicacion: Ubicacion | null;
     message?: string;
-}
-export interface PutUbicacionRequest {
-    calle?: Calle;
-    numero?: number;
-}
-export interface PutUbicacionResponse {
-    message: string;
-}
-export interface DeleteUbicacionRequest {
-    idUbicacion: number;
-}
-export interface DeleteUbicacionResponse {
-    message: string;
 }
 //----------------------------------------//

@@ -7,7 +7,7 @@ import {
   updatePrioridad,
   cancelPrioridad,
   finalizePrioridad,
-  expirePrioridadesManual,
+  expirePrioridadesVencidas,
   eliminarPrioridad,
   reactivarPrioridad,
   PrioridadesListQuery,
@@ -118,7 +118,7 @@ export async function finalizePrioridadController(req: Request, res: Response, n
 // ==============================
 export async function expirePrioridadesController(req: Request, res: Response, next: NextFunction) {
   try {
-    const result = await expirePrioridadesManual();
+    const result = await expirePrioridadesVencidas();
     res.json({ success: true, message: `Se expiraron ${result.expired} prioridades`, data: result });
   } catch (error) {
     next(error);

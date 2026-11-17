@@ -196,3 +196,25 @@ describe('canUpdateAprobacion', () => {
         expect(canUpdateAprobacion(role, target)).toBe(esperado);
     });
 });
+
+// Fail-closed: lo desconocido o malformado se deniega. Los accesos válidos de los cuatro roles no
+// cambian (ver los describe anteriores).
+describe('canUserAccessArchivo — fail-closed', () => {
+    test('sin usuario → denegado', () => {
+        expect(canUserAccessArchivo(undefined, archivo(), null)).toBe(false);
+    });
+
+    test.each(['', 'SUPERADMIN', 'administrador'])('rol desconocido %p → denegado', (role) => {
+        expect(canUserAccessArchivo({ role }, archivo(), null)).toBe(false);
+    });
+
+    test.each(['ADMINISTRADOR', 'GESTOR', 'TECNICO', 'INMOBILIARIA'])('%s + tipo desconocido → denegado', (role) => {
+        const user: FileAuthUser = role === 'INMOBILIARIA' ? inmo : { role };
+        expect(canUserAccessArchivo(user, archivo({ tipo: 'NUEVO_TIPO' as TipoFile }), null)).toBe(false);
+    });
+
+    test('INMOBILIARIA conserva PLANO e IMAGEN', () => {
+        expect(canUserAccessArchivo(inmo, archivo({ tipo: 'PLANO' }), null)).toBe(true);
+        expect(canUserAccessArchivo(inmo, archivo({ tipo: 'IMAGEN' }), null)).toBe(true);
+    });
+});

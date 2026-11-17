@@ -3,7 +3,7 @@ import * as ventaController from '../controllers/venta.controller';
 import * as pagoController from '../controllers/pago.controller';
 import { validate, validateParams, validateQuery } from '../middlewares/validation.middleware';
 import { authenticate, authorize } from '../middlewares/auth.middleware';
-import { createVentaSchema, updateVentaSchema, getVentaSchema, deleteVentaSchema, queryVentaSchema, queryVentasPorInmobiliariaSchema, patchVentaParamsSchema } from '../validations/venta.validation';
+import { createVentaSchema, updateVentaSchema, getVentaSchema, queryVentaSchema, queryVentasPorInmobiliariaSchema, patchVentaParamsSchema } from '../validations/venta.validation';
 import {
   ventaIdParamSchema,
   createPlanPagoSchema,
@@ -56,14 +56,6 @@ router.put(
     validateParams(getVentaSchema),
     validate(updateVentaSchema),
     ventaController.actualizarVenta);
-
-// DELETE /api/Ventas/:id
-router.delete(
-    '/:id',
-    authenticate,
-    authorize('ADMINISTRADOR', 'GESTOR'),
-    validateParams(deleteVentaSchema),  
-    ventaController.eliminarVenta);
 
 // PATCH /api/Ventas/:id/eliminar
 // Baja operativa: solo staff (INMOBILIARIA no elimina ventas, ni siquiera las propias).

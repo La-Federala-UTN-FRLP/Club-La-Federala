@@ -1,7 +1,7 @@
 import express from 'express';
 import { loteRoutes } from './routes/lote.routes';
 import { logRequest } from './middlewares/logger.middleware';
-import { handleError } from './middlewares/error.middleware';
+import { handleError, notFoundHandler, JSON_BODY_LIMIT } from './middlewares/error.middleware';
 import cors from 'cors';
 import { resolveCorsOrigin } from './config/cors.origins';
 import { authRoutes } from './routes/auth.routes';
@@ -16,6 +16,9 @@ import { ubicacionRoutes } from './routes/ubicacion.routes';
 import { prioridadRoutes } from './routes/prioridad.routes';
 
 const app = express();
+
+// Sin X-Powered-By: no anunciar el framework.
+app.disable('x-powered-by');
 
 // Evitar 304 en endpoints de API protegidos
 app.set('etag', false); // desactiva ETag (condicionales -> 304)
@@ -46,26 +49,38 @@ const corsOptions = {
 
 // Middlewares globlales
 app.use(cors(corsOptions));
-app.use(express.json({ limit: '10mb' }));
+// El logger va antes del parser: también registra los 413/400 que corta express.json.
 app.use(logRequest);
+// Los archivos viajan por multipart (multer, 20 MB); el JSON de la API es chico.
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
 app.get('/health', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.status(200).json({ status: 'ok' });
 });
 
-// App Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/lotes', loteRoutes);
-app.use("/api/usuarios", usuarioRoutes);
-app.use("/api/reservas", reservaRoutes);
-app.use("/api/inmobiliarias", inmobRoutes);
-app.use("/api/ventas", ventaRoutes);
-app.use('/api/files', fileRoutes);
-app.use('/api/personas', personaRoutes);
-app.use('/api/fracciones', fraccionRoutes);
-app.use('/api/ubicaciones', ubicacionRoutes);
-app.use('/api/prioridades', prioridadRoutes);
+// App Routes: prefijo → router. Fuente única para montar la API y para el test que compara las
+// rutas reales con la OpenAPI (tests/unit/openapi). Agregar un router acá lo suma a ese control.
+export const apiRouters = [
+  ['/api/auth', authRoutes],
+  ['/api/lotes', loteRoutes],
+  ['/api/usuarios', usuarioRoutes],
+  ['/api/reservas', reservaRoutes],
+  ['/api/inmobiliarias', inmobRoutes],
+  ['/api/ventas', ventaRoutes],
+  ['/api/files', fileRoutes],
+  ['/api/personas', personaRoutes],
+  ['/api/fracciones', fraccionRoutes],
+  ['/api/ubicaciones', ubicacionRoutes],
+  ['/api/prioridades', prioridadRoutes],
+] as const;
+
+for (const [prefix, router] of apiRouters) {
+  app.use(prefix, router);
+}
+
+// 404 JSON para rutas (o métodos) sin handler: después de todas las rutas, antes del error handler.
+app.use(notFoundHandler);
 
 // Error handling middleware (DEBE ir después de todas las rutas)
 app.use(handleError);

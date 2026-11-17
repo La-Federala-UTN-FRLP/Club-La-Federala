@@ -1,8 +1,8 @@
 // src/services/reserva.service.ts
 import prisma from '../config/prisma'; 
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { EstadoLote, EstadoReserva, EstadoPrioridad, OwnerPrioridad, EstadoOperativo, Prisma } from '../generated/prisma';
 import { updateLoteState } from './lote.service';
+import { assertInmobiliariaAsignable } from '../utils/inmobiliaria.utils';
 import { ESTADO_LOTE_OP } from '../domain/loteState/loteState.types';
 import { assertLoteOperableFor, assertReservaUnicaVigente, computeRestoreStateFromReserva } from '../domain/loteState/loteState.rules';
 import { cancelPrioridadActivaOnReserva } from '../domain/loteState/loteState.effects';
@@ -17,7 +17,7 @@ import {
 // Esto es un mapper de errores de Prisma a errores HTTP para no tenes que hacerlo en cada funcion
 // -------------------------------------
 function mapPrismaError(e: unknown) {
-  if (e instanceof PrismaClientKnownRequestError) {
+  if (e instanceof Prisma.PrismaClientKnownRequestError) {
     if (e.code === 'P2002') {
       // Verificar si es un error de unicidad de numero
       if (e.meta?.target && Array.isArray(e.meta.target) && e.meta.target.includes('numero')) {
@@ -223,14 +223,19 @@ export async function createReserva(
   try {
     const lote = await prisma.lote.findUnique({ where: { id: body.loteId } });
     if (!lote) {
-      throw new Error("Lote no encontrado.");
+      const err: any = new Error("Lote no encontrado.");
+      err.status = 404;
+      throw err;
     }
     // Validar que el lote esté operativo (bloquea NO_DISPONIBLE)
     assertLoteOperableFor('crear reserva', lote.estado);
 
     // Permitir reservar si el lote está DISPONIBLE, EN_PROMOCION o CON_PRIORIDAD
     if (lote.estado !== EstadoLote.DISPONIBLE && lote.estado !== EstadoLote.EN_PROMOCION && lote.estado !== EstadoLote.CON_PRIORIDAD) {
-      throw new Error("El lote no está disponible para reservar.");
+      // Mismo status que assertLoteOperableFor: el lote existe pero no admite la operación.
+      const err: any = new Error("El lote no está disponible para reservar.");
+      err.status = 400;
+      throw err;
     }
 
     // Validar unicidad: solo puede haber 1 reserva vigente (ACTIVA o ACEPTADA) por lote
@@ -273,7 +278,7 @@ export async function createReserva(
         if (user?.role === 'INMOBILIARIA') {
            if (!user.inmobiliariaId) {
              const err: any = new Error('El usuario INMOBILIARIA no tiene una inmobiliaria asociada');
-             err.status = 400;
+             err.status = 403;
              throw err;
            }
            targetInmoId = user.inmobiliariaId;
@@ -314,9 +319,14 @@ export async function createReserva(
     let inmobiliariaIdFinal = body.inmobiliariaId ?? null;
     if (user?.role === 'INMOBILIARIA') {
       if (!user.inmobiliariaId) {
-        throw new Error("El usuario INMOBILIARIA no tiene una inmobiliaria asociada.");
+        const err: any = new Error("El usuario INMOBILIARIA no tiene una inmobiliaria asociada.");
+        err.status = 403;
+        throw err;
       }
       inmobiliariaIdFinal = user.inmobiliariaId;
+    } else {
+      // D1: la inmobiliaria elegida por staff debe estar OPERATIVO (el tenant ya lo garantiza authenticate)
+      await assertInmobiliariaAsignable(inmobiliariaIdFinal);
     }
 
     // Guardar el estado original del lote antes de crear la reserva (para restaurarlo al finalizar)
@@ -662,33 +672,6 @@ export async function updateReserva(
 }
 
 // ==============================
-// Eliminar reserva (hard delete)
-// ==============================
-export async function deleteReserva(id: number): Promise<void> {
-  try {
-    const reserva = await prisma.reserva.findUnique({
-      where: { id },
-      select: { estado: true, loteId: true, loteEstadoAlCrear: true },
-    });
-
-    if (!reserva) {
-      const err: any = new Error('La reserva no existe');
-      err.status = 404;
-      throw err;
-    }
-
-    await prisma.reserva.delete({ where: { id } });
-
-    // Si la reserva estaba activa, restauramos el estado original del lote usando regla centralizada
-    if (reserva.estado === EstadoReserva.ACTIVA && reserva.loteId) {
-      const estadoARestaurar = await computeRestoreStateFromReserva(reserva.loteEstadoAlCrear, reserva.loteId);
-      await updateLoteState(reserva.loteId, estadoARestaurar);
-    }
-  } catch (e) {
-    throw mapPrismaError(e);
-  }
-}
-// ==============================
 // Eliminar reserva (Soft Delete - estadoOperativo)
 // ==============================
 // Solo permite eliminar reservas en estados: CANCELADA, EXPIRADA, RECHAZADA
@@ -903,7 +886,11 @@ export async function createOfertaReserva(reservaId: number, data: any, user: an
           }
       } 
   });
-  if (!reserva) throw new Error("Reserva no encontrada");
+  if (!reserva) {
+    const err: any = new Error("Reserva no encontrada");
+    err.status = 404;
+    throw err;
+  }
 
   if (user?.role === 'INMOBILIARIA') {
     assertReservaOwnership(user, reserva, 'No tienes permiso para operar esta reserva');

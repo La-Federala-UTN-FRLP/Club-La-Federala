@@ -64,7 +64,10 @@ export function createLoginRateLimiter(overrides: Partial<Options> = {}) {
         standardHeaders: 'draft-8',
         legacyHeaders: false,
         keyGenerator: (req) => loginClientKey(req),
-        handler: (_req, res, _next, options) => {
+        handler: (req, res, _next, options) => {
+            // Solo el evento, la ruta y la key ya calculada (IP o subred /56). Nunca el body
+            // (email/password) ni headers (Authorization).
+            console.warn(`[RATE_LIMIT] ${options.statusCode} ${req.method} ${req.originalUrl.split('?')[0]} key=${loginClientKey(req)}`);
             res.status(options.statusCode).json({
                 success: false,
                 code: 'TOO_MANY_REQUESTS',

@@ -3,8 +3,10 @@
 import prisma from '../config/prisma';
 import { expirePromotions } from './expirePromotions';
 import { expireReservas } from './expireReservas';
+import { expirePrioridades } from './expirePrioridades';
 import { loadLocalEnv } from '../config/loadEnv';
 import { EnvValidationError, parseJobEnv } from '../config/env';
+import { safeErrorForLog } from '../utils/safeErrorLog';
 
 export type ExpirationsCliPrisma = {
   $disconnect: () => Promise<void>;
@@ -49,9 +51,12 @@ export async function runExpirations(): Promise<void> {
     const reservasExpiradas = await expireReservas();
     console.log(`[runExpirations] Reservas expiradas: ${reservasExpiradas}`);
 
+    const prioridadesExpiradas = await expirePrioridades();
+    console.log(`[runExpirations] Prioridades expiradas: ${prioridadesExpiradas}`);
+
     console.log('[runExpirations] Ejecución de jobs de expiración finalizada');
   } catch (error) {
-    console.error('[runExpirations] Error al ejecutar jobs de expiración:', error);
+    console.error('[runExpirations] Error al ejecutar jobs de expiración:', safeErrorForLog(error));
     throw error;
   }
 }
@@ -74,13 +79,13 @@ export async function runExpirationsCli(options?: ExpirationsCliOptions): Promis
     process.exitCode = 0;
     console.log('[runExpirations] Script ejecutado exitosamente');
   } catch (error) {
-    console.error('[runExpirations] Error fatal:', error);
+    console.error('[runExpirations] Error fatal:', safeErrorForLog(error));
     process.exitCode = 1;
   } finally {
     try {
       await client.$disconnect();
     } catch (err) {
-      console.error('[runExpirations] Error al desconectar Prisma.', err);
+      console.error('[runExpirations] Error al desconectar Prisma.', safeErrorForLog(err));
       process.exitCode = 1;
     }
   }

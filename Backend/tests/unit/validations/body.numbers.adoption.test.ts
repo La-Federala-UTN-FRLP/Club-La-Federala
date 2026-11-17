@@ -11,7 +11,6 @@ import {
     reemplazarPlanPagoSchema,
 } from '../../../src/validations/pago.validation';
 import { createInmobiliariaSchema, updateInmobiliariaSchema } from '../../../src/validations/inmobiliaria.validation';
-import { createUbicacionSchema, updateUbicacionSchema } from '../../../src/validations/ubicacion.validation';
 import { aplicarPromocionSchema } from '../../../src/validations/promocion.validation';
 
 type Schema = { safeParse: (input: unknown) => { success: boolean; data?: any; error?: { issues: { path: PropertyKey[] }[] } } };
@@ -152,15 +151,6 @@ const CAMPOS: CampoNumerico[] = [
         validos: [[0, 0], [5, 5], ['5', 5]],
         dominio: [-1, 1.5, '1.5', 2147483648],
         nullable: true,
-    }),
-    // --- Ubicación ---
-    campo('ubicacion.create numero', createUbicacionSchema, { calle: 'Maca' }, 'numero', {
-        validos: [[1, 1], [12, 12], ['12', 12]],
-        dominio: [0, '0', -1, 1.5, '1.5', 2147483648],
-    }),
-    campo('ubicacion.update numero', updateUbicacionSchema, { calle: 'Maca' }, 'numero', {
-        validos: [[1, 1], ['12', 12]],
-        dominio: [0, '0', -1, 1.5, 2147483648],
     }),
     // --- Promoción ---
     campo('promocion precioPromocional', aplicarPromocionSchema, {}, 'precioPromocional', {

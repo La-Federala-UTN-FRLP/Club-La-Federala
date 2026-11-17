@@ -205,7 +205,7 @@ describe('GET /api/personas/cuil/:cuil', () => {
         findByCuilSpy.mockResolvedValue(null as any);
         const res = await get('20-12345678-3');
         expect(res.status).toBe(404);
-        expect(res.body).toEqual({ success: false, message: 'Persona no encontrada' });
+        expect(res.body).toEqual({ success: false, code: 'NOT_FOUND', message: 'Persona no encontrada' });
     });
 
     test.each([

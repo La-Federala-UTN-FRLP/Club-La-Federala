@@ -51,7 +51,6 @@ jest.mock('../../../src/services/inmobiliaria.service', () => ({
     updateInmobiliaria: jest.fn(),
     eliminarInmobiliaria: jest.fn(),
     reactivarInmobiliaria: jest.fn(),
-    deleteInmobiliaria: jest.fn(),
 }));
 
 jest.mock('../../../src/services/prioridad.service', () => ({
@@ -71,8 +70,6 @@ jest.mock('../../../src/services/fraccion.service', () => ({
 
 jest.mock('../../../src/services/ubicacion.service', () => ({
     getUbicacionById: jest.fn(),
-    updateUbicacion: jest.fn(),
-    deleteUbicacion: jest.fn(),
 }));
 
 import request from 'supertest';
@@ -154,7 +151,6 @@ const RUTAS: Ruta[] = [
     { ruta: 'GET /api/reservas/:id', enviar: (id) => get(`/api/reservas/${id}`), service: mock(reservaService.getReservaById) },
     { ruta: 'GET /api/reservas/inmob/:id', enviar: (id) => get(`/api/reservas/inmob/${id}`), service: mock(reservaService.getReservaByImmobiliariaId) },
     { ruta: 'PUT /api/reservas/:id', enviar: (id) => put(`/api/reservas/${id}`, { estado: 'CANCELADA' }), service: mock(reservaService.updateReserva) },
-    { ruta: 'DELETE /api/reservas/:id', enviar: (id) => del(`/api/reservas/${id}`), service: mock(reservaService.eliminarReserva) },
     { ruta: 'PATCH /api/reservas/:id/eliminar', enviar: (id) => patch(`/api/reservas/${id}/eliminar`), service: mock(reservaService.eliminarReserva) },
     { ruta: 'PATCH /api/reservas/:id/reactivar', enviar: (id) => patch(`/api/reservas/${id}/reactivar`), service: mock(reservaService.reactivarReserva) },
     { ruta: 'GET /api/reservas/:id/ofertas', enviar: (id) => get(`/api/reservas/${id}/ofertas`), service: mock(reservaService.getOfertasByReservaId) },
@@ -164,7 +160,6 @@ const RUTAS: Ruta[] = [
     { ruta: 'GET /api/ventas/inmobiliaria/:id', enviar: (id) => get(`/api/ventas/inmobiliaria/${id}`), service: mock(ventaService.getVentasByInmobiliaria) },
     { ruta: 'GET /api/ventas/:id', enviar: (id) => get(`/api/ventas/${id}`), service: mock(ventaService.getVentaById) },
     { ruta: 'PUT /api/ventas/:id', enviar: (id) => put(`/api/ventas/${id}`, { monto: 10 }), service: mock(ventaService.updateVenta) },
-    { ruta: 'DELETE /api/ventas/:id', enviar: (id) => del(`/api/ventas/${id}`), service: mock(ventaService.eliminarVenta) },
     { ruta: 'PATCH /api/ventas/:id/eliminar', enviar: (id) => patch(`/api/ventas/${id}/eliminar`), service: mock(ventaService.eliminarVenta) },
     { ruta: 'PATCH /api/ventas/:id/reactivar', enviar: (id) => patch(`/api/ventas/${id}/reactivar`), service: mock(ventaService.reactivarVenta) },
 
@@ -215,12 +210,6 @@ const RUTAS: Ruta[] = [
     { ruta: 'PUT /api/inmobiliarias/:id', enviar: (id) => put(`/api/inmobiliarias/${id}`, { nombre: 'Nueva' }), service: mock(inmobiliariaService.updateInmobiliaria) },
     { ruta: 'PATCH /api/inmobiliarias/:id/eliminar', enviar: (id) => patch(`/api/inmobiliarias/${id}/eliminar`), service: mock(inmobiliariaService.eliminarInmobiliaria) },
     { ruta: 'PATCH /api/inmobiliarias/:id/reactivar', enviar: (id) => patch(`/api/inmobiliarias/${id}/reactivar`), service: mock(inmobiliariaService.reactivarInmobiliaria) },
-    {
-        ruta: 'DELETE /api/inmobiliarias/:id',
-        enviar: (id) => del(`/api/inmobiliarias/${id}`),
-        service: mock(inmobiliariaService.deleteInmobiliaria),
-        idRecibido: ([req]) => req.idInmobiliaria,
-    },
 
     // Prioridades
     { ruta: 'GET /api/prioridades/:id', enviar: (id) => get(`/api/prioridades/${id}`), service: mock(prioridadService.getPrioridadById) },
@@ -262,8 +251,6 @@ const RUTAS: Ruta[] = [
 
     // Ubicaciones
     { ruta: 'GET /api/ubicaciones/:id', enviar: (id) => get(`/api/ubicaciones/${id}`), service: mock(ubicacionService.getUbicacionById) },
-    { ruta: 'PUT /api/ubicaciones/:id', enviar: (id) => put(`/api/ubicaciones/${id}`, { numero: 3 }), service: mock(ubicacionService.updateUbicacion) },
-    { ruta: 'DELETE /api/ubicaciones/:id', enviar: (id) => del(`/api/ubicaciones/${id}`), service: mock(ubicacionService.deleteUbicacion) },
 ];
 
 beforeEach(() => {
@@ -276,6 +263,7 @@ describe.each(RUTAS)('$ruta', ({ param = 'id', enviar, service, idRecibido = (ar
         expect(res.status).toBe(400);
         expect(res.body).toEqual({
             success: false,
+            code: 'VALIDATION_ERROR',
             message: 'Datos inválidos',
             errors: [{ field: param, message: expect.any(String) }],
         });

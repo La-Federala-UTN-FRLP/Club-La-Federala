@@ -1,5 +1,5 @@
 // Updates parciales (PUT/PATCH): un body que no modifica nada responde 400 antes de llegar al service.
-// Regresión: PUT /lotes, /ventas, /usuarios, /ubicaciones, /personas y /fracciones aceptaban {} y lo
+// Regresión: PUT /lotes, /ventas, /usuarios, /personas y /fracciones aceptaban {} y lo
 // pasaban al service (200 sin cambios, o un update vacío contra Prisma). También valía para un body con
 // solo claves desconocidas: Zod las descarta (strip) y el resultado validado quedaba en {}.
 // La política de claves desconocidas no cambia (no hay .strict()): una clave ajena junto a un campo
@@ -7,7 +7,6 @@
 jest.mock('../../../src/services/lote.service', () => ({ updatedLote: jest.fn() }));
 jest.mock('../../../src/services/venta.service', () => ({ updateVenta: jest.fn() }));
 jest.mock('../../../src/services/usuario.service', () => ({ updateUser: jest.fn() }));
-jest.mock('../../../src/services/ubicacion.service', () => ({ updateUbicacion: jest.fn() }));
 jest.mock('../../../src/services/fraccion.service', () => ({ updateFraccion: jest.fn() }));
 jest.mock('../../../src/services/reserva.service', () => ({ updateReserva: jest.fn() }));
 jest.mock('../../../src/services/inmobiliaria.service', () => ({ updateInmobiliaria: jest.fn() }));
@@ -18,7 +17,6 @@ import app from '../../../src/app';
 import * as loteService from '../../../src/services/lote.service';
 import * as ventaService from '../../../src/services/venta.service';
 import * as usuarioService from '../../../src/services/usuario.service';
-import * as ubicacionService from '../../../src/services/ubicacion.service';
 import * as fraccionService from '../../../src/services/fraccion.service';
 import * as reservaService from '../../../src/services/reserva.service';
 import * as inmobiliariaService from '../../../src/services/inmobiliaria.service';
@@ -37,7 +35,6 @@ const SERVICIOS = [
     loteService.updatedLote,
     ventaService.updateVenta,
     usuarioService.updateUser,
-    ubicacionService.updateUbicacion,
     fraccionService.updateFraccion,
     reservaService.updateReserva,
     inmobiliariaService.updateInmobiliaria,
@@ -68,7 +65,6 @@ const UPDATES: UpdateParcial[] = [
     { nombre: 'PUT /lotes/:id', metodo: 'put', url: '/api/lotes/1', valido: { descripcion: 'Esquina' }, servicio: () => m(loteService.updatedLote) },
     { nombre: 'PUT /ventas/:id', metodo: 'put', url: '/api/ventas/1', valido: { numero: 'VENTA-002' }, servicio: () => m(ventaService.updateVenta) },
     { nombre: 'PUT /usuarios/:id', metodo: 'put', url: '/api/usuarios/1', valido: { username: 'nuevo' }, servicio: () => m(usuarioService.updateUser) },
-    { nombre: 'PUT /ubicaciones/:id', metodo: 'put', url: '/api/ubicaciones/1', valido: { numero: 5 }, servicio: () => m(ubicacionService.updateUbicacion) },
     { nombre: 'PUT /personas/:id', metodo: 'put', url: '/api/personas/1', valido: { nombre: 'Ana' }, servicio: () => personaUpdateSpy as unknown as jest.Mock },
     { nombre: 'PUT /fracciones/:id', metodo: 'put', url: '/api/fracciones/1', valido: { numero: '12' }, servicio: () => m(fraccionService.updateFraccion) },
     // Ya exigían al menos un campo: se mantienen en la matriz para que no regresen

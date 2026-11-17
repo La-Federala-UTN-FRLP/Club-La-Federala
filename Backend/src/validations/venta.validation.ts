@@ -107,7 +107,6 @@ export const updateVentaSchema = z.object({
 // Params /:id de Venta (política común de IDs de path)
 export const getVentaSchema = idParamsSchema;
 
-export const deleteVentaSchema = getVentaSchema;
 export const patchVentaParamsSchema = getVentaSchema;
 
 // Query de GET /ventas: solo los filtros que el service implementa (estado, estadoOperativo y

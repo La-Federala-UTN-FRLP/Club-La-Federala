@@ -6,9 +6,7 @@ import {
     PutInmobiliariaRequest,
     PutInmobiliariaResponse,
     PostInmobiliariaRequest,
-    PostInmobiliariaResponse,    
-    DeleteInmobiliariaRequest,
-    DeleteInmobiliariaResponse
+    PostInmobiliariaResponse,
 } from '../types/interfacesCCLF';
 import { Inmobiliaria as PrismaInmobiliaria, EstadoVenta, EstadoReserva, EstadoPrioridad, OwnerPrioridad } from '../generated/prisma';
 import prisma from '../config/prisma';
@@ -491,21 +489,4 @@ export async function reactivarInmobiliaria(id: number): Promise<PutInmobiliaria
   } catch (error) {
     throw error;
   }
-}
-
-// ==============================
-export async function deleteInmobiliaria(req: DeleteInmobiliariaRequest): Promise<DeleteInmobiliariaResponse> {
-    try {
-        await prisma.inmobiliaria.delete({
-            where: { id: req.idInmobiliaria },
-        });
-        return { message: 'Inmobiliaria eliminada correctamente' };
-    } catch (e: any) {
-        if (e.code === 'P2025') {
-            const error = new Error('Inmobiliaria no encontrada');
-            (error as any).statusCode = 404;
-            throw error;
-        }
-        throw e;
-    }
 }

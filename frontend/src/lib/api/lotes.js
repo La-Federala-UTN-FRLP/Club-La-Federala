@@ -1,10 +1,9 @@
 // src/lib/api/lotes.js
 // Cliente de API para LOTES. Devuelve SIEMPRE { data: Array<LoteUI> }.
 
-import { http } from "../http/http"; // usa Authorization y maneja 401/refresh
+import { http } from "../http/http"; // usa Authorization y maneja 401
 
 const PRIMARY = "/lotes";
-const FALLBACK = "/lotes";
 
 const ok = (data) => ({ data });
 
@@ -89,17 +88,6 @@ function qs(params = {}) {
   return str ? `?${str}` : "";
 }
 
-// --------------- Fallback de ruta (PRIMARY -> FALLBACK y viceversa) ---------------
-async function fetchWithFallback(path, options) {
-  let res = await http(path, options);
-  if (res.status === 404) {
-    const alt = path.startsWith(PRIMARY)
-      ? path.replace(PRIMARY, FALLBACK)
-      : path.replace(FALLBACK, PRIMARY);
-    res = await http(alt, options);
-  }
-  return res;
-}
 
 /* ================================ API REAL ================================ */
 function pickArrayFromApi(json) {
@@ -116,7 +104,7 @@ function pickArrayFromApi(json) {
 }
 
 async function apiGetAll(params = {}) {
-  const res  = await fetchWithFallback(`${PRIMARY}${qs(params)}`, { method: "GET" });
+  const res  = await http(`${PRIMARY}${qs(params)}`, { method: "GET" });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json?.message || "Error al cargar lotes");
 
@@ -126,7 +114,7 @@ async function apiGetAll(params = {}) {
 }
 
 async function apiGetById(id) {
-  const res  = await fetchWithFallback(`${PRIMARY}/${id}`, { method: "GET" });
+  const res  = await http(`${PRIMARY}/${id}`, { method: "GET" });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json?.message || "Error al obtener lote");
   const row = json?.data ?? json;
@@ -134,7 +122,7 @@ async function apiGetById(id) {
 }
 
 async function apiCreate(payload) {
-  const res  = await fetchWithFallback(PRIMARY, { method: "POST", body: payload });
+  const res  = await http(PRIMARY, { method: "POST", body: payload });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     const error = new Error(json?.message || "Error al crear lote");
@@ -147,7 +135,7 @@ async function apiCreate(payload) {
 }
 
 async function apiUpdate(id, payload) {
-  const res  = await fetchWithFallback(`${PRIMARY}/${id}`, { method: "PUT", body: payload });
+  const res  = await http(`${PRIMARY}/${id}`, { method: "PUT", body: payload });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json?.message || "Error al actualizar lote");
   const row = json?.data ?? json;
@@ -155,7 +143,7 @@ async function apiUpdate(id, payload) {
 }
 
 async function apiDelete(id) {
-  const res = await fetchWithFallback(`${PRIMARY}/${id}`, { method: "DELETE" });
+  const res = await http(`${PRIMARY}/${id}`, { method: "DELETE" });
   if (!res.ok && res.status !== 204) {
     const json = await res.json().catch(() => ({}));
     throw new Error(json?.message || "Error al eliminar lote");

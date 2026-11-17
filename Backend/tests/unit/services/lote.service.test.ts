@@ -9,6 +9,7 @@ jest.mock('../../../src/domain/loteState/loteState.effects', () => ({
 import {
     createLote,
     deleteLote,
+    MENSAJE_LOTE_CON_ASOCIACIONES,
     getAllLotes,
     getLoteById,
     updatedLote,
@@ -734,30 +735,101 @@ describe('updatedLote — ubicación', () => {
 });
 
 describe('deleteLote', () => {
-    test('TECNICO recibe 403 y no elimina archivos, reservas, ventas ni el lote', async () => {
+    // Hard delete solo de lotes sin historia ni asociaciones; si no, 409 y no se borra nada.
+    const SIN_ASOCIACIONES = { Venta: 0, reserva: 0, prioridad: 0, promociones: 0, alquileres: 0, archivos: 0 };
+    const conteo = (counts: Partial<typeof SIN_ASOCIACIONES>) => ({ _count: { ...SIN_ASOCIACIONES, ...counts } });
+    const CONFLICTO = { statusCode: 409, message: MENSAJE_LOTE_CON_ASOCIACIONES };
+
+    test('TECNICO recibe 403 sin consultar ni borrar', async () => {
         await expect(deleteLote(1, 'TECNICO')).rejects.toThrow(/no están autorizados/i);
         await expectStatus(() => deleteLote(1, 'TECNICO'), 403);
-        expect(prismaMock.archivos.deleteMany).not.toHaveBeenCalled();
-        expect(prismaMock.reserva.deleteMany).not.toHaveBeenCalled();
-        expect(prismaMock.venta.deleteMany).not.toHaveBeenCalled();
+        expect(prismaMock.lote.findUnique).not.toHaveBeenCalled();
         expect(prismaMock.lote.delete).not.toHaveBeenCalled();
     });
 
-    test('rol permitido borra archivos, reservas y ventas del lote y luego el lote', async () => {
-        prismaMock.archivos.deleteMany.mockResolvedValue({ count: 1 });
-        prismaMock.reserva.deleteMany.mockResolvedValue({ count: 2 });
-        prismaMock.venta.deleteMany.mockResolvedValue({ count: 1 });
+    test('lote sin asociaciones → se borra solo el lote', async () => {
+        prismaMock.lote.findUnique.mockResolvedValue(conteo({}));
         prismaMock.lote.delete.mockResolvedValue({ id: 1 });
 
-        const result = await deleteLote(1, 'GESTOR');
+        const result = await deleteLote(1, 'ADMINISTRADOR');
 
         expect(result).toEqual({ message: 'Lote eliminado correctamente' });
-        expect(prismaMock.archivos.deleteMany).toHaveBeenCalledWith({
-            where: { idLoteAsociado: 1 },
-        });
-        expect(prismaMock.reserva.deleteMany).toHaveBeenCalledWith({ where: { loteId: 1 } });
-        expect(prismaMock.venta.deleteMany).toHaveBeenCalledWith({ where: { loteId: 1 } });
+        expect(prismaMock.lote.delete).toHaveBeenCalledTimes(1);
         expect(prismaMock.lote.delete).toHaveBeenCalledWith({ where: { id: 1 } });
+    });
+
+    test('el chequeo cuenta todas las asociaciones que bloquean', async () => {
+        prismaMock.lote.findUnique.mockResolvedValue(conteo({}));
+        prismaMock.lote.delete.mockResolvedValue({ id: 1 });
+
+        await deleteLote(1, 'ADMINISTRADOR');
+
+        expect(prismaMock.lote.findUnique.mock.calls[0][0]).toEqual({
+            where: { id: 1 },
+            select: { _count: { select: { Venta: true, reserva: true, prioridad: true, promociones: true, alquileres: true, archivos: true } } },
+        });
+    });
+
+    test.each([
+        ['venta', { Venta: 1 }],
+        ['reserva', { reserva: 1 }],
+        // Las ofertas cuelgan siempre de una reserva del lote: la reserva que las contiene bloquea.
+        ['reserva con ofertas', { reserva: 1 }],
+        ['prioridad', { prioridad: 1 }],
+        ['promoción', { promociones: 1 }],
+        ['alquiler', { alquileres: 1 }],
+        ['archivo (también dado de baja)', { archivos: 1 }],
+        ['varias asociaciones', { Venta: 2, reserva: 3, archivos: 4 }],
+    ])('lote con %s → 409 y no se borra nada', async (_caso, counts) => {
+        prismaMock.lote.findUnique.mockResolvedValue(conteo(counts));
+
+        await expect(deleteLote(1, 'ADMINISTRADOR')).rejects.toMatchObject(CONFLICTO);
+
+        expect(prismaMock.lote.delete).not.toHaveBeenCalled();
+    });
+
+    test('lote inexistente → 404 sin borrar', async () => {
+        prismaMock.lote.findUnique.mockResolvedValue(null);
+
+        await expect(deleteLote(1, 'ADMINISTRADOR')).rejects.toMatchObject({ statusCode: 404, message: 'Lote no encontrado' });
+        expect(prismaMock.lote.delete).not.toHaveBeenCalled();
+    });
+
+    test('chequeo y borrado ocurren en una sola transacción, con el cliente de la transacción', async () => {
+        const tx = {
+            lote: { findUnique: jest.fn().mockResolvedValue(conteo({})), delete: jest.fn().mockResolvedValue({ id: 1 }) },
+        };
+        (prismaMock as any).$transaction.mockImplementationOnce((fn: (t: unknown) => unknown) => fn(tx));
+
+        await deleteLote(1, 'ADMINISTRADOR');
+
+        expect((prismaMock as any).$transaction).toHaveBeenCalledTimes(1);
+        expect(tx.lote.findUnique).toHaveBeenCalledTimes(1);
+        expect(tx.lote.delete).toHaveBeenCalledWith({ where: { id: 1 } });
+        expect(tx.lote.findUnique.mock.invocationCallOrder[0]).toBeLessThan(tx.lote.delete.mock.invocationCallOrder[0]);
+        expect(prismaMock.lote.findUnique).not.toHaveBeenCalled();
+        expect(prismaMock.lote.delete).not.toHaveBeenCalled();
+    });
+
+    test.each(['P2003', 'P2014'])(
+        'asociación creada entre el chequeo y el DELETE: la FK lo rechaza (%s) y responde el mismo 409',
+        async (code) => {
+            prismaMock.lote.findUnique.mockResolvedValue(conteo({}));
+            prismaMock.lote.delete.mockRejectedValue(
+                new Prisma.PrismaClientKnownRequestError('Foreign key constraint violated', { code, clientVersion: 'test' }),
+            );
+
+            await expect(deleteLote(1, 'ADMINISTRADOR')).rejects.toMatchObject(CONFLICTO);
+            expect((prismaMock as any).$transaction).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    test('otros errores de la base se propagan sin convertirse en 409', async () => {
+        const boom = new Prisma.PrismaClientKnownRequestError('timeout', { code: 'P1008', clientVersion: 'test' });
+        prismaMock.lote.findUnique.mockResolvedValue(conteo({}));
+        prismaMock.lote.delete.mockRejectedValue(boom);
+
+        await expect(deleteLote(1, 'ADMINISTRADOR')).rejects.toBe(boom);
     });
 });
 

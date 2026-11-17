@@ -1,29 +1,6 @@
 import prisma from '../config/prisma';
-import type { Ubicacion as DtoUbicacion, GetUbicacionesResponse, DeleteUbicacionResponse, Calle } from '../types/interfacesCCLF';
+import type { Ubicacion as DtoUbicacion, GetUbicacionesResponse, Calle } from '../types/interfacesCCLF';
 import type { NombreCalle as PrismaNombreCalle } from '../generated/prisma';
-
-// Map DTO Calle -> Prisma enum
-const calleToPrisma = (c: string): PrismaNombreCalle => {
-  const map: Record<string, PrismaNombreCalle> = {
-    Reinamora: 'REINAMORA',
-    Maca: 'MACA',
-    Zorzal: 'ZORZAL',
-    'Cauquén': 'CAUQUEN',
-    Cauquen: 'CAUQUEN',
-    Alondra: 'ALONDRA',
-    Jacana: 'JACANA',
-    Tacuarito: 'TACUARITO',
-    Jilguero: 'JILGUERO',
-    Golondrina: 'GOLONDRINA',
-    Calandria: 'CALANDRIA',
-    Aguilamora: 'AGUILAMORA',
-    Lorca: 'LORCA',
-    Milano: 'MILANO',
-  } as const;
-  const v = map[c as keyof typeof map];
-  if (!v) throw Object.assign(new Error(`Calle inválida: ${c}`), { statusCode: 400 });
-  return v;
-};
 
 // Map Prisma -> DTO
 const toUbicacion = (u: any): DtoUbicacion => ({
@@ -51,18 +28,14 @@ const normalizeDtoCalle = (p: PrismaNombreCalle): Calle => {
   }
 };
 
-// Obtener todas las ubicaciones con total
-export async function getAllUbicaciones(limit: number = 10): Promise<GetUbicacionesResponse> {
-  const [ubicaciones, total] = await Promise.all([
-    prisma.ubicacion.findMany({
-      orderBy: { id: 'asc' },
-      take: limit,
-    }),
-    prisma.ubicacion.count(),
-  ]);
+// Obtener todas las ubicaciones (listado completo, sin paginación); total = cantidad devuelta
+export async function getAllUbicaciones(): Promise<GetUbicacionesResponse> {
+  const ubicaciones = await prisma.ubicacion.findMany({
+    orderBy: { id: 'asc' },
+  });
   return {
     ubicaciones: ubicaciones.map(toUbicacion),
-    total,
+    total: ubicaciones.length,
   };
 }
 
@@ -75,49 +48,4 @@ export async function getUbicacionById(id: number): Promise<DtoUbicacion> {
     throw e;
   }
   return toUbicacion(u);
-}
-
-// Crear
-export async function createUbicacion(data: { calle: string; numero: number }): Promise<DtoUbicacion> {
-  const created = await prisma.ubicacion.create({
-    data: {
-      calle: calleToPrisma(data.calle),
-      numero: data.numero,
-    },
-  });
-  return toUbicacion(created);
-}
-
-// Actualizar
-export async function updateUbicacion(id: number, data: { calle?: string; numero?: number }): Promise<DtoUbicacion> {
-  try {
-    const payload: any = {};
-    if (data.calle !== undefined) payload.calle = calleToPrisma(data.calle);
-    if (data.numero !== undefined) payload.numero = data.numero;
-
-    const updated = await prisma.ubicacion.update({ where: { id }, data: payload });
-    return toUbicacion(updated);
-  } catch (e: any) {
-    if (e.code === 'P2025') {
-      const err: any = new Error('Ubicación no encontrada');
-      err.statusCode = 404;
-      throw err;
-    }
-    throw e;
-  }
-}
-
-// Eliminar
-export async function deleteUbicacion(id: number): Promise<DeleteUbicacionResponse> {
-  try {
-    await prisma.ubicacion.delete({ where: { id } });
-    return { message: 'Ubicación eliminada correctamente' };
-  } catch (e: any) {
-    if (e.code === 'P2025') {
-      const err: any = new Error('Ubicación no encontrada');
-      err.statusCode = 404;
-      throw err;
-    }
-    throw e;
-  }
 }

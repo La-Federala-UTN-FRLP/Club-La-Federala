@@ -1,12 +1,30 @@
 // src/services/prioridad.service.ts
 import prisma from '../config/prisma';
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
-import { EstadoLote, EstadoPrioridad, OwnerPrioridad } from '../generated/prisma';
+import { EstadoLote, EstadoPrioridad, OwnerPrioridad, Prisma } from '../generated/prisma';
 import { assertLoteOperableFor, assertPrioridadUnicaActiva, computeRestoreStateFromPrioridad } from '../domain/loteState/loteState.rules';
+import { assertInmobiliariaAsignable, assertInmobiliariaOperativa } from '../utils/inmobiliaria.utils';
+import { safeErrorForLog } from '../utils/safeErrorLog';
+
+// Índice único parcial (migración 20261113120000_prioridad_una_activa_por_lote): como máximo una
+// prioridad ACTIVA por lote. Prisma 6 no expresa índices parciales en el schema.
+export const INDICE_UNA_ACTIVA_POR_LOTE = 'Prioridad_loteId_activa_key';
+export const MENSAJE_PRIORIDAD_ACTIVA_EXISTENTE = 'Ya existe una prioridad ACTIVA para este lote';
+
+function esViolacionUnaActivaPorLote(e: Prisma.PrismaClientKnownRequestError): boolean {
+  const target = e.meta?.target;
+  const campos = Array.isArray(target) ? target : typeof target === 'string' ? [target] : [];
+  return campos.some((t) => t === INDICE_UNA_ACTIVA_POR_LOTE || t === 'loteId');
+}
 
 // Mapper de errores de Prisma a errores HTTP
 function mapPrismaError(e: unknown) {
-  if (e instanceof PrismaClientKnownRequestError) {
+  if (e instanceof Prisma.PrismaClientKnownRequestError) {
+    if (e.code === 'P2002' && esViolacionUnaActivaPorLote(e)) {
+      // Dos altas concurrentes para el mismo lote: la base deja pasar una sola.
+      const err: any = new Error(MENSAJE_PRIORIDAD_ACTIVA_EXISTENTE);
+      err.status = 409;
+      return err;
+    }
     if (e.code === 'P2002') {
       // Verificar si es un error de unicidad de numero
       if (e.meta?.target && Array.isArray(e.meta.target) && e.meta.target.includes('numero')) {
@@ -28,6 +46,60 @@ function mapPrismaError(e: unknown) {
     }
   }
   return e;
+}
+
+/**
+ * Fin del ciclo de una prioridad (cancelar, finalizar, expirar): devuelve el lote al estado que tenía
+ * al crearse la prioridad (EN_PROMOCION si venía de promoción; si no, DISPONIBLE), solo si sigue
+ * CON_PRIORIDAD (regla segura: no pisa una reserva/venta posterior). Corre dentro de la transacción
+ * de la operación que termina la prioridad, después de haberla sacado de ACTIVA.
+ *
+ * Es un único UPDATE condicionado (sin leer antes): no hay ventana entre lectura y escritura.
+ * No puede pisar una prioridad nueva del mismo lote: el índice único parcial impide insertar otra
+ * ACTIVA mientras esta transacción no confirme el cierre, y el alta solo marca el lote CON_PRIORIDAD
+ * después de insertar su prioridad. Orden de locks en ambos caminos: prioridad → lote.
+ */
+async function restaurarLoteTrasPrioridad(
+  tx: Prisma.TransactionClient,
+  loteId: number,
+  loteEstadoAlCrear: EstadoLote,
+): Promise<void> {
+  const estadoARestaurar = computeRestoreStateFromPrioridad(loteEstadoAlCrear);
+  // Convertir EstadoLoteOp a EstadoLote de Prisma
+  const estadoPrisma = estadoARestaurar === 'En Promoción' ? EstadoLote.EN_PROMOCION : EstadoLote.DISPONIBLE;
+  await tx.lote.updateMany({
+    where: { id: loteId, estado: EstadoLote.CON_PRIORIDAD },
+    data: { estado: estadoPrisma },
+  });
+}
+
+/**
+ * Cierra una prioridad ACTIVA (cancelar o finalizar) de forma atómica: el update se condiciona a que
+ * siga ACTIVA en el momento de escribir. Si otra transición ganó la carrera (el job la expiró, u otro
+ * request la canceló o finalizó), no se pisa ese estado ni se vuelve a tocar el lote: responde el
+ * mismo 400 que la validación previa ("Solo se pueden … prioridades ACTIVA").
+ */
+async function cerrarPrioridadActiva(
+  prioridad: { id: number; loteId: number; loteEstadoAlCrear: EstadoLote },
+  estadoFinal: typeof EstadoPrioridad.CANCELADA | typeof EstadoPrioridad.FINALIZADA,
+  mensajeNoActiva: string,
+) {
+  return prisma.$transaction(async (tx) => {
+    const { count } = await tx.prioridad.updateMany({
+      where: { id: prioridad.id, estado: EstadoPrioridad.ACTIVA },
+      data: { estado: estadoFinal },
+    });
+    if (count === 0) {
+      const err: any = new Error(mensajeNoActiva);
+      err.status = 400;
+      throw err;
+    }
+
+    // Restaurar el estado original del lote solo si está actualmente CON_PRIORIDAD (regla segura)
+    await restaurarLoteTrasPrioridad(tx, prioridad.loteId, prioridad.loteEstadoAlCrear);
+
+    return tx.prioridad.findUnique({ where: { id: prioridad.id } });
+  });
 }
 
 type PrioridadActor = { role: string; inmobiliariaId?: number | null };
@@ -143,6 +215,8 @@ export async function createPrioridad(
       inmobiliariaIdFinal = body.ownerType === OwnerPrioridad.INMOBILIARIA 
         ? (body.inmobiliariaId ?? null)
         : null;
+      // D1: la inmobiliaria elegida por staff debe estar OPERATIVO
+      await assertInmobiliariaAsignable(inmobiliariaIdFinal);
     } else {
       // Default: CCLF si no viene
       ownerType = OwnerPrioridad.CCLF;
@@ -154,7 +228,12 @@ export async function createPrioridad(
     throw err;
   }
 
-  // Ejecutar en transacción: crear prioridad + actualizar lote
+  // Transacción: insertar la prioridad ACTIVA y marcar el lote CON_PRIORIDAD, en ese orden.
+  // - El índice único parcial (una ACTIVA por lote) es la barrera definitiva: de dos altas
+  //   concurrentes para el mismo lote, la segunda falla al insertar (409) y no toca el lote.
+  // - El lote se marca con un UPDATE condicionado al estado leído al validar: si cambió en el medio
+  //   (reserva, venta, otra prioridad), no se pisa y el alta se revierte con 409. Así
+  //   loteEstadoAlCrear es siempre el estado real previo a la prioridad.
   try {
     const resultado = await prisma.$transaction(async (tx) => {
       // Crear prioridad
@@ -171,11 +250,16 @@ export async function createPrioridad(
         },
       });
 
-      // Cambiar lote a CON_PRIORIDAD
-      await tx.lote.update({
-        where: { id: body.loteId },
+      // Cambiar lote a CON_PRIORIDAD solo si sigue en el estado validado
+      const { count } = await tx.lote.updateMany({
+        where: { id: body.loteId, estado: lote.estado },
         data: { estado: EstadoLote.CON_PRIORIDAD },
       });
+      if (count === 0) {
+        const err: any = new Error('Solo se puede crear una prioridad para lotes DISPONIBLE o EN_PROMOCION');
+        err.status = 409;
+        throw err;
+      }
 
       return prioridad;
     });
@@ -544,34 +628,8 @@ export async function cancelPrioridad(
     throw err;
   }
 
-  // Ejecutar en transacción: cancelar prioridad + restaurar lote si aplica
-  const resultado = await prisma.$transaction(async (tx) => {
-    // Marcar como CANCELADA
-    const updated = await tx.prioridad.update({
-      where: { id },
-      data: { estado: EstadoPrioridad.CANCELADA },
-    });
-
-    // Restaurar el estado original del lote solo si está actualmente CON_PRIORIDAD (regla segura)
-    const loteActual = await tx.lote.findUnique({
-      where: { id: prioridad.loteId },
-      select: { estado: true },
-    });
-
-    if (loteActual && loteActual.estado === EstadoLote.CON_PRIORIDAD) {
-      const estadoARestaurar = computeRestoreStateFromPrioridad(prioridad.loteEstadoAlCrear);
-      // Convertir EstadoLoteOp a EstadoLote de Prisma
-      const estadoPrisma = estadoARestaurar === 'En Promoción' ? EstadoLote.EN_PROMOCION : EstadoLote.DISPONIBLE;
-      await tx.lote.update({
-        where: { id: prioridad.loteId },
-        data: { estado: estadoPrisma },
-      });
-    }
-
-    return updated;
-  });
-
-  return resultado;
+  // Cancelar + restaurar lote en una transacción, condicionado a que siga ACTIVA
+  return cerrarPrioridadActiva(prioridad, EstadoPrioridad.CANCELADA, 'Solo se pueden cancelar prioridades ACTIVA');
 }
 
 // ==============================
@@ -613,86 +671,52 @@ export async function finalizePrioridad(
     throw err;
   }
 
-  // Ejecutar en transacción: finalizar prioridad + restaurar lote si aplica
-  const resultado = await prisma.$transaction(async (tx) => {
-    // Marcar como FINALIZADA
-    const updated = await tx.prioridad.update({
-      where: { id },
-      data: { estado: EstadoPrioridad.FINALIZADA },
-    });
-
-    // Restaurar el estado original del lote solo si está actualmente CON_PRIORIDAD (regla segura)
-    const loteActual = await tx.lote.findUnique({
-      where: { id: prioridad.loteId },
-      select: { estado: true },
-    });
-
-    if (loteActual && loteActual.estado === EstadoLote.CON_PRIORIDAD) {
-      const estadoARestaurar = computeRestoreStateFromPrioridad(prioridad.loteEstadoAlCrear);
-      // Convertir EstadoLoteOp a EstadoLote de Prisma
-      const estadoPrisma = estadoARestaurar === 'En Promoción' ? EstadoLote.EN_PROMOCION : EstadoLote.DISPONIBLE;
-      await tx.lote.update({
-        where: { id: prioridad.loteId },
-        data: { estado: estadoPrisma },
-      });
-    }
-
-    return updated;
-  });
-
-  return resultado;
+  // Finalizar + restaurar lote en una transacción, condicionado a que siga ACTIVA
+  return cerrarPrioridadActiva(prioridad, EstadoPrioridad.FINALIZADA, 'Solo se pueden finalizar prioridades ACTIVA');
 }
 
 // ==============================
-// Expirar prioridades vencidas (manual)
+// Expirar prioridades vencidas
 // ==============================
-export async function expirePrioridadesManual(): Promise<{ expired: number }> {
-  const now = new Date();
+/**
+ * Única operación de expiración de prioridades (D3): la usan el job programado (runExpirations) y
+ * el endpoint manual POST /api/prioridades/jobs/expire.
+ *
+ * Por cada prioridad ACTIVA con fechaFin vencida, en una transacción propia:
+ * - la marca EXPIRADA con un update condicionado a que siga ACTIVA y vencida: si otro request la
+ *   canceló/finalizó, u otra corrida ya la expiró, no se pisa nada (count 0) ni se toca el lote;
+ * - restaura el lote (restaurarLoteTrasPrioridad). Prioridad y lote cambian juntos o no cambian.
+ * Una prioridad que falla no frena a las demás (mismo criterio que expireReservas): se loguea y sigue.
+ */
+export async function expirePrioridadesVencidas(now: Date = new Date()): Promise<{ expired: number }> {
+  const vencida = { estado: EstadoPrioridad.ACTIVA, fechaFin: { lt: now } };
 
-  // Buscar prioridades ACTIVA vencidas (necesitamos loteId y loteEstadoAlCrear para restaurar)
+  // Candidatas (necesitamos loteId y loteEstadoAlCrear para restaurar el lote)
   const prioridadesVencidas = await prisma.prioridad.findMany({
-    where: {
-      estado: EstadoPrioridad.ACTIVA,
-      fechaFin: {
-        lt: now, // fechaFin < now
-      },
-    },
+    where: vencida,
     select: { id: true, loteId: true, loteEstadoAlCrear: true },
   });
 
-  if (prioridadesVencidas.length === 0) {
-    return { expired: 0 };
-  }
-
-  // Marcar todas como EXPIRADA
-  await prisma.prioridad.updateMany({
-    where: {
-      id: { in: prioridadesVencidas.map((p) => p.id) },
-    },
-    data: {
-      estado: EstadoPrioridad.EXPIRADA,
-    },
-  });
-
-  // Restaurar el estado original de cada lote solo si está actualmente CON_PRIORIDAD (regla segura)
+  let expired = 0;
   for (const prioridad of prioridadesVencidas) {
-    const loteActual = await prisma.lote.findUnique({
-      where: { id: prioridad.loteId },
-      select: { estado: true },
-    });
+    try {
+      const expirada = await prisma.$transaction(async (tx) => {
+        const { count } = await tx.prioridad.updateMany({
+          where: { id: prioridad.id, ...vencida },
+          data: { estado: EstadoPrioridad.EXPIRADA },
+        });
+        if (count === 0) return false;
 
-    if (loteActual && loteActual.estado === EstadoLote.CON_PRIORIDAD) {
-      const estadoARestaurar = computeRestoreStateFromPrioridad(prioridad.loteEstadoAlCrear);
-      // Convertir EstadoLoteOp a EstadoLote de Prisma
-      const estadoPrisma = estadoARestaurar === 'En Promoción' ? EstadoLote.EN_PROMOCION : EstadoLote.DISPONIBLE;
-      await prisma.lote.update({
-        where: { id: prioridad.loteId },
-        data: { estado: estadoPrisma },
+        await restaurarLoteTrasPrioridad(tx, prioridad.loteId, prioridad.loteEstadoAlCrear);
+        return true;
       });
+      if (expirada) expired++;
+    } catch (error) {
+      console.error(`[expirePrioridades] Error al expirar prioridad ${prioridad.id}:`, safeErrorForLog(error));
     }
   }
 
-  return { expired: prioridadesVencidas.length };
+  return { expired };
 }
 
 // ==============================
@@ -781,7 +805,7 @@ export async function updatePrioridad(
     if (body.inmobiliariaId !== null) {
       const inmobDestino = await prisma.inmobiliaria.findUnique({
         where: { id: body.inmobiliariaId },
-        select: { maxPrioridadesActivas: true },
+        select: { maxPrioridadesActivas: true, estadoOperativo: true },
       });
 
       if (!inmobDestino) {
@@ -789,6 +813,8 @@ export async function updatePrioridad(
         err.status = 404;
         throw err;
       }
+      // D1: no se reasigna a una inmobiliaria ELIMINADO
+      assertInmobiliariaOperativa(inmobDestino);
 
       const limite = inmobDestino.maxPrioridadesActivas ?? 5;
       

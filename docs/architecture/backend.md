@@ -4,10 +4,18 @@ El backend usa Node.js, Express 5, TypeScript, Prisma y PostgreSQL. `src/app.ts`
 
 ## Arranque
 
-- **Desarrollo:** `npm run dev` — TypeScript con watcher sobre `src/server.ts`.
-- **Producción:** `npm run build` && `npm start` — JavaScript compilado (`node dist/server.js`), sin `ts-node-dev`.
+El runtime de desarrollo y el productivo son distintos:
 
-`npm run build` genera Prisma Client en `src/generated/prisma`, compila TypeScript a `dist/` y copia el cliente (JS, runtime y binaries) a `dist/generated/prisma`. El mismo build deja el artefacto del job en `dist/jobs/runExpirations.js`.
+| | Desarrollo | Producción |
+|---|---|---|
+| Comando | `npm run dev` (`ts-node-dev` con watcher sobre `src/server.ts`) | `npm ci` → `npm run build` → `node dist/server.js` (`npm start`) |
+| Docker | `docker-compose.yml`: target `deps` del Dockerfile, código montado por volumen, `npm run dev` | `Backend/Dockerfile`, stage final `runtime` (multi-stage): solo `dist` + dependencias de producción, `NODE_ENV=production`, usuario sin privilegios, `CMD ["node", "dist/server.js"]` |
+
+Que `ts-node-dev` aparezca en `docker-compose.yml` no contradice lo anterior: compose es el entorno de desarrollo, no la imagen productiva.
+
+`npm run build` genera Prisma Client en `src/generated/prisma`, compila TypeScript a `dist/` y copia el cliente (JS, runtime y binaries) a `dist/generated/prisma`. El mismo build deja el artefacto del job en `dist/jobs/runExpirations.js`; la misma imagen sirve para el job cambiando el comando a `node dist/jobs/runExpirations.js`.
+
+**Build de la imagen sin `.env` ni secretos.** El stage `build` corre `npm run build` con `DATABASE_URL` y `DIRECT_URL` **dummy** (sintácticamente válidas) solo en ese comando: `prisma generate` no se conecta a ninguna base, y la imagen se construye desde un repo limpio (el `.env` está excluido por `.dockerignore`). No son secretos, no quedan en `ENV`/`ARG` y ese stage no forma parte de la imagen final. El runtime recibe las URLs reales por entorno; ninguna URL productiva queda horneada en la imagen.
 
 ## Health
 
@@ -19,7 +27,13 @@ El backend usa Node.js, Express 5, TypeScript, Prisma y PostgreSQL. `src/app.ts`
 
 ## Job de expiración
 
-Proceso distinto al web. No sirve HTTP, no usa `PORT` y no importa Express. Contrato productivo: `npm run jobs:expirations:prod` → `node dist/jobs/runExpirations.js`. Ejecuta `expirePromotions` y `expireReservas` una vez, desconecta Prisma y termina con `exitCode` 0 (éxito) o 1 (fallo fatal, incluido error de disconnect). El scheduler concreto (quién dispara el proceso, y con qué cadencia) queda fuera de la aplicación; la cadencia observable actual era aproximadamente horaria (`0 * * * *`) y se preserva como expectativa de infra futura.
+Proceso distinto al web. No sirve HTTP, no usa `PORT` y no importa Express. Contrato productivo: `npm run jobs:expirations:prod` → `node dist/jobs/runExpirations.js`. Ejecuta `expirePromotions`, `expireReservas` y `expirePrioridades` una vez, desconecta Prisma y termina con `exitCode` 0 (éxito) o 1 (fallo fatal, incluido error de disconnect). El scheduler concreto (quién dispara el proceso, y con qué cadencia) queda fuera de la aplicación; la cadencia observable actual era aproximadamente horaria (`0 * * * *`) y se preserva como expectativa de infra futura.
+
+**Prioridades (D3).** `expirePrioridades` delega en `expirePrioridadesVencidas` (`prioridad.service.ts`), la misma operación que el endpoint manual `POST /api/prioridades/jobs/expire`: cada prioridad `ACTIVA` con `fechaFin` vencida pasa a `EXPIRADA` y el lote vuelve a su estado previo si sigue `CON_PRIORIDAD`.
+
+**Una sola prioridad ACTIVA por lote.** La garantiza la base: índice único parcial `Prioridad_loteId_activa_key` (`loteId` donde `estado = ACTIVA`), creado a mano en la migración `20261113120000_prioridad_una_activa_por_lote` porque Prisma 6 no expresa índices parciales (un guard de tests impide que una migración futura lo elimine). De dos altas concurrentes para el mismo lote entra una; la otra responde `409` "Ya existe una prioridad ACTIVA para este lote".
+
+**Transiciones concurrentes.** El alta inserta la prioridad y recién después marca el lote `CON_PRIORIDAD`, con un UPDATE condicionado al estado que validó: si el lote cambió en el medio (reserva, venta), responde `409` y no queda nada. Cancelar, finalizar y expirar escriben condicionadas a que la prioridad siga `ACTIVA` y restauran el lote en la misma transacción con un único UPDATE condicionado a `CON_PRIORIDAD`, sin leer antes. Si dos transiciones compiten (por ejemplo, el job expira mientras un usuario cancela), la segunda no pisa el estado ni vuelve a tocar el lote: el job la omite y cancelar/finalizar responden el mismo `400` que ante una prioridad que no está `ACTIVA`. Una prioridad nueva no puede insertarse mientras el cierre de la anterior no confirme (lo impide el índice), así que un cierre nunca libera un lote que ya tiene otra prioridad activa. Venta y reserva finalizan la prioridad activa con la misma escritura condicionada.
 
 ## Estructura
 
@@ -29,12 +43,14 @@ Proceso distinto al web. No sirve HTTP, no usa `PORT` y no importa Express. Cont
 - `src/validations`: esquemas Zod para body, parámetros y query.
 - `src/middlewares`: JWT, roles, validación, rate limit de login, logs y errores.
 - `src/domain`: reglas/tipos de estados.
-- `src/jobs`: expiración de reservas y promociones.
+- `src/jobs`: expiración de promociones, reservas y prioridades.
 - `prisma`: esquema, migraciones y seeds.
 
 ## Seguridad
 
-Las rutas privadas usan `authenticate` y `authorize`. Los roles son `ADMINISTRADOR`, `GESTOR`, `INMOBILIARIA` y `TECNICO`. Las validaciones ocurren antes del controlador y `handleError` centraliza errores.
+Las rutas privadas usan `authenticate` y `authorize`. Los roles son `ADMINISTRADOR`, `GESTOR`, `INMOBILIARIA` y `TECNICO`. Las validaciones ocurren antes del controlador y `handleError` centraliza errores (ver "Contrato de errores").
+
+Rutas públicas: solo `POST /api/auth/login` y `GET /health`. No existen `POST /api/auth/refresh` ni `GET /api/auth/me`.
 
 ### Autenticación: JWT + identidad vigente desde la DB
 
@@ -44,13 +60,24 @@ El JWT es una **prueba de identidad firmada**; la **DB es la fuente vigente de a
 2. Verifica firma y expiración con `JWT_SECRET`. Token expirado → `401` (`Token expirado`); firma inválida o token malformado → `401` (`Token inválido`).
 3. Obtiene el id de usuario del claim `sub` (o `id`, legacy): debe ser un entero positivo (number o string decimal canónico). Si no lo es → `401` (`Token inválido`).
 4. Relee la identidad con `findAuthIdentity` (`src/services/authIdentity.service.ts`): `id`, `email`, `role` y la inmobiliaria asociada (`User ← Inmobiliaria.userId`). Nunca lee la password.
-5. Usuario inexistente (por ejemplo, eliminado con un JWT todavía vigente) → `401` con el mismo mensaje que un token inválido. Un error de la DB no es un problema de credenciales: va al middleware de errores (`500` genérico).
+5. Usuario inexistente (por ejemplo, eliminado con un JWT todavía vigente) o usuario de una inmobiliaria dada de baja (`estadoOperativo = ELIMINADO`, D1) → `401` con el mismo mensaje que un token inválido. Un error de la DB no es un problema de credenciales: va al middleware de errores (`500` genérico).
 6. Arma `req.user` con el rol y el `inmobiliariaId` **de la DB**. Los claims `role`, `email` e `inmobiliariaId` del token no se usan para autorizar.
 7. `authorize(...roles)` compara contra `req.user.role`.
 
 Consecuencias: un cambio de rol o de inmobiliaria rige desde el siguiente request autenticado, sin esperar a que venza el token, y un usuario eliminado deja de entrar. El costo es una lectura por PK en cada request autenticado. El modelo `User` no tiene un estado activo/inactivo: la única revocación es eliminar al usuario (o esperar el vencimiento del token, `JWT_EXPIRES_IN`, default `2h`).
 
 **Login timing.** Con un email inexistente, `POST /auth/login` igual ejecuta `bcrypt.compare` contra un hash dummy constante del mismo costo (`DUMMY_PASSWORD_HASH`, cost 10, en `auth.service.ts`). Elimina la diferencia trivial de trabajo criptográfico entre "usuario inexistente" y "password incorrecta"; ambos responden `401 Credenciales inválidas`. No pretende ser una garantía absoluta contra la enumeración de usuarios.
+
+### Inmobiliaria dada de baja (D1)
+
+Una inmobiliaria con `estadoOperativo = ELIMINADO` sigue persistida (historial y reactivación), pero:
+
+- Su usuario no puede loguearse: `401 Credenciales inválidas`, la misma respuesta que unas credenciales incorrectas, evaluada después de bcrypt. Un JWT emitido antes de la baja deja de servir en el siguiente request (`authenticate` → `401`).
+- No participa en operaciones nuevas: asociarla al crear o al cambiar `inmobiliariaId` (ventas, reservas, prioridades, personas) responde `409` (`assertInmobiliariaAsignable` / `assertInmobiliariaOperativa`, `src/utils/inmobiliaria.utils.ts`). Los registros históricos que ya la referencian no se tocan.
+- Los listados de inmobiliarias devuelven por defecto solo las `OPERATIVO`.
+- Al reactivarla, su usuario recupera el acceso.
+
+No hay `DELETE /api/inmobiliarias/:id`: la baja es lógica (`PATCH /api/inmobiliarias/:id/eliminar`) y reversible (`/reactivar`).
 
 ### Modelo Bearer-only
 
@@ -62,13 +89,13 @@ No hay cookies de autenticación, ni `Set-Cookie`, ni refresh cookie. El fronten
 
 Como el navegador no adjunta credenciales de forma automática, el CSRF clásico basado en cookies no aplica a este modelo y no hay protección CSRF dedicada.
 
-Código legacy: el frontend conserva un flujo de refresh (`refreshTokens`/`apiRefresh` en `http.js` y `lib/auth/api.js`, la clave `lf_refresh` y las variables `VITE_AUTH_REFRESH_*`) que apunta a `/auth/refresh`, una ruta que el backend **no** expone. No forma parte del runtime exitoso: ante un `401`, el helper intenta ese refresh y, como no hay refresh token, limpia los tokens y redirige a `/login`.
+No hay refresh de sesión ni endpoint de identidad (`/auth/me`): el login devuelve el token y los datos del usuario. Un `401` significa token ausente, vencido o inválido; el helper HTTP del frontend limpia la sesión y redirige a `/login` sin interpretar el texto del body. Al vencer el token (`JWT_EXPIRES_IN`) hay que volver a loguearse.
 
 ### Rate limiting de login
 
 Solo `POST /api/auth/login` (`src/middlewares/loginRateLimit.middleware.ts`, `express-rate-limit` 8.7.3). Va antes de la validación del body, así que también cuentan los intentos con body inválido. No mira el JWT, `req.user` ni el email.
 
-- Ventana de 15 minutos y **10 intentos fallidos** por cliente; el siguiente responde `429` con `{ success: false, code: 'TOO_MANY_REQUESTS', message }` sin llegar al login.
+- Ventana de 15 minutos y **10 intentos fallidos** por cliente; el siguiente (el 11.º) responde `429` con `{ success: false, code: 'TOO_MANY_REQUESTS', message }` sin llegar al login.
 - `skipSuccessfulRequests`: un login exitoso (status < 400) no consume cupo. Una vez bloqueado, la password correcta también recibe `429` hasta que vence la ventana.
 - Headers estándar `RateLimit`/`RateLimit-Policy` (`draft-8`); sin los legacy `X-RateLimit-*`.
 
@@ -79,7 +106,7 @@ Identificación del cliente (sin cambiar el `trust proxy` global de Express):
 - `ipKeyGenerator` normaliza IPv4-mapped a IPv4 y agrupa IPv6 por `/56`.
 - **`X-Forwarded-For` no se usa como key**: Cloudflare agrega entradas en lugar de reemplazarlo, así que su lado izquierdo lo controla quien llama.
 
-Limitaciones: el store es en memoria (`MemoryStore`, por proceso). Alcanza con la única instancia actual; con varias instancias cada una contaría por separado y habría que pasar a un store compartido. El contrato de client IP es específico de Render: al migrar a Cloud Run hay que revalidarlo antes de reutilizarlo.
+Limitaciones: el store es en memoria (`MemoryStore`, por proceso) y se pierde al reiniciar. Alcanza con la única instancia actual; con varias instancias cada una contaría por separado (no hay protección distribuida) y habría que pasar a un store compartido. El contrato de client IP es específico de Render: al migrar a Cloud Run hay que revalidar la IP del cliente, el store compartido y `max-instances` antes de reutilizarlo (Cloud checkpoint, ver `docs/architecture/freeze-pre-cloud.md`).
 
 ### Matriz RBAC: decisiones cerradas
 
@@ -115,11 +142,11 @@ La política se consulta antes de exponer metadata o contenido y antes de cualqu
 - **Detalle, signed URL, sustituir y aprobaciones de un archivo no accesible:** `404`, la misma convención que Files ya usaba con `INMOBILIARIA`; no se revela si el id existe ni qué tipo tiene. En sustituir y aprobaciones, la autorización por tipo va antes que las validaciones de estado y de tipo.
 - **Upload** (`POST /files`) de un tipo no permitido: `403`, antes de consultar la venta o el storage (el tipo lo elige quien llama).
 
-Errores de Files: un error de dominio con `statusCode` 4xx conserva su status y su `{ message }`. Cualquier otro error es inesperado: `500` con un mensaje público fijo (por ejemplo, `Error al obtener archivos`), sin el objeto de error, stack, mensaje interno ni metadata de Prisma o Supabase; el detalle queda solo en el log del servidor.
+Errores de Files: usan el contrato de errores general (`{ success: false, code, message }`). Un error de dominio con `statusCode` 4xx conserva su status y su mensaje. Cualquier otro error es inesperado: `500` con `code: INTERNAL_ERROR` y un mensaje público fijo (por ejemplo, `Error al obtener archivos`), sin el objeto de error, stack, mensaje interno ni metadata de Prisma o Supabase; el detalle queda solo en el log del servidor. Las respuestas exitosas de Files no llevan `success` (ver el registro de deprecations).
 
 ## Validación de requests
 
-Middlewares de `src/middlewares/validation.middleware.ts`; un dato inválido responde `400` con `{ success: false, message: 'Datos inválidos', errors: [{ field, message }] }`.
+Middlewares de `src/middlewares/validation.middleware.ts`; un dato inválido responde `400` con `{ success: false, code: 'VALIDATION_ERROR', message: 'Datos inválidos', errors: [{ field, message }] }`.
 
 Estado final por parte del request:
 
@@ -186,7 +213,7 @@ Se reemplazó `z.coerce.number()`, que usaba `Number()` sobre cualquier valor y 
 
 ### Updates parciales
 
-La convención histórica se mantiene: `PUT` es un update parcial y cada campo es opcional. Un update sin ningún campo válido (`{}` o solo claves desconocidas, que Zod descarta) responde `400` con `Debes enviar al menos un campo para actualizar`. Se evalúa sobre el resultado de Zod (`tieneAlgunCampo` / `ACTUALIZAR_SIN_CAMPOS`, en `body.validation.ts`). No se usa `.strict()`: un body con al menos un campo válido sigue funcionando aunque traiga además claves desconocidas, que se descartan. Aplica a lotes, ventas, usuarios, ubicaciones, personas, fracciones, reservas, prioridades e inmobiliarias.
+La convención histórica se mantiene: `PUT` es un update parcial y cada campo es opcional. Un update sin ningún campo válido (`{}` o solo claves desconocidas, que Zod descarta) responde `400` con `Debes enviar al menos un campo para actualizar`. Se evalúa sobre el resultado de Zod (`tieneAlgunCampo` / `ACTUALIZAR_SIN_CAMPOS`, en `body.validation.ts`). No se usa `.strict()`: un body con al menos un campo válido sigue funcionando aunque traiga además claves desconocidas, que se descartan. Aplica a lotes, ventas, usuarios, personas, fracciones, reservas, prioridades e inmobiliarias.
 
 ### Legacy eliminado
 
@@ -194,6 +221,12 @@ Dejaron de formar parte del API (el schema, la ruta y su controller se eliminaro
 
 - `GET /reservas/filtrarPorEstado`: era inalcanzable, `/:id` la capturaba antes.
 - `PUT /files/:id` (actualización de metadata de archivos).
+- `DELETE /ventas/:id` y `DELETE /reservas/:id`: eran alias de la baja lógica `PATCH /…/:id/eliminar`, que sigue vigente (D2).
+- `DELETE /inmobiliarias/:id`: era un hard delete; D1 exige que la inmobiliaria persista y pueda reactivarse (D2).
+- `POST /ubicaciones`, `PUT /ubicaciones/:id` y `DELETE /ubicaciones/:id`: Ubicaciones es de solo lectura; las ubicaciones se crean y modifican dentro del alta y la edición de lotes (decisión "Ubicaciones B").
+- `registrar-boleto` y `registrar-escritura` de ventas, y `POST /auth/refresh` y `GET /auth/me`: el backend no los expone; el frontend dejó de llamarlos.
+
+Una ruta retirada responde el `404` JSON global.
 - Los filtros de query que ningún service implementaba: lotes (`superficieMin`, `superficieMax`, `fechaCreacionFrom`, `fechaCreacionTo`), reservas (`desde`, `hasta`, `clienteId`, `inmobiliariaId`, `sena`, `fechaFinReservaDesde`, `fechaFinReservaHasta`) y ventas (`compradorId`, `vendedorId`, `fechaVentaFrom`, `fechaVentaTo`, `montoMin`, `montoMax`). Si llegan en la URL se descartan como cualquier clave desconocida.
 - Los schemas sin uso `queryUsuarioSchema`, `queryInmobiliariaSchema`, `fileMetadataSchema` e `identificadorSchema`, y `user.validation.ts`.
 
@@ -207,11 +240,64 @@ Dejaron de formar parte del API (el schema, la ruta y su controller se eliminaro
 - **Archivo inexistente**: `POST /files/:id/restore` y `POST /files/:id/sustituir` responden `404`. Restaurar un archivo que no está eliminado, sustituir uno eliminado o sustituir un tipo no sustituible responden `400`. El status sale del `statusCode` que lanza `file.service`, no del texto del mensaje. En `POST /files/:id/sustituir`, `validateParams` se ejecuta antes que multer.
 - **Promociones**: `aplicar` y `quitar` delegan los errores en el middleware global con `next(error)`; ya no responden de forma manual. Un error con `statusCode` conserva su status y mensaje, `P2002` responde `409`, `P2025` responde `404` y un error inesperado responde `500` genérico sin exponer su mensaje interno. Esos códigos Prisma se reconocen con `instanceof Prisma.PrismaClientKnownRequestError` del cliente generado en `src/generated/prisma`, que es la clase que ese cliente lanza. La clase homónima de `@prisma/client/runtime/library` es otra y no identifica estos errores.
 
-### Deuda conocida de query y errores
+### Listados (D5)
 
-- `personas.limit` no tiene un máximo funcional.
-- Otros catches locales de los controllers (por ejemplo Persona) siguen respondiendo de forma manual y pueden exponer `error.message`; no se unificaron. Files ya no lo hace (ver "Files: acceso por tipo y errores").
-- El middleware global responde con `err.message` para cualquier error que traiga `status` o `statusCode`, incluidos los 5xx.
+- Usuarios y Ubicaciones devuelven el listado completo (sin el `take: 10` anterior); en Ubicaciones `total` es la cantidad devuelta.
+- Personas no trunca si no llega `limit` (el frontend no lo manda) y respeta un `limit` explícito, que no tiene un máximo funcional.
+- Fracciones conserva su tope: el dominio admite como máximo 8.
+- No hay paginación real en el backend (post-Cloud).
+
+### Hard deletes vigentes
+
+Quedan solo los que representan una capacidad real del dominio (D2):
+
+| Endpoint | Guard |
+|---|---|
+| `DELETE /fracciones/:id` | `400` si la fracción tiene lotes. |
+| `DELETE /usuarios/:id` | Solo `ADMINISTRADOR`; es la única forma de revocar el acceso de un usuario. |
+| `DELETE /personas/:id` | Solo `ADMINISTRADOR`; `409` si la persona tiene lotes, alquileres, reservas o ventas, como comprador principal o como co-compradora, o si es titular de un grupo familiar con miembros. Corre en una transacción que bloquea la fila de la persona (`SELECT … FOR UPDATE`) antes de contar: una co-compra o un miembro agregados en paralelo se serializan con ese lock (el borrado los ve y responde `409`, o el alta falla por FK). Así la FK `CASCADE` de co-compras y la `SET NULL` de familia nunca se llevan una relación en silencio. |
+| `DELETE /personas/:id/grupo-familiar/miembros/:miembroId` | `ADMINISTRADOR` y `GESTOR`; mismo borrado transaccional y mismos guards que el anterior. |
+| `DELETE /files/:id/purge` | Solo `ADMINISTRADOR`; borra el registro y el objeto en storage. |
+| `DELETE /lotes/:id` | Solo `ADMINISTRADOR`; solo lotes sin historia ni asociaciones. Con ventas, reservas (y sus ofertas), prioridades, promociones, alquileres o archivos, en cualquier estado → `409` `CONFLICT` sin borrar nada. El chequeo y el borrado corren en una transacción y el lote es lo único que se borra; si aparece una asociación entre ambos, la FK (`RESTRICT`) rechaza el DELETE y se responde el mismo `409`. Storage no se toca. La ubicación no bloquea (FK `SET NULL`): queda sin lote y puede reasignarse con `ubicacionId`. No hay baja lógica de lotes. |
+
+### Grupo familiar (modelo plano)
+
+Una familia tiene un único titular y N miembros directos; una persona pertenece como máximo a una familia. No hay familias anidadas ni ciclos:
+
+- un miembro no puede ser titular: agregarle miembros (`POST /personas/:id/grupo-familiar/miembros`) o elegirlo como `jefeDeFamiliaId` al crear una persona responde `409`;
+- un titular con miembros no puede pasar a ser miembro, y nadie es su propio jefe (regla del helper central `assertJefeDeFamiliaAsignable`);
+- un `jefeDeFamiliaId` inexistente responde `400`;
+- `PUT /personas/:id` no modifica el grupo familiar (`jefeDeFamiliaId` se ignora), así que ninguna persona existente pasa a ser miembro;
+- el borrado de un titular con miembros responde `409`; un miembro se puede borrar si pasa los guards comerciales.
+
+El miembro nuevo hereda la inmobiliaria del titular; si está `ELIMINADO`, `409` (D1).
+
+## Contrato de errores (D4)
+
+Toda respuesta de error usa:
+
+```json
+{ "success": false, "code": "NOT_FOUND", "message": "Texto público" }
+```
+
+- `errors: [{ field, message }]` solo en errores de validación (`code: VALIDATION_ERROR`).
+- `code` por status: `BAD_REQUEST` (400), `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404), `CONFLICT` (409), `PAYLOAD_TOO_LARGE` (413), `TOO_MANY_REQUESTS` (429), `INTERNAL_ERROR` (5xx). Los conflictos de Prisma usan `CONFLICT_UNIQUE` (P2002) y `CONFLICT_FK` (P2003, sin el nombre de la constraint: ese detalle va solo al log saneado); P2025 → `404`.
+- Un error de dominio 4xx conserva su mensaje. Un 5xx, o cualquier error inesperado, responde `Error interno.` (o el mensaje fijo de Files) sin stack, mensaje interno ni metadata de Prisma o Supabase.
+- `error` en los rechazos de `authenticate`/`authorize` repite `message`: es **legacy y deprecated**, se mantiene porque el frontend todavía lo lee.
+- Ruta o método inexistente → `404` `{ success: false, code: 'NOT_FOUND', message: 'Ruta no encontrada' }` (`notFoundHandler`).
+- Body JSON de más de **1 MB** → `413` `PAYLOAD_TOO_LARGE`; JSON mal formado → `400`. Archivos (multipart): hasta 20 MB, el exceso responde `400`.
+
+## Logging
+
+- **Requests:** una línea al terminar la respuesta con método, path, status y duración. Sin query string (puede traer búsquedas con PII). En `NODE_ENV=test` no se loguea.
+- **Errores inesperados:** se loguean saneados (`safeErrorForLog`), nunca el objeto completo. De un error de Prisma se registran nombre, código, metadata estructural y stack, pero no el mensaje (puede traer la query y sus argumentos); de otros errores, el mensaje y el stack con credenciales y tokens redactados.
+- **Prisma:** en producción el cliente solo loguea `warn` (ni queries ni el log `error` propio, que imprime el mensaje crudo). En desarrollo loguea `error`, `warn` y `query`.
+- **Auth:** un JWT rechazado loguea solo el tipo de error, sin el token ni headers.
+- Limitación conocida: los path params siguen en el path logueado (por ejemplo `/api/personas/cuil/:cuil`) y pueden contener PII. Reemplazarlos por la plantilla de la ruta queda post-Cloud.
+
+## Inventario de API y OpenAPI
+
+El contrato congelado son **78 operaciones `/api` + `GET /health` = 79 operaciones**, descriptas en `Backend/documents/documentacionApi.yaml` (OpenAPI 3.0.3, seguridad Bearer por operación y roles en `x-roles`). `tests/unit/openapi/openapi.contract.test.ts` compara la OpenAPI con las rutas montadas en runtime: cada ruta real debe estar documentada y viceversa, con la misma seguridad y los mismos roles que `authenticate`/`authorize`. Agregar, quitar o cambiar los roles de una ruta sin actualizar la OpenAPI rompe la suite.
 
 ## Variables relevantes
 
@@ -223,6 +309,15 @@ Requeridas: `NODE_ENV` (`development` | `test` | `production`), `DATABASE_URL`, 
 
 Defaults: `PORT=3000`, `JWT_EXPIRES_IN=2h`, `SUPABASE_BUCKET=lotes-files`.
 
+Reglas adicionales (el proceso no arranca si no se cumplen):
+
+- `JWT_SECRET`: en `production`, al menos 32 caracteres (HS256). En development/test no se exige largo mínimo.
+- `JWT_EXPIRES_IN`: duración positiva con unidad (`2h`, `30m`, `1d`). Un número sin unidad (`3600`) se rechaza: `jsonwebtoken` lo interpretaría como milisegundos.
+- `FRONTEND_URL`: requerido en `production`; un único origin.
+- `PORT`: entero entre 1 y 65535.
+
+Rotar `JWT_SECRET` invalida todos los JWT emitidos: cada usuario tiene que volver a loguearse.
+
 Carga local: `src/config/loadEnv.ts` lee `Backend/.env` sin sobrescribir variables ya inyectadas (shell, Docker, Cloud). Validación fail-fast en `src/config/bootstrapWeb.ts` antes de `listen`.
 
 Secretos: `DATABASE_URL`, `JWT_SECRET`, `SUPABASE_SERVICE_KEY`. No loguear valores.
@@ -233,7 +328,7 @@ Solo `DATABASE_URL`. Validado al inicio de `runExpirationsCli`. Sin JWT, Supabas
 
 ### Tooling Prisma
 
-`DIRECT_URL` figura en `prisma/schema.prisma` para migraciones y `prisma generate`; no forma parte de JobEnv ni se exige al job en runtime.
+`DIRECT_URL` figura en `prisma/schema.prisma` para `prisma validate` y las migraciones (`prisma migrate dev`, `prisma migrate deploy`); `prisma generate` no la requiere (Prisma 6.18). No forma parte de JobEnv ni se exige al job en runtime.
 
 Nunca publicar valores reales en docs ni en Git.
 

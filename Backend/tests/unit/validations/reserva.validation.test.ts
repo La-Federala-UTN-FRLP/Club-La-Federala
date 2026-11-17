@@ -2,7 +2,6 @@ import {
     createReservaSchema,
     updateReservaSchema,
     getReservaParamsSchema,
-    deleteReservaParamsSchema,
     queryReservasSchema,
     createOfertaSchema,
 } from '../../../src/validations/reserva.validation';
@@ -181,13 +180,6 @@ describe('getReservaParamsSchema', () => {
 
     test('rechaza id no entero', () => {
         expect(getReservaParamsSchema.safeParse({ id: '1.5' }).success).toBe(false);
-    });
-});
-
-describe('deleteReservaParamsSchema', () => {
-    test('comparte reglas con getReservaParamsSchema', () => {
-        expect(deleteReservaParamsSchema.safeParse({ id: '3' }).success).toBe(true);
-        expect(deleteReservaParamsSchema.safeParse({ id: '0' }).success).toBe(false);
     });
 });
 

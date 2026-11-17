@@ -4,15 +4,15 @@
 import { positiveIntString, idParamsSchema, ventaIdParamsSchema } from '../../../src/validations/params.validation';
 import { getLoteSchema, deleteLoteSchema } from '../../../src/validations/lote.validation';
 import { quitarPromocionSchema, getPromocionActivaSchema } from '../../../src/validations/promocion.validation';
-import { getReservaParamsSchema, deleteReservaParamsSchema, patchReservaParamsSchema } from '../../../src/validations/reserva.validation';
-import { getVentaSchema, deleteVentaSchema, patchVentaParamsSchema } from '../../../src/validations/venta.validation';
+import { getReservaParamsSchema, patchReservaParamsSchema } from '../../../src/validations/reserva.validation';
+import { getVentaSchema, patchVentaParamsSchema } from '../../../src/validations/venta.validation';
 import { ventaIdParamSchema } from '../../../src/validations/pago.validation';
 import { getUsuarioSchema, deleteUsuarioSchema } from '../../../src/validations/usuario.validation';
-import { idParamSchema, getInmobiliariaSchema, deleteInmobiliariaSchema } from '../../../src/validations/inmobiliaria.validation';
+import { idParamSchema, getInmobiliariaSchema } from '../../../src/validations/inmobiliaria.validation';
 import { getPrioridadParamsSchema, patchPrioridadParamsSchema } from '../../../src/validations/prioridad.validation';
 import { getPersonaSchema, deletePersonaSchema, miembroFamiliarParamsSchema } from '../../../src/validations/persona.validation';
 import { getFraccionSchema, deleteFraccionSchema } from '../../../src/validations/fraccion.validation';
-import { getUbicacionSchema, deleteUbicacionSchema } from '../../../src/validations/ubicacion.validation';
+import { getUbicacionSchema } from '../../../src/validations/ubicacion.validation';
 import { fileIdParamsSchema, fileVentaParamsSchema, fileLoteParamsSchema } from '../../../src/validations/filemeta.validation';
 import { INVALID_PATH_IDS } from '../../support/http';
 
@@ -53,16 +53,13 @@ describe('schemas de params de los módulos', () => {
         ['quitarPromocionSchema', quitarPromocionSchema],
         ['getPromocionActivaSchema', getPromocionActivaSchema],
         ['getReservaParamsSchema', getReservaParamsSchema],
-        ['deleteReservaParamsSchema', deleteReservaParamsSchema],
         ['patchReservaParamsSchema', patchReservaParamsSchema],
         ['getVentaSchema', getVentaSchema],
-        ['deleteVentaSchema', deleteVentaSchema],
         ['patchVentaParamsSchema', patchVentaParamsSchema],
         ['getUsuarioSchema', getUsuarioSchema],
         ['deleteUsuarioSchema', deleteUsuarioSchema],
         ['idParamSchema (inmobiliarias)', idParamSchema],
         ['getInmobiliariaSchema', getInmobiliariaSchema],
-        ['deleteInmobiliariaSchema', deleteInmobiliariaSchema],
         ['getPrioridadParamsSchema', getPrioridadParamsSchema],
         ['patchPrioridadParamsSchema', patchPrioridadParamsSchema],
         ['getPersonaSchema', getPersonaSchema],
@@ -70,7 +67,6 @@ describe('schemas de params de los módulos', () => {
         ['getFraccionSchema', getFraccionSchema],
         ['deleteFraccionSchema', deleteFraccionSchema],
         ['getUbicacionSchema', getUbicacionSchema],
-        ['deleteUbicacionSchema', deleteUbicacionSchema],
         ['fileIdParamsSchema', fileIdParamsSchema],
     ])('%s es idParamsSchema', (_nombre, schema) => {
         expect(schema).toBe(idParamsSchema);

@@ -512,6 +512,9 @@ model Prioridad {
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
+  // Índice único PARCIAL manual (migración 20261113120000_prioridad_una_activa_por_lote): como máximo
+  // una prioridad ACTIVA por lote, "Prioridad_loteId_activa_key" (loteId) WHERE estado = ACTIVA.
+  // Prisma 6 no lo expresa en el schema; no quitarlo de la base.
   @@index([loteId], name: "idx_prioridad_lote")
   @@index([estado], name: "idx_prioridad_estado")
   @@index([fechaFin], name: "idx_prioridad_fecha_fin")
