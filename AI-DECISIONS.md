@@ -881,6 +881,59 @@ Correcciones de la auditoría adversarial final:
 - `frontend/src/lib/http/http.js`, `lib/auth/api.js`, `lib/auth/token.js`
 - `docs/architecture/backend.md`, `docs/architecture/freeze-pre-cloud.md`
 
+
+### AI-014 — Ejecutor independiente de migraciones Prisma en Cloud Run
+
+**Fecha:** 2026-11-21  
+**Área:** Cloud / Docker / PostgreSQL / Migraciones / Seguridad  
+**Herramientas:** ChatGPT + Docker Desktop + Prisma CLI + Git Bash
+
+#### Problema
+
+La imagen productiva del backend excluye las dependencias de desarrollo, incluida Prisma CLI. El despliegue de staging requiere ejecutar las migraciones SQL mediante un proceso independiente de Express, sin exponer herramientas de administración del esquema en el runtime web.
+
+#### Prompt / intención
+
+Auditar la construcción Docker, las dependencias Prisma y el historial de migraciones. Preparar un ejecutor independiente compatible con Cloud Run Jobs, sin modificar la infraestructura de G1 ni conectarse a bases de datos reales durante las pruebas.
+
+#### Propuesta generada por IA
+
+Agregar una etapa `migrate` al Dockerfile reutilizando `deps`, con `USER node` y el comando `prisma migrate deploy`.
+
+Mantener la etapa `runtime` separada, con sus dependencias de producción y el comando `node dist/server.js`.
+
+#### Validación humana
+
+Se ejecutaron y verificaron:
+
+- Build de la etapa `deps` y Prisma CLI 6.18.0.
+- Presencia del esquema Prisma y archivos SQL.
+- Inspección del índice único parcial de prioridades activas por lote.
+- Build de la etapa `migrate` y ejecución de Prisma como usuario `node`.
+- Reconstrucción de `runtime`, conservando su usuario y comando.
+- Smoke test HTTP del backend productivo con `/health`.
+- `git diff --check` sin errores.
+
+La auditoría de dependencias identificó vulnerabilidades pendientes. Se decidió no actualizar Prisma a una versión mayor dentro de este cambio.
+
+#### Decisión adoptada
+
+- Incorporar la etapa `migrate` sin modificar el runtime web.
+- Ejecutar migraciones mediante Cloud Run Job independiente.
+- Utilizar identidad y credenciales SQL específicas, Secret Manager y conectividad privada.
+- No ejecutar migraciones ni seeds automáticamente durante el arranque de la API.
+- Mantener Prisma 6.18.0.
+- Posponer la ejecución real hasta disponer de PostgreSQL descartable y de la infraestructura G1.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/Dockerfile`
+- `Backend/package.json`
+- `Backend/prisma/schema.prisma`
+- `Backend/prisma/migrations/`
+- Jira CCLF-18
+- Validaciones locales Docker G2.4 y G2.5
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.
