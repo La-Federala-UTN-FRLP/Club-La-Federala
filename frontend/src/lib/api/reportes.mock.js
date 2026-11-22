@@ -1,0 +1,391 @@
+// src/lib/api/reportes.mock.js
+// Datos simulados del módulo Reportes (contrato CCLF-37). TEMPORAL: se borra en la tarea 39.6
+// junto con el import dinámico y la variable VITE_REPORTES_MOCK de reportes.js.
+//
+// - Las tres funciones devuelven la misma forma que `data` de la API real y lanzan el mismo
+//   error 400 (VALIDATION_ERROR) ante parámetros inválidos.
+// - Respetan los filtros y recalculan los totales a partir de las filas filtradas.
+// - Las fechas de las ventas son relativas al día de corte (hoy en Buenos Aires), así que
+//   siempre hay datos en los períodos recientes.
+// - Montos: string decimal con 2 cifras; internamente se suman en centavos enteros.
+
+const DELAY_MS = 400; // para poder ver el estado de carga
+
+const ESTADOS_LOTE = [
+  "OPERATIVO", "ELIMINADO", "ALQUILADO", "CON_PRIORIDAD", "DISPONIBLE",
+  "EN_PROMOCION", "NO_DISPONIBLE", "RESERVADO", "VENDIDO",
+];
+const SUBESTADOS = ["CONSTRUIDO", "NO_CONSTRUIDO", "EN_CONSTRUCCION"];
+const MONEDAS = ["ARS", "USD"];
+const MAX_DIAS_PERIODO = 366;
+const MS_POR_DIA = 86_400_000;
+
+/* ------------------------------ utilidades ------------------------------ */
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Día actual en America/Argentina/Buenos_Aires, YYYY-MM-DD. */
+function fechaCorte() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+const addDays = (ymd, n) => new Date(Date.parse(ymd) + n * MS_POR_DIA).toISOString().slice(0, 10);
+const diasInclusivos = (desde, hasta) => Math.round((Date.parse(hasta) - Date.parse(desde)) / MS_POR_DIA) + 1;
+const toCents = (s) => Math.round(Number(s) * 100);
+const fromCents = (c) => (c / 100).toFixed(2);
+
+const vacio = (v) => v === undefined || v === null || v === "";
+const esFechaValida = (s) =>
+  typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(`${s}T00:00:00Z`).toISOString().slice(0, 10) === s;
+const esIdValido = (v) => /^[1-9]\d*$/.test(String(v));
+
+/** Mismo contrato de error que el validador del backend (400 VALIDATION_ERROR). */
+function validationError(errors) {
+  const response = { success: false, code: "VALIDATION_ERROR", message: "Datos inválidos", errors };
+  const err = new Error(response.message);
+  err.statusCode = 400;
+  err.response = response;
+  return err;
+}
+
+/** Valida `fraccion` (opcional) y devuelve el número, o null si no vino. */
+function parseFraccion(valor, errors) {
+  if (vacio(valor)) return null;
+  if (!esIdValido(valor)) {
+    errors.push({ field: "fraccion", message: "Debe ser un entero positivo" });
+    return null;
+  }
+  return Number(valor);
+}
+
+/* ------------------------------- inventario ------------------------------ */
+// [loteId, fraccion, nro de lote, estado, subestado, precio]
+// Solo LOTE_VENTA. El lote 140 tiene numero y precio nulos (Lote.numero y Lote.precio son
+// anulables en Prisma): la interfaz tiene que tolerarlo.
+const LOTES = [
+  [101, 1, 1, "VENDIDO", "CONSTRUIDO", "92000.00"],
+  [102, 1, 2, "DISPONIBLE", "CONSTRUIDO", "88000.00"],
+  [103, 1, 3, "DISPONIBLE", "NO_CONSTRUIDO", "54000.00"],
+  [104, 1, 4, "VENDIDO", "CONSTRUIDO", "95000.00"],
+  [105, 1, 5, "RESERVADO", "EN_CONSTRUCCION", "61000.00"],
+  [106, 1, 6, "EN_PROMOCION", "NO_CONSTRUIDO", "49500.00"],
+  [108, 1, 8, "VENDIDO", "EN_CONSTRUCCION", "72000.00"],
+  [140, 1, null, "NO_DISPONIBLE", "NO_CONSTRUIDO", null],
+  [120, 2, 41, "VENDIDO", "CONSTRUIDO", "85000.00"],
+  [121, 2, 42, "VENDIDO", "CONSTRUIDO", "87000.00"],
+  [122, 2, 43, "CON_PRIORIDAD", "NO_CONSTRUIDO", "56000.00"],
+  [123, 2, 44, "VENDIDO", "EN_CONSTRUCCION", "78000.00"],
+  [128, 2, 45, "DISPONIBLE", "CONSTRUIDO", "85000.00"],
+  [129, 2, 46, "VENDIDO", "CONSTRUIDO", "79900.00"],
+  [130, 2, 47, "RESERVADO", "CONSTRUIDO", "91000.00"],
+  [131, 2, 48, "ALQUILADO", "CONSTRUIDO", "98000.00"],
+  [150, 3, 101, "DISPONIBLE", "NO_CONSTRUIDO", "43000.00"],
+  [151, 3, 102, "VENDIDO", "NO_CONSTRUIDO", "43500.00"],
+  [152, 3, 103, "VENDIDO", "NO_CONSTRUIDO", "44000.00"],
+  [153, 3, 104, "EN_PROMOCION", "EN_CONSTRUCCION", "52000.00"],
+  [154, 3, 105, "RESERVADO", "NO_CONSTRUIDO", "45000.00"],
+  [155, 3, 106, "NO_DISPONIBLE", "NO_CONSTRUIDO", "46000.00"],
+  [156, 3, 107, "VENDIDO", "CONSTRUIDO", "69000.00"],
+  [157, 3, 108, "DISPONIBLE", "CONSTRUIDO", "71000.00"],
+].map(([loteId, fraccion, nro, estado, subestado, precio]) => ({
+  loteId,
+  fraccion,
+  // Cadena compuesta F<fraccion>-<nro de lote>; null si el lote no tiene número.
+  numero: nro == null ? null : `F${fraccion}-${String(nro).padStart(3, "0")}`,
+  estado,
+  subestado,
+  precio,
+}));
+
+const LOTE_POR_ID = new Map(LOTES.map((l) => [l.loteId, l]));
+
+const ordenEn = (lista, valor) => lista.indexOf(valor);
+
+/** Cuenta filas por `campo` y devuelve [{[campo]: valor, cantidad}] solo con cantidades > 0. */
+function contarPor(filas, campo, comparar) {
+  const cuenta = new Map();
+  filas.forEach((f) => cuenta.set(f[campo], (cuenta.get(f[campo]) ?? 0) + 1));
+  return [...cuenta.entries()]
+    .sort(([a], [b]) => comparar(a, b))
+    .map(([valor, cantidad]) => ({ [campo]: valor, cantidad }));
+}
+
+/**
+ * Inventario de lotes (GET /reportes/inventario).
+ * @param {{fraccion?: number|string, estado?: string, subestado?: string}} [filtros]
+ */
+export async function getInventario({ fraccion, estado, subestado } = {}) {
+  await sleep(DELAY_MS);
+
+  const errors = [];
+  const fraccionId = parseFraccion(fraccion, errors);
+  if (!vacio(estado) && !ESTADOS_LOTE.includes(estado)) {
+    errors.push({ field: "estado", message: `Valor inválido. Opciones: ${ESTADOS_LOTE.join(", ")}` });
+  }
+  if (!vacio(subestado) && !SUBESTADOS.includes(subestado)) {
+    errors.push({ field: "subestado", message: `Valor inválido. Opciones: ${SUBESTADOS.join(", ")}` });
+  }
+  if (errors.length) throw validationError(errors);
+
+  const filas = LOTES
+    .filter((l) => fraccionId == null || l.fraccion === fraccionId)
+    .filter((l) => vacio(estado) || l.estado === estado)
+    .filter((l) => vacio(subestado) || l.subestado === subestado)
+    .sort((a, b) => a.loteId - b.loteId)
+    .map((l) => ({
+      loteId: l.loteId,
+      numero: l.numero,
+      fraccion: l.fraccion,
+      estado: l.estado,
+      subestado: l.subestado,
+      precio: l.precio,
+      enlace: `/?lote=${l.loteId}`,
+    }));
+
+  return {
+    corte: fechaCorte(),
+    totales: {
+      porEstado: contarPor(filas, "estado", (a, b) => ordenEn(ESTADOS_LOTE, a) - ordenEn(ESTADOS_LOTE, b)),
+      porFraccion: contarPor(filas, "fraccion", (a, b) => a - b),
+      porSubestado: contarPor(filas, "subestado", (a, b) => ordenEn(SUBESTADOS, a) - ordenEn(SUBESTADOS, b)),
+      // Ofrecibles: DISPONIBLE o EN_PROMOCION.
+      ofrecibles: filas.filter((f) => f.estado === "DISPONIBLE" || f.estado === "EN_PROMOCION").length,
+    },
+    filas,
+  };
+}
+
+/* --------------------------------- ventas -------------------------------- */
+// [ventaId, numero, loteId, altaHaceDias, escrituraHaceDias, cancelacionHaceDias, estado, montoUSD]
+// Los desplazamientos son días antes del corte (null = sin esa fecha).
+// Las ventas 291-294 son antiguas: solo entran en períodos largos y alimentan las cuotas en ARS.
+const VENTAS = [
+  [291, "CCLF-2025-04", 121, 300, 290, null, "ESCRITURADO", "87000.00"],
+  [292, "CCLF-2025-09", 108, 280, 270, null, "ESCRITURADO", "72000.00"],
+  [293, "CCLF-2025-15", 151, 250, 240, null, "ESCRITURADO", "43500.00"],
+  [294, "CCLF-2025-21", 129, 200, 190, null, "ESCRITURADO", "79900.00"],
+  [301, "CCLF-2026-01", 101, 105, 80, null, "ESCRITURADO", "92000.00"],
+  [302, "CCLF-2026-02", 104, 98, 64, null, "ESCRITURADO", "95000.00"],
+  [303, "CCLF-2026-03", 120, 75, 35, null, "ESCRITURADO", "85000.00"],
+  [304, "CCLF-2026-04", 123, 60, 8, null, "ESCRITURADO", "78000.00"],
+  [305, "CCLF-2026-05", 150, 52, null, 30, "CANCELADA", "43000.00"],
+  [306, "CCLF-2026-06", 156, 44, 12, null, "ESCRITURADO", "69000.00"],
+  [307, "CCLF-2026-07", 152, 40, null, null, "CON_BOLETO", "44000.00"],
+  [308, "CCLF-2026-08", 130, 28, null, null, "CON_BOLETO", "91000.00"],
+  [309, "CCLF-2026-09", 154, 24, null, null, "INICIADA", "45000.00"],
+  [310, "CCLF-2026-10", 102, 18, null, 6, "CANCELADA", "88000.00"],
+  [311, "CCLF-2026-11", 105, 9, null, null, "INICIADA", "61000.00"],
+  [312, "CCLF-2026-12", 103, 22, null, 3, "CANCELADA", "54000.00"],
+  [313, "CCLF-2026-13", 157, 70, null, 55, "CANCELADA", "71000.00"],
+].map(([ventaId, numero, loteId, altaOff, escOff, cancOff, estado, monto]) => ({
+  ventaId, numero, loteId, altaOff, escOff, cancOff, estado, montoCents: toCents(monto),
+}));
+
+const VENTA_POR_ID = new Map(VENTAS.map((v) => [v.ventaId, v]));
+
+/** Ventas con sus fechas absolutas, calculadas contra el día de corte. */
+function ventasHidratadas(corte, fraccionId) {
+  const dia = (off) => (off == null ? null : addDays(corte, -off));
+  return VENTAS
+    .map((v) => {
+      const lote = LOTE_POR_ID.get(v.loteId);
+      return {
+        ventaId: v.ventaId,
+        numero: v.numero,
+        loteId: v.loteId,
+        lote: lote.numero,
+        fraccion: lote.fraccion,
+        fechaAlta: dia(v.altaOff),
+        fechaEscritura: dia(v.escOff),
+        fechaCancelacion: dia(v.cancOff),
+        estado: v.estado,
+        montoCents: v.montoCents,
+      };
+    })
+    .filter((v) => fraccionId == null || v.fraccion === fraccionId);
+}
+
+/**
+ * Ventas por período (GET /reportes/ventas). `desde` y `hasta` obligatorios, desde <= hasta,
+ * máximo 366 días inclusive.
+ * @param {{desde?: string, hasta?: string, fraccion?: number|string}} [filtros]
+ */
+export async function getVentas({ desde, hasta, fraccion } = {}) {
+  await sleep(DELAY_MS);
+
+  const errors = [];
+  const fraccionId = parseFraccion(fraccion, errors);
+  if (!esFechaValida(desde)) errors.push({ field: "desde", message: "Fecha inválida (formato YYYY-MM-DD)" });
+  if (!esFechaValida(hasta)) errors.push({ field: "hasta", message: "Fecha inválida (formato YYYY-MM-DD)" });
+  if (esFechaValida(desde) && esFechaValida(hasta)) {
+    if (desde > hasta) {
+      errors.push({ field: "hasta", message: "`desde` no puede ser posterior a `hasta`" });
+    } else if (diasInclusivos(desde, hasta) > MAX_DIAS_PERIODO) {
+      errors.push({ field: "hasta", message: `El período no puede superar ${MAX_DIAS_PERIODO} días` });
+    }
+  }
+  if (errors.length) throw validationError(errors);
+
+  const corte = fechaCorte();
+  const periodo = { desde, hasta };
+  // Tramo de igual duración que termina el día anterior a `desde`.
+  const dias = diasInclusivos(desde, hasta);
+  const periodoAnterior = { desde: addDays(desde, -dias), hasta: addDays(desde, -1) };
+
+  const ventas = ventasHidratadas(corte, fraccionId);
+  const enPeriodo = (fecha, p) => fecha != null && fecha >= p.desde && fecha <= p.hasta;
+
+  // Cada tarjeta cuenta la venta por su propia fecha: iniciadas por alta, escrituradas por
+  // escritura real y canceladas por cancelación. Una venta puede sumar en más de una tarjeta.
+  const tarjeta = (campoFecha) => {
+    const actuales = ventas.filter((v) => enPeriodo(v[campoFecha], periodo));
+    const anteriores = ventas.filter((v) => enPeriodo(v[campoFecha], periodoAnterior));
+    const suma = (lista) => lista.reduce((acc, v) => acc + v.montoCents, 0);
+    return {
+      cantidad: actuales.length,
+      montoUSD: fromCents(suma(actuales)),
+      cantidadAnterior: anteriores.length,
+      montoUSDAnterior: fromCents(suma(anteriores)),
+    };
+  };
+
+  const filas = ventas
+    .filter((v) =>
+      enPeriodo(v.fechaAlta, periodo) || enPeriodo(v.fechaEscritura, periodo) || enPeriodo(v.fechaCancelacion, periodo))
+    .sort((a, b) => (a.fechaAlta < b.fechaAlta ? 1 : a.fechaAlta > b.fechaAlta ? -1 : b.ventaId - a.ventaId))
+    .map((v) => ({
+      ventaId: v.ventaId,
+      numero: v.numero,
+      loteId: v.loteId,
+      lote: v.lote,
+      fraccion: v.fraccion,
+      fechaAlta: v.fechaAlta,
+      fechaEscritura: v.fechaEscritura,
+      fechaCancelacion: v.fechaCancelacion,
+      estado: v.estado,
+      montoUSD: fromCents(v.montoCents),
+      enlace: `/ventas?openId=${v.ventaId}`,
+    }));
+
+  return {
+    corte,
+    periodo,
+    periodoAnterior,
+    tarjetas: {
+      iniciadas: tarjeta("fechaAlta"),
+      escrituradas: tarjeta("fechaEscritura"),
+      canceladas: tarjeta("fechaCancelacion"),
+    },
+    otrasMonedas: [], // la entidad Venta no tiene moneda: siempre vacío
+    filas,
+  };
+}
+
+/* ----------------------------- cuotas vencidas ---------------------------- */
+// [ventaId, moneda, cantidadCuotas, valorCuota, números de cuota impagas]
+// La cuota n de una venta vence (altaHaceDias - 30 * n) días antes del corte, así que
+// diasAtraso sale de la edad de la venta. La cuota 2 de la venta 304 vence justo el día de
+// corte (60 - 30 * 2 = 0): NO está vencida y por eso no figura en la lista.
+const PLANES = [
+  [301, "USD", 36, "1200.00", [1, 2, 3]],
+  [302, "USD", 36, "1250.00", [1, 2, 3]],
+  [303, "USD", 24, "1500.00", [1, 2]],
+  [304, "USD", 36, "1000.00", [1]],
+  [306, "USD", 24, "900.00", [1]],
+  [307, "USD", 12, "600.00", [1]],
+  [294, "USD", 48, "800.00", [3, 4, 5, 6]],
+  [291, "ARS", 60, "450000.00", [6, 7, 8, 9]],
+  [292, "ARS", 60, "380000.00", [6, 7, 8, 9]],
+  [293, "ARS", 48, "210000.00", [5, 6, 7, 8]],
+];
+
+const TRAMOS = ["1-30", "31-60", "+60"];
+const tramoDe = (diasAtraso) => (diasAtraso <= 30 ? "1-30" : diasAtraso <= 60 ? "31-60" : "+60");
+
+/** Todas las cuotas vencidas de los planes (con ids estables), antes de filtrar. */
+function cuotasVencidas() {
+  let cuotaId = 900;
+  const filas = [];
+  PLANES.forEach(([ventaId, moneda, cantidadCuotas, valor, impagas]) => {
+    const venta = VENTA_POR_ID.get(ventaId);
+    const lote = LOTE_POR_ID.get(venta.loteId);
+    const valorCents = toCents(valor);
+    impagas.forEach((numeroCuota) => {
+      const diasAtraso = venta.altaOff - 30 * numeroCuota;
+      // Saldo = cuota + recargo por mora (0,15 % por día de atraso).
+      const saldoCents = valorCents + Math.round((valorCents * diasAtraso * 15) / 10000);
+      filas.push({
+        cuotaId: cuotaId++,
+        moneda,
+        ventaId,
+        ventaNumero: venta.numero,
+        loteId: venta.loteId,
+        lote: lote.numero,
+        fraccion: lote.fraccion,
+        numeroCuota,
+        cantidadCuotas,
+        diasAtraso,
+        saldoCents,
+      });
+    });
+  });
+  return filas;
+}
+
+/**
+ * Cuotas vencidas (GET /reportes/cuotas-vencidas). `moneda` obligatoria: ARS y USD no se mezclan.
+ * @param {{moneda?: "ARS"|"USD", fraccion?: number|string}} [filtros]
+ */
+export async function getCuotasVencidas({ moneda, fraccion } = {}) {
+  await sleep(DELAY_MS);
+
+  const errors = [];
+  const fraccionId = parseFraccion(fraccion, errors);
+  if (vacio(moneda)) {
+    errors.push({ field: "moneda", message: "La moneda es obligatoria (ARS o USD)" });
+  } else if (!MONEDAS.includes(moneda)) {
+    errors.push({ field: "moneda", message: `Valor inválido. Opciones: ${MONEDAS.join(", ")}` });
+  }
+  if (errors.length) throw validationError(errors);
+
+  const corte = fechaCorte();
+  const seleccion = cuotasVencidas()
+    .filter((c) => c.moneda === moneda)
+    .filter((c) => fraccionId == null || c.fraccion === fraccionId)
+    .sort((a, b) => b.diasAtraso - a.diasAtraso || a.cuotaId - b.cuotaId);
+
+  const total = (lista) => lista.reduce((acc, c) => acc + c.saldoCents, 0);
+
+  return {
+    corte,
+    moneda,
+    saldoVencido: fromCents(total(seleccion)),
+    cuotas: seleccion.length,
+    ventas: new Set(seleccion.map((c) => c.ventaId)).size,
+    // Siempre los tres tramos, aunque alguno quede en cero.
+    tramos: TRAMOS.map((tramo) => {
+      const delTramo = seleccion.filter((c) => tramoDe(c.diasAtraso) === tramo);
+      return { tramo, cuotas: delTramo.length, saldo: fromCents(total(delTramo)) };
+    }),
+    filas: seleccion.map((c) => ({
+      cuotaId: c.cuotaId,
+      ventaId: c.ventaId,
+      ventaNumero: c.ventaNumero,
+      loteId: c.loteId,
+      lote: c.lote,
+      fraccion: c.fraccion,
+      numeroCuota: c.numeroCuota,
+      cantidadCuotas: c.cantidadCuotas,
+      fechaVencimiento: addDays(corte, -c.diasAtraso),
+      diasAtraso: c.diasAtraso,
+      tramo: tramoDe(c.diasAtraso),
+      saldoPendiente: fromCents(c.saldoCents),
+      enlace: `/ventas/${c.ventaId}/pagos`,
+    })),
+  };
+}
