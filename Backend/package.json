@@ -20,6 +20,7 @@
     "seed:core": "npx ts-node --transpile-only prisma/seeds/seed.users_inmobiliarias.ts",
     "seed:personas": "npx ts-node --transpile-only prisma/seeds/seed-personas.ts",
     "seed:lrv": "npx ts-node --transpile-only prisma/seeds/seed.lotes_reservas_ventas.ts",
+    "seed:qa": "npx ts-node --transpile-only prisma/seeds/seed.qa.ts",
     "jobs:expirations": "npx ts-node --transpile-only src/jobs/runExpirations.ts",
     "jobs:expirations:prod": "node dist/jobs/runExpirations.js"
   },
