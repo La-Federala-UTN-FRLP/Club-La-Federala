@@ -881,6 +881,57 @@ Correcciones de la auditoría adversarial final:
 - `frontend/src/lib/http/http.js`, `lib/auth/api.js`, `lib/auth/token.js`
 - `docs/architecture/backend.md`, `docs/architecture/freeze-pre-cloud.md`
 
+### AI-014 — Entorno QA local y verificación automática de permisos
+
+**Fecha:** 2026-11-21
+**Área:** QA / Testing / Seguridad
+**Herramientas:** Claude Code
+
+#### Problema
+
+La Guía de QA funcional 2026 (341 casos) requería un ambiente para ejecutar casos destructivos y de permisos. El único `Backend/.env` disponible apunta a la base Supabase remota y compartida con el equipo, que no debe usarse para QA. Los seeds existentes no alcanzaban para los casos de la guía: faltaban cuentas por rol y una segunda inmobiliaria, reservas por estado y por tenant, pagos, archivos y datos vencidos para el job. Además, `seed:lrv` no es idempotente. Los casos de permisos, aislamiento y sesión se verificaban a mano.
+
+#### Prompt / intención
+
+Montar un entorno QA local y descartable (PostgreSQL 16 en Docker, migraciones, datos de prueba) sin tocar la base compartida ni el código congelado (`src/`, schema, migraciones, seeds existentes). Automatizar por HTTP los casos de permisos, aislamiento multi-tenant y sesión, con resultados por ID de caso para la planilla de QA, restaurando los datos modificados y sin registrar secretos.
+
+#### Propuesta generada por IA
+
+- Contenedor `federala-qa-db` (`postgres:16`, `127.0.0.1:5433`, volumen propio) sin modificar `docker-compose.yml`; `Backend/.env.qa` con secretos aleatorios y `Backend/.env.qa.example` sin secretos.
+- `seed.qa.ts` idempotente por claves naturales, con guard que aborta si `DATABASE_URL` no es local, y modo `--base` que corre los seeds existentes después del guard (`seed:lrv` solo si falta la Fracción 3).
+- `api-permisos.qa.ts`: `fetch` nativo, Prisma solo para IDs, verificación de no escritura y restauración; rate limit al final; CSV `ID;Estado;Ambiente;Hallazgo;Evidencia` y reporte Markdown.
+- Storage desactivado (valores dummy de `SUPABASE_*`) para no escribir en el bucket compartido, cuyas rutas `lote-{id}` coinciden con los IDs locales.
+
+#### Validación humana
+
+- Se revisaron los resultados contra la Guía de QA funcional 2026: se corrigió el mapeo de ADM-07, ADM-16, GEN-10 y GEN-11 (la IA no tenía la guía) y se confirmaron ADM-05 y ACC-03.
+- LOT-03: la IA lo dejaba sujeto a confirmación de producto; se reclasificó como FAIL P0 porque la guía lo define como Base E y expone datos personales y de otra inmobiliaria.
+- Se validó desactivar Storage en QA para no pisar archivos del bucket compartido.
+- Verificación manual en el navegador contra el entorno QA: el frontend apunta al backend QA (:3001); datos sembrados visibles; ACC-02, ACC-07 y ACC-10 coinciden con lo esperado; aislamiento de reservas A/B confirmado en pantalla; LOT-03 reproducido inspeccionando la respuesta de la API como Inmobiliaria A.
+- Se revisó que la evidencia no contenga tokens ni contraseñas y que `Backend/.env.qa` no se versione.
+- Se decidió separar el trabajo en 3 PRs para revisión independiente.
+
+#### Decisión adoptada
+
+Se adopta el entorno QA local descartable (`seed:qa`) y el chequeo automático (`qa:api`) como base para CCLF-28 y CCLF-29. LOT-03 se registra como bug P0 abierto, a corregir en un PR separado coordinado con el equipo.
+
+#### Resultado
+
+- 69 migraciones aplicadas; índice `Prioridad_loteId_activa_key` verificado.
+- `seed:qa` corrido dos veces con conteos idénticos: 7 cuentas QA, 2 inmobiliarias, 10 personas, 29 lotes, 11 reservas, 4 prioridades, 5 ventas, 2 planes con 3 cuotas, 6 archivos (metadata). El job de expiraciones expiró 1 reserva, 1 promoción y 1 prioridad sembradas.
+- `qa:api`: 38 casos, 106 subcasos; 37 PASS, 1 FAIL, 0 BLOCKED. FAIL P0 en LOT-03 (Base E): `GET /api/lotes` como INMOBILIARIA incluye lotes NO_DISPONIBLE, `deuda`, documentos de propietario e inquilino y la prioridad de otra inmobiliaria; `GET /api/lotes/:id` de un lote NO_DISPONIBLE responde 200. Restauración verificada.
+- Backend: typecheck PASS; 82 suites, 3145 tests PASS; `git diff --check` PASS.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/.env.qa.example`
+- `Backend/package.json`
+- `Backend/prisma/seeds/seed.qa.ts`
+- `Backend/scripts/qa/api-permisos.qa.ts`
+- `docs/qa/preparacion-entorno-qa.md`
+- `docs/qa/resultados/api-permisos-2026-11-21.csv`, `docs/qa/resultados/api-permisos-2026-11-21.md`
+- `AI-DECISIONS.md`
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.
