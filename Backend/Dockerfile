@@ -41,6 +41,12 @@ RUN rm -rf src/generated \
 FROM build AS prod-deps
 RUN npm prune --omit=dev
 
+# Ejecuta migraciones Prisma como Cloud Run Job independiente.
+# Incluye Prisma CLI, schema y migrations.
+FROM deps AS migrate
+USER node
+CMD ["./node_modules/.bin/prisma", "migrate", "deploy"]
+
 FROM base AS runtime
 ENV NODE_ENV=production
 COPY --from=prod-deps --chown=node:node /app/package.json /app/package-lock.json ./
