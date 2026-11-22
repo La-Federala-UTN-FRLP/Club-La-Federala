@@ -14,6 +14,7 @@ import {personaRoutes} from "./routes/persona.routes";
 import { fraccionRoutes } from './routes/fraccion.routes';
 import { ubicacionRoutes } from './routes/ubicacion.routes';
 import { prioridadRoutes } from './routes/prioridad.routes';
+import { reporteRoutes } from './routes/reportes.routes';
 
 const app = express();
 
@@ -73,6 +74,7 @@ export const apiRouters = [
   ['/api/fracciones', fraccionRoutes],
   ['/api/ubicaciones', ubicacionRoutes],
   ['/api/prioridades', prioridadRoutes],
+  ['/api/reportes', reporteRoutes],
 ] as const;
 
 for (const [prefix, router] of apiRouters) {

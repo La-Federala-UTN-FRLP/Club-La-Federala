@@ -4,7 +4,7 @@ info:
   version: 1.0.14
   description: >-
     API del backend de CCLF: lotes, promociones, reservas, ventas, pagos, prioridades, personas,
-    inmobiliarias, usuarios, archivos, fracciones y ubicaciones.
+    inmobiliarias, usuarios, archivos, fracciones, ubicaciones y reportes.
 
 
     **Autenticación.** JWT en el header `Authorization: Bearer <token>`, obtenido con
@@ -62,6 +62,8 @@ tags:
     description: >-
       Solo lectura. Las ubicaciones se crean y modifican dentro del alta y la edición de lotes
       (`calle` + `numeroCalle`, o `ubicacionId`).
+  - name: Reportes
+    description: Reportes de gestión (inventario, ventas por período, cuotas vencidas). Solo staff.
 
 paths:
   # ============================================================ HEALTH
@@ -2219,6 +2221,130 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalError' }
 
+  # ============================================================ REPORTES
+  /reportes/inventario:
+    get:
+      tags: [Reportes]
+      operationId: reporteInventario
+      summary: Reporte de inventario de lotes
+      description: >-
+        Conteos por estado, fracción y subestado, ofrecibles y filas al corte (día actual en
+        America/Argentina/Buenos_Aires).
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: fraccion, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
+        - { name: estado, in: query, schema: { $ref: '#/components/schemas/EstadoLote' } }
+        - { name: subestado, in: query, schema: { $ref: '#/components/schemas/SubestadoLote' } }
+      responses:
+        '200':
+          description: Reporte de inventario
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReporteInventarioResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /reportes/inventario.xlsx:
+    get:
+      tags: [Reportes]
+      operationId: exportarReporteInventario
+      summary: Exportar reporte de inventario a Excel
+      description: Mismos filtros que el reporte JSON. La exportación todavía no está disponible (501).
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: fraccion, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
+        - { name: estado, in: query, schema: { $ref: '#/components/schemas/EstadoLote' } }
+        - { name: subestado, in: query, schema: { $ref: '#/components/schemas/SubestadoLote' } }
+      responses:
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '501': { $ref: '#/components/responses/ExportacionPendiente' }
+  /reportes/ventas:
+    get:
+      tags: [Reportes]
+      operationId: reporteVentas
+      summary: Reporte de ventas por período
+      description: >-
+        Período obligatorio con `desde` <= `hasta` y como máximo 366 días (ambos extremos incluidos).
+        `periodoAnterior` es el tramo de igual duración que termina el día anterior a `desde`.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: desde, in: query, required: true, schema: { type: string, format: date } }
+        - { name: hasta, in: query, required: true, schema: { type: string, format: date } }
+        - { name: fraccion, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
+      responses:
+        '200':
+          description: Reporte de ventas
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReporteVentasResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /reportes/ventas.xlsx:
+    get:
+      tags: [Reportes]
+      operationId: exportarReporteVentas
+      summary: Exportar reporte de ventas a Excel
+      description: Mismos parámetros y validaciones que el reporte JSON. La exportación todavía no está disponible (501).
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: desde, in: query, required: true, schema: { type: string, format: date } }
+        - { name: hasta, in: query, required: true, schema: { type: string, format: date } }
+        - { name: fraccion, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
+      responses:
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '501': { $ref: '#/components/responses/ExportacionPendiente' }
+  /reportes/cuotas-vencidas:
+    get:
+      tags: [Reportes]
+      operationId: reporteCuotasVencidas
+      summary: Reporte de cuotas vencidas
+      description: Saldo vencido al corte en una sola moneda (`moneda` obligatoria; ARS y USD no se mezclan).
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: moneda, in: query, required: true, schema: { $ref: '#/components/schemas/Moneda' } }
+        - { name: fraccion, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
+      responses:
+        '200':
+          description: Reporte de cuotas vencidas
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReporteCuotasVencidasResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /reportes/cuotas-vencidas.xlsx:
+    get:
+      tags: [Reportes]
+      operationId: exportarReporteCuotasVencidas
+      summary: Exportar reporte de cuotas vencidas a Excel
+      description: Mismos parámetros y validaciones que el reporte JSON. La exportación todavía no está disponible (501).
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: moneda, in: query, required: true, schema: { $ref: '#/components/schemas/Moneda' } }
+        - { name: fraccion, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
+      responses:
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '501': { $ref: '#/components/responses/ExportacionPendiente' }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2317,6 +2443,13 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
           example: { success: false, code: INTERNAL_ERROR, message: Error al subir archivo }
+
+    ExportacionPendiente:
+      description: Exportación a Excel todavía no implementada.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example: { success: false, code: INTERNAL_ERROR, message: Exportación pendiente (CCLF-56) }
 
   schemas:
     # ------------------------------------------------------------ Errores
@@ -3289,3 +3422,79 @@ components:
         id: { type: integer }
         calle: { $ref: '#/components/schemas/CalleUbicacion' }
         numero: { type: integer }
+
+    # ------------------------------------------------------------ Reportes
+    FechaCorte:
+      type: string
+      format: date
+      description: Día de corte en America/Argentina/Buenos_Aires (YYYY-MM-DD).
+    PeriodoReporte:
+      type: object
+      required: [desde, hasta]
+      properties:
+        desde: { type: string, format: date }
+        hasta: { type: string, format: date }
+    TarjetaVentas:
+      type: object
+      required: [cantidad, montoUSD, cantidadAnterior, montoUSDAnterior]
+      properties:
+        cantidad: { type: integer }
+        montoUSD: { $ref: '#/components/schemas/Decimal' }
+        cantidadAnterior: { type: integer }
+        montoUSDAnterior: { $ref: '#/components/schemas/Decimal' }
+    ReporteInventarioResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, enum: [true] }
+        data:
+          type: object
+          required: [corte, totales, filas]
+          properties:
+            corte: { $ref: '#/components/schemas/FechaCorte' }
+            totales:
+              type: object
+              required: [porEstado, porFraccion, porSubestado, ofrecibles]
+              properties:
+                porEstado: { type: array, items: { type: object } }
+                porFraccion: { type: array, items: { type: object } }
+                porSubestado: { type: array, items: { type: object } }
+                ofrecibles: { type: integer }
+            filas: { type: array, items: { type: object } }
+    ReporteVentasResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, enum: [true] }
+        data:
+          type: object
+          required: [corte, periodo, periodoAnterior, tarjetas, otrasMonedas, filas]
+          properties:
+            corte: { $ref: '#/components/schemas/FechaCorte' }
+            periodo: { $ref: '#/components/schemas/PeriodoReporte' }
+            periodoAnterior: { $ref: '#/components/schemas/PeriodoReporte' }
+            tarjetas:
+              type: object
+              required: [iniciadas, escrituradas, canceladas]
+              properties:
+                iniciadas: { $ref: '#/components/schemas/TarjetaVentas' }
+                escrituradas: { $ref: '#/components/schemas/TarjetaVentas' }
+                canceladas: { $ref: '#/components/schemas/TarjetaVentas' }
+            otrasMonedas: { type: array, items: { type: object } }
+            filas: { type: array, items: { type: object } }
+    ReporteCuotasVencidasResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, enum: [true] }
+        data:
+          type: object
+          required: [corte, moneda, saldoVencido, cuotas, ventas, tramos, filas]
+          properties:
+            corte: { $ref: '#/components/schemas/FechaCorte' }
+            moneda: { $ref: '#/components/schemas/Moneda' }
+            saldoVencido: { $ref: '#/components/schemas/Decimal' }
+            cuotas: { type: integer }
+            ventas: { type: integer }
+            tramos: { type: array, items: { type: object } }
+            filas: { type: array, items: { type: object } }

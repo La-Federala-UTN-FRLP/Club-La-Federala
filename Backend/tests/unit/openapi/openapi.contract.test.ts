@@ -128,8 +128,8 @@ describe('OpenAPI — inventario vs rutas reales', () => {
         expect(documented).toEqual(real);
     });
 
-    test('el freeze cubre 78 operaciones /api más GET /health', () => {
-        expect(REAL.filter((r) => r.key.includes(' /api/'))).toHaveLength(78);
+    test('el freeze cubre 84 operaciones /api más GET /health', () => {
+        expect(REAL.filter((r) => r.key.includes(' /api/'))).toHaveLength(84);
         expect(REAL.map((r) => r.key)).toContain('GET /health');
     });
 
