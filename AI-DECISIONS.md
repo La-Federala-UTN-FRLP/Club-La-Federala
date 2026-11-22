@@ -985,6 +985,60 @@ La auditoría de dependencias identificó vulnerabilidades pendientes. Se decidi
 - Jira CCLF-18
 - Validaciones locales Docker G2.4 y G2.5
 
+
+### AI-016 — Router `/api/reportes` con permisos y validación de query
+
+**Fecha:** 2026-11-22  
+**Área:** Backend / API / Autorización / Validación / OpenAPI  
+**Herramientas:** Claude Code (VS Code)
+
+#### Problema
+
+El módulo Reportes + IA (CCLF-38) necesitaba un punto de partida común antes de implementar cada reporte: rutas montadas, acceso restringido a staff, validación de filtros y contrato de respuesta fijo, para que las subtareas 38.2 a 38.5 completen la lógica sin rehacer rutas, permisos ni OpenAPI.
+
+#### Prompt / intención
+
+Implementar la subtarea 38.1 (CCLF-52) siguiendo las convenciones de los routers existentes: router `/api/reportes` con `authenticate` + `authorize(ADMINISTRADOR, GESTOR)`, 6 operaciones GET (inventario, ventas y cuotas vencidas, cada una en JSON y `.xlsx`), schemas Zod de query, controladores con la forma final del contrato y datos vacíos, servicios vacíos, `.xlsx` con 501, y tests de permisos y validación (REP-A3). Sin cálculos, sin frontend, sin `POST /api/reportes/resumen`, sin commits ni PR.
+
+#### Propuesta generada por IA
+
+- Aplicar los permisos en cada ruta con un arreglo compartido (`soloStaff`) en lugar de `router.use`: el guard de arquitectura prohíbe `router.use` en los archivos de rutas, y el test de paridad de OpenAPI lee `authenticate` y `x-roles` de la cadena de cada ruta.
+- Validar `estado` y `subestado` con los enums de Prisma (`EstadoLote`, `SubestadoLote`), `moneda` con `Moneda` y `fraccion` como id con la política común (`positiveIntString`).
+- Fechas `desde`/`hasta` en formato YYYY-MM-DD; rango máximo de 366 días contando ambos extremos; `periodoAnterior` como tramo de igual duración que termina el día anterior a `desde`.
+- `corte` calculado como el día actual en America/Argentina/Buenos_Aires.
+- Responder el 501 de las `.xlsx` desde el controller con `errorCodeForStatus(501)` (`INTERNAL_ERROR`), porque el proyecto no tiene `NOT_IMPLEMENTED` y `handleError` reemplaza el mensaje de todo status >= 500.
+- Documentar las 6 operaciones mínimas en la OpenAPI y actualizar el conteo del freeze de 78 a 84 operaciones.
+
+#### Validación humana
+
+- El alcance, las restricciones y la forma del contrato de cada reporte los fijó la persona responsable de la tarea antes de la implementación (incluido el uso de los enums de Prisma y el criterio para el 501).
+- Se revisó el código generado y se ajustó el comentario de `reportes.routes.ts`.
+- Se ejecutaron `npm run typecheck` y `npx jest`: 83 suites y 3227 tests en verde. La línea base previa (82 suites, 3145 tests) también estaba verde.
+- Para correr la suite en Windows se usó `PRISMA_QUERY_ENGINE_LIBRARY` apuntando al engine de Windows de `node_modules`, porque el cliente Prisma generado localmente solo trae engines de Linux. No se modificó código ni archivos versionados por ese motivo.
+- La revisión cruzada queda a cargo del PR.
+
+#### Decisión adoptada
+
+- Router `/api/reportes` solo para ADMINISTRADOR y GESTOR, con permisos declarados en cada ruta.
+- Contrato de respuesta fijado con datos vacíos; la lógica queda para 38.2 (inventario), 38.3 (ventas) y 38.4 (cuotas vencidas).
+- Exportación `.xlsx` con 501 `INTERNAL_ERROR` y mensaje "Exportación pendiente (CCLF-56)" hasta 38.5. Un código propio `NOT_IMPLEMENTED` queda como posible mejora, sin adoptar.
+- Ejemplos completos de la OpenAPI y `AI_UNAVAILABLE` quedan para 38.7 (CCLF-58).
+- `POST /api/reportes/resumen` queda fuera de alcance (40.3).
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/routes/reportes.routes.ts`
+- `Backend/src/controllers/reporte.controller.ts`
+- `Backend/src/services/reporte.service.ts`
+- `Backend/src/validations/reporte.validation.ts`
+- `Backend/src/app.ts`
+- `Backend/tests/unit/routes/reportes.permisos.routes.test.ts`
+- `Backend/tests/unit/openapi/openapi.contract.test.ts`
+- `Backend/documents/documentacionApi.yaml`
+- `Backend/README.md`
+- Jira CCLF-52
+- `AI-DECISIONS.md`
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.
