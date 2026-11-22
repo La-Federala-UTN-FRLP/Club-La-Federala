@@ -1,6 +1,13 @@
 // REP-A3 (CCLF-52, subtarea 38.1): router /api/reportes con permisos y validación de query.
-// Solo staff (ADMINISTRADOR, GESTOR); las rutas JSON responden la forma final del contrato con
-// datos vacíos y las .xlsx responden 501 hasta 38.5 (CCLF-56).
+// Solo staff (ADMINISTRADOR, GESTOR); las rutas JSON responden la forma final del contrato y las
+// .xlsx responden 501 hasta 38.5 (CCLF-56).
+// Inventario consulta la base desde 38.2 (CCLF-53): acá corre contra el fake de Prisma vacío.
+// El contrato con datos está en reportes.inventario.routes.test.ts.
+jest.mock('../../../src/config/prisma', () => ({
+    __esModule: true,
+    default: require('../../support/fakes/loteInventario.fake').crearPrismaInventarioFake(),
+}));
+
 import request from 'supertest';
 import app from '../../../src/app';
 import { authHeader, useTestWebEnv } from '../../support/http';
@@ -43,7 +50,7 @@ describe('GET /api/reportes — autenticación y roles', () => {
 });
 
 describe.each(['ADMINISTRADOR', 'GESTOR'])('GET /api/reportes — %s', (rol) => {
-    test('inventario → 200 con la forma del contrato', async () => {
+    test('inventario con la base vacía → 200 con la forma del contrato', async () => {
         const res = await request(app).get('/api/reportes/inventario').set(authHeader(rol));
         expect(res.status).toBe(200);
         expect(res.body).toEqual({
