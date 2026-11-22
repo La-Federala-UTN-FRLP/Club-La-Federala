@@ -11,7 +11,7 @@ Se implementa con **Node.js + TypeScript + Prisma ORM**, siguiendo una arquitect
 Carpeta utilizada para almacenar documentos de referencia relacionados al proyecto.
 - `MetodosDashboard.jpeg` / `MetodosSidePanel.jpeg`: capturas de interfaz y propuestas de diseño.
 - `RelevamientoAPIs-Backend.pdf`: documento de relevamiento de APIs.
-- `documentacionApi.yaml`: **contrato de la API** (OpenAPI 3.0.3): 78 operaciones `/api` + `GET /health`. `tests/unit/openapi/openapi.contract.test.ts` verifica que coincida con las rutas reales, su seguridad y sus roles.
+- `documentacionApi.yaml`: **contrato de la API** (OpenAPI 3.0.3): 84 operaciones `/api` + `GET /health`. `tests/unit/openapi/openapi.contract.test.ts` verifica que coincida con las rutas reales, su seguridad y sus roles.
 
 ### `link a Documentacion API en Swagger`[https://app.swaggerhub.com/apis-docs/clubdecampolf/api-club-de-campo-la-federala/1.0.12]
 
