@@ -1039,7 +1039,58 @@ Implementar la subtarea 38.1 (CCLF-52) siguiendo las convenciones de los routers
 - Jira CCLF-52
 - `AI-DECISIONS.md`
 
-### AI-017 — Pantalla base de Reportes (frontend) con cliente HTTP y datos simulados
+
+### AI-017 — Reporte de inventario de lotes
+
+**Fecha:** 2026-11-22  
+**Área:** Backend / Reportes / Prisma / Tests  
+**Herramientas:** Claude Code (VS Code)
+
+#### Problema
+
+`GET /api/reportes/inventario` respondía la forma del contrato con datos vacíos desde 38.1 (AI-016). Faltaba calcular la foto actual del inventario de lotes en venta (totales por estado, fracción y subestado, ofrecibles y filas), con los filtros ya validados, y tipar el contrato que hasta entonces usaba `unknown[]`. Además, el ejemplo de CCLF-37 no coincidía en todo con el schema de Prisma.
+
+#### Prompt / intención
+
+Implementar la subtarea 38.2 (CCLF-53) solo para el inventario: universo `LOTE_VENTA` sin lotes dados de baja, foto al momento de la consulta, filtros `fraccion`, `estado` y `subestado` aplicados por igual a totales y filas, ofrecible = `DISPONIBLE` o `EN_PROMOCION`, precio como string con 2 decimales o `null`, totales con `groupBy` y filas con un único `findMany` (sin N+1), orden fijo de filas y totales, e interfaces tipadas según el ejemplo de CCLF-37. Tests REP-A4 con conteo manual sobre un set controlado y un test de contrato HTTP con datos. Sin tocar ventas, cuotas vencidas, `.xlsx`, rutas, permisos ni frontend; sin commits ni PR.
+
+#### Propuesta generada por IA
+
+- Usar un solo `groupBy` por `[fraccionId, estado]` para obtener `porEstado`, `porFraccion` (cantidad y ofrecibles) y el total de ofrecibles; un `groupBy` por `subestado`; y un `findMany` que trae el número de fracción por relación. Las 3 consultas corren en paralelo con `Promise.all`, sin transacción.
+- `Lote` no tiene baja lógica (`deleteLote` borra el registro), pero el enum `EstadoLote` conserva `ELIMINADO` y `OPERATIVO` de una migración anterior. Se excluye `ELIMINADO` del universo por precaución; `OPERATIVO` no se excluye y aparece en `porEstado` si existe.
+- Ajustar el contrato al schema: `numero` como `number | null` (`Lote.numero` es `Int?`) en lugar del texto "F2-045"; `fraccion` como número de fracción y `fraccionId` agregado; `subestado` no nulo; `precio` sin moneda porque `Lote` no tiene ese campo.
+- Mantener `enlace` como `/?lote=<id>` según CCLF-37, aunque el frontend todavía no maneja ese parámetro (existen `/?editLotId=<id>` y `/map?mapId=`).
+- Ordenar filas por número de fracción, número de lote (sin número al final) e id; `porEstado` y `porSubestado` en el orden del enum; `porFraccion` por número de fracción.
+- Testear con un fake del delegate `lote` que evalúa el `where`, el `groupBy` y el `orderBy` del service sobre un set fijo y falla ante cualquier forma de consulta no prevista, en vez de devolver resultados armados a mano.
+
+#### Validación humana
+
+- El alcance, las reglas del reporte y el formato del contrato los fijó la persona responsable de la tarea antes de la implementación.
+- Se revisaron el código y las diferencias con CCLF-37 antes de aceptarlas.
+- Se ejecutaron `npm run typecheck` y `npx jest`: 85 suites y 3250 tests en verde, con `PRISMA_QUERY_ENGINE_LIBRARY` apuntando al engine de Windows (igual que en AI-016, sin modificar archivos).
+- Se corrió `npm run test:integration` contra una base PostgreSQL descartable: 2 suites y 18 tests en verde. Esas suites no cubren el inventario; la consulta contra PostgreSQL se valida con prueba manual del endpoint.
+- La revisión cruzada queda a cargo del PR.
+
+#### Decisión adoptada
+
+- Inventario calculado en la base con 2 `groupBy` y 1 `findMany`, sin consultas por fila.
+- Lotes en estado `ELIMINADO` fuera del inventario; `OPERATIVO` se informa tal cual.
+- Contrato tipado (`InventarioPorEstado`, `InventarioPorFraccion`, `InventarioPorSubestado`, `InventarioFila`, `ReporteInventario`) con `numero: number | null`, `fraccionId` y `fraccion` numéricos, y `precio: string | null` sin moneda.
+- Se acepta que totales y filas puedan diferir en un lote si hay una escritura concurrente, porque las consultas no corren en una transacción.
+- Quedan pendientes: que el frontend maneje `/?lote=<id>` (39.2) o cambiar el enlace; un test de integración del inventario; los ejemplos completos de la OpenAPI (38.7, CCLF-58).
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/services/reporte.service.ts`
+- `Backend/src/controllers/reporte.controller.ts`
+- `Backend/tests/support/fakes/loteInventario.fake.ts`
+- `Backend/tests/unit/services/reporte.inventario.service.test.ts`
+- `Backend/tests/unit/routes/reportes.inventario.routes.test.ts`
+- `Backend/tests/unit/routes/reportes.permisos.routes.test.ts`
+- Jira CCLF-53
+- `AI-DECISIONS.md`
+
+### AI-018 — Pantalla base de Reportes (frontend) con cliente HTTP y datos simulados
 
 **Fecha:** 2026-11-22
 **Área:** Frontend / Reportes / RBAC / Cliente HTTP
@@ -1158,6 +1209,7 @@ Trabajo en cinco etapas, cada una con aprobación humana y sin commits de la IA:
 - `frontend/.env.example`
 - `Backend/documents/documentacionApi.yaml` (contrato de `/reportes`)
 - Jira CCLF-39 (39.1), CCLF-37 (especificación) y CCLF-52 (backend, AI-016)
+
 
 ## Plantilla para entradas nuevas
 
