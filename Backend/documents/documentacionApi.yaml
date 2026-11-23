@@ -142,6 +142,9 @@ paths:
       summary: Listar lotes
       description: >-
         TECNICO no puede usar el filtro `deudor` (400) y su respuesta omite `deuda`, ventas y reservas.
+        INMOBILIARIA tampoco puede usar `deudor` (400); su listado excluye los lotes NO_DISPONIBLE y omite
+        `deuda`, ventas, reservas, `identificadorTipo`/`identificadorValor` de propietario e inquilino y el
+        titular (`inmobiliariaId`, `ownerType`, `inmobiliaria`) de las prioridades que no son de su inmobiliaria.
       x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA, TECNICO]
       security: [{ bearerAuth: [] }]
       parameters:
@@ -153,7 +156,7 @@ paths:
         - { name: ubicacionId, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
         - name: deudor
           in: query
-          description: true = solo lotes con deuda; false = sin deuda. No disponible para TECNICO (400).
+          description: true = solo lotes con deuda; false = sin deuda. No disponible para TECNICO ni INMOBILIARIA (400).
           schema: { type: string, enum: ['true', 'false'] }
       responses:
         '200':
@@ -210,7 +213,9 @@ paths:
       tags: [Lotes]
       operationId: obtenerLote
       summary: Obtener lote
-      description: Para TECNICO la respuesta omite `deuda`, ventas y reservas.
+      description: >-
+        Para TECNICO la respuesta omite `deuda`, ventas y reservas. Para INMOBILIARIA omite además los
+        documentos de propietario e inquilino, y un lote NO_DISPONIBLE responde 404, igual que uno inexistente.
       x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA, TECNICO]
       security: [{ bearerAuth: [] }]
       responses:
@@ -357,6 +362,8 @@ paths:
       tags: [Promociones]
       operationId: obtenerPromocionActiva
       summary: Obtener la promoción activa de un lote
+      description: >-
+        Para INMOBILIARIA, un lote NO_DISPONIBLE responde `data` null, igual que un lote inexistente.
       x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA, TECNICO]
       security: [{ bearerAuth: [] }]
       responses:
