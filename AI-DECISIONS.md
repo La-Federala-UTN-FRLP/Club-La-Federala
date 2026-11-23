@@ -1280,8 +1280,70 @@ Se corrige LOT-03 en el backend: para INMOBILIARIA se excluyen los lotes NO_DISP
 - `Backend/documents/documentacionApi.yaml`
 - `docs/qa/resultados/api-permisos-2026-11-21.md`
 - Jira CCLF-30 · bug LOT-03
-- `AI-DECISIONS.md`
 
+
+### AI-021 — Oráculos de existencia de lotes NO_DISPONIBLE
+
+**Fecha:** 2026-11-23
+**Área:** Seguridad / Backend
+**Herramientas:** Claude Code
+
+#### Problema
+
+Después de AI-019 (#340), INMOBILIARIA ya no ve los lotes NO_DISPONIBLE en `/api/lotes`, pero la revisión de #340 encontró caminos que permitían deducir qué IDs existen y son NO_DISPONIBLE:
+
+- `POST /api/reservas` y `POST /api/prioridades`: un lote inexistente respondía 404 "Lote no encontrado" y uno NO_DISPONIBLE, 400 por `assertLoteOperableFor` (`loteState.rules.ts`);
+- `GET /api/files/lote/:idLoteAsociado`: un lote inexistente devolvía `[]` y uno NO_DISPONIBLE, sus PLANO e IMAGEN;
+- `GET /api/files/:id` y `POST /api/files/:id/url`: un archivo inexistente respondía 404, pero un PLANO o IMAGEN de un lote NO_DISPONIBLE respondía 200 (la metadata incluye `idLoteAsociado`) o generaba la URL firmada.
+
+#### Prompt / intención
+
+Que esos caminos respondan a INMOBILIARIA exactamente lo mismo (status y body) para un lote NO_DISPONIBLE que para uno inexistente, sin cambiar ADMINISTRADOR, GESTOR ni TECNICO, sin tocar storage (Supabase/GCS; la migración #288 todavía no empezó) y sumando los tests no bloqueantes de la revisión de #340. En Files por ID, la regla va en la autorización de archivos y se revisan los demás endpoints con `:id` accesibles para INMOBILIARIA.
+
+#### Propuesta generada por IA
+
+- `createReserva` y `createPrioridad`: `if (!lote || (INMOBILIARIA && NO_DISPONIBLE))` con el mismo error de "lote no encontrado" que ya usa cada service (404 y mismo mensaje), antes de la regla de estado.
+- `listByLote`: en la rama de INMOBILIARIA, si el lote es NO_DISPONIBLE devuelve `[]`, igual que un lote inexistente. Sin cambios de storage.
+- Files por ID: `canUserAccessArchivo` (`file.auth.utils.ts`) recibe el estado del lote (`loteEstado`, opcional) y deniega a INMOBILIARIA los archivos de un lote NO_DISPONIBLE; `verifyArchivoAccess` (`file.controller.ts`) lo consulta solo para INMOBILIARIA. Al denegar, los dos endpoints ya responden el mismo 404 que un archivo inexistente (convención de AI-012), antes de tocar storage.
+- Revisión de `files.routes.ts`: los demás endpoints con `:id` (restore, purge, aprobaciones, sustituir, delete) no admiten INMOBILIARIA en la ruta; no se tocaron.
+- `stripFieldsForInmobiliaria` (AI-019): la prioridad propia exige también `ownerType === 'INMOBILIARIA'`, como `prioridad.service`.
+- Sin cambios de rutas ni de OpenAPI: los controllers de reservas y prioridades ya transportan `req.user` y el 404 ya está documentado.
+
+### Validación humana
+
+- Tests RED→GREEN: 4 fallaban antes del fix y pasan 18/18 después, con casos de control.
+- Suite completa: 87 suites / 3292 tests OK; `npm run typecheck` y `npm run build` OK.
+- `npm run qa:api`: 38 PASS / 0 FAIL.
+- Verificación manual en navegador como INMO A: `GET /lotes/21` (NO_DISPONIBLE) y `GET /lotes/999999` (inexistente) devuelven el mismo 404 "Lote no encontrado"; `GET /files/lote/21` devuelve `[]`.
+- Se incorporaron los tests sugeridos en la review del PR #340 (falla cerrada sin tenant, promoción activa, `ownerType`).
+- Se decidió cerrar también el oráculo de Files por ID en este PR, después de verificar que la migración a GCS (#288) todavía no empezó.
+
+### Decisión adoptada
+
+Para el rol INMOBILIARIA, un lote NO_DISPONIBLE se comporta como inexistente en todos los puntos de acceso: creación de reservas y prioridades (404), listado de archivos del lote (`[]`) y archivo por ID o URL firmada (404). La prioridad propia se reconoce solo si coinciden `inmobiliariaId` y `ownerType === 'INMOBILIARIA'`. Los roles ADMINISTRADOR, GESTOR y TECNICO no cambian.
+
+#### Resultado
+
+- RED (reservas, prioridades y listado): `tests/unit/security/lotes.no-disponible.oraculos.test.ts`, 10 tests; los 3 de INMOBILIARIA fallaban por el motivo esperado (reservas y prioridades respondían 400 donde un inexistente da 404; Files listaba 2 archivos donde un inexistente da `[]`) y los 7 controles de ADMINISTRADOR/GESTOR pasaban.
+- RED (Files por ID): el mismo archivo pasó a 18 tests; 4 fallaban (`GET /api/files/:id` respondía 200 y `POST /api/files/:id/url` pasaba la autorización e intentaba firmar, para PLANO e IMAGEN de un lote NO_DISPONIBLE) y pasaban el control de un lote DISPONIBLE y los controles de ADMINISTRADOR/GESTOR/TECNICO.
+- GREEN: 18/18.
+- Revisión de #340 en `lotes.inmobiliaria.authz.test.ts`: 3 tests nuevos; falla cerrada sin tenant y promoción activa ya pasaban con el código de AI-019; el de `ownerType` fallaba (1 de 24) y pasó con el cambio (24/24).
+- `files.tipo.authz.test.ts`: se agregó `lote.findUnique` al mock de Prisma, sin cambiar lo que prueba.
+- Backend: typecheck PASS; 87 suites, 3292 tests PASS; paridad OpenAPI 84 operaciones `/api` + `GET /health`; build PASS; `git diff --check` limpio.
+- `npm run qa:api` no se corrió: el entorno QA no estaba levantado.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/services/reserva.service.ts`
+- `Backend/src/services/prioridad.service.ts`
+- `Backend/src/services/file.service.ts`
+- `Backend/src/utils/file.auth.utils.ts`
+- `Backend/src/controllers/file.controller.ts`
+- `Backend/src/services/lote.service.ts`
+- `Backend/tests/unit/security/lotes.no-disponible.oraculos.test.ts`
+- `Backend/tests/unit/security/lotes.inmobiliaria.authz.test.ts`
+- `Backend/tests/unit/security/files.tipo.authz.test.ts`
+- Revisión de #340 · Refs #297
 
 ## Plantilla para entradas nuevas
 
