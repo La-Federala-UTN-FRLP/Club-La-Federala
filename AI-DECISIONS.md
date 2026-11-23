@@ -1141,7 +1141,9 @@ Trabajo en cinco etapas, cada una con aprobación humana y sin commits de la IA:
 - **Fila del inventario:** el informe de la etapa 1 (Claude Code) la marcó como no definida, a partir de lo
   que veía en el código. La persona, con acceso a la especificación CCLF-37 (un PDF que Claude Code no
   tiene), corrigió que sí estaba definida (`{ loteId, numero, fraccion, estado, subestado, precio, enlace }`,
-  con `precio` como string decimal) y dio la forma real para el mock.
+  con `precio` como string decimal) y la dio para el mock. Esa era la forma del ejemplo de la V2 de CCLF-37;
+  el contrato tipado de 38.2 agregó `fraccionId` y fijó `numero` como entero o null (ver el punto de la
+  revisión cruzada).
 - **TablaBase y FilterBar:** la persona aprobó el informe de la etapa 1 y, con él, la recomendación de no
   reutilizarlos para los reportes. Ninguno de los dos se construyó todavía (queda para 39.2 a 39.4).
 - **Filas de `ventas` y `cuotas-vencidas`:** CCLF-37 solo define la forma de la fila de inventario. La
@@ -1166,6 +1168,12 @@ Trabajo en cinco etapas, cada una con aprobación humana y sin commits de la IA:
 - **Comentario de `rbac.js`:** Claude Code agregó en la etapa 2 un comentario explicativo más largo
   (`// Cuenta (sin Reportes: el backend solo lo permite a ADMINISTRADOR y GESTOR)`). La persona pidió
   acortarlo a `// Cuenta`, siguiendo la convención breve del resto del archivo.
+- **Revisión cruzada del PR:** Agostina detectó que la fila del mock de inventario no coincidía con el
+  contrato real de 38.2: `numero` era un string compuesto en vez de entero o null, faltaba `fraccionId`, y
+  `fraccion` se usaba a la vez como id y como número visible (en el mock no se notaba porque valían lo
+  mismo). Se corrigió el mock con ids de fracción distintos del número visible (11, 12, 13), `porFraccion`
+  con `fraccionId` y `ofrecibles`, filtro por `fraccionId` en los tres reportes, orden de filas de inventario
+  igual al del backend, y `loteNumero` + `fraccion` en ventas y cuotas vencidas.
 - **Lint:** `npm run lint` falla en el repositorio por deuda previa (114 errores y 50 warnings en 68
   archivos). Se verificó contra un export limpio de `HEAD` que el total es idéntico y que ninguno de los
   archivos de la tarea tiene problemas.
@@ -1190,13 +1198,12 @@ Trabajo en cinco etapas, cada una con aprobación humana y sin commits de la IA:
 - **Pendientes que requieren corrección humana futura (de Agostina):**
   - La forma de las filas de `ventas` y `cuotas-vencidas` que usa el mock es una propuesta propia que falta
     confirmar contra lo que implemente el backend en 38.3 y 38.4.
-  - `Lote.numero` (`Int?`) y `Lote.precio` (`Decimal?`) son anulables en el schema de Prisma, pero el
-    contrato de CCLF-37 no lo contempla. El mock incluye un lote con ambos nulos y la interfaz debe
-    tolerarlo.
   - El `enlace` del inventario (`/?lote=<id>`) no lo entiende el Dashboard del frontend: hoy solo abre un
     lote por `location.state` (`openLoteId`). Se va a resolver en 39.2.
-  - Decisiones de forma del mock sin contrato: los buckets de `totales` solo incluyen cantidades mayores
-    a cero, `tramos` trae siempre los tres tramos, y el orden de las filas es propio.
+  - Decisiones de forma del mock sin contrato, solo en ventas y cuotas vencidas: el orden de las filas es
+    propio y, en cuotas vencidas, `tramos` trae siempre los tres tramos. En inventario, el orden y los buckets
+    de `totales` (solo cantidades mayores a cero) ya coinciden con el backend (#338).
+  - El mock no tiene lotes en estado `ELIMINADO`, así que no reproduce esa exclusión del backend.
   - Las ventas no tienen moneda en el schema (`otrasMonedas` queda siempre vacío); las cuotas sí, por plan.
 
 #### Evidencia / archivos relacionados
