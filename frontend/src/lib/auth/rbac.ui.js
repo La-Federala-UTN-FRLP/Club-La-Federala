@@ -105,3 +105,9 @@ export function canUseDeudorFilter(user) {
   const isInmo = perms.has(PERMISSIONS.RES_ACCESS) && !perms.has(PERMISSIONS.SALE_ACCESS);
   return !isInmo && !hasRole(user, "TECNICO");
 }
+
+// Deuda del lote (detalle, tabla y editor): la ven y la editan solo ADMINISTRADOR y GESTOR.
+// Falla cerrada: sin usuario o con otro rol, false.
+export function canSeeDeuda(user) {
+  return hasRole(user, "ADMINISTRADOR") || hasRole(user, "GESTOR");
+}
