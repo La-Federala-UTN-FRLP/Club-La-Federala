@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import * as reporteService from '../services/reporte.service';
-import type { ReporteInventario } from '../services/reporte.service';
+import type { ReporteInventario, ReporteVentas } from '../services/reporte.service';
 import { validatedQuery } from '../middlewares/validation.middleware';
 import { errorCodeForStatus } from '../middlewares/error.middleware';
 import {
@@ -25,8 +25,9 @@ export async function obtenerInventario(req: Request, res: Response, next: NextF
 export async function obtenerVentas(req: Request, res: Response, next: NextFunction) {
     try {
         const filtros = validatedQuery(req, queryReporteVentasSchema);
-        const data = await reporteService.getReporteVentas(filtros);
-        res.status(200).json({ success: true, data });
+        const data: ReporteVentas = await reporteService.getReporteVentas(filtros);
+        const body: { success: true; data: ReporteVentas } = { success: true, data };
+        res.status(200).json(body);
     } catch (error) {
         next(error);
     }

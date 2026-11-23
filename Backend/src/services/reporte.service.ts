@@ -1,7 +1,15 @@
-// Reportes (CCLF-38). Inventario implementado en 38.2; ventas (38.3) y cuotas vencidas (38.4)
-// todavía devuelven la forma final del contrato con datos vacíos.
+// Reportes (CCLF-38). Inventario implementado en 38.2 y ventas en 38.3; cuotas vencidas (38.4)
+// todavía devuelve la forma final del contrato con datos vacíos.
 import prisma from '../config/prisma';
-import { EstadoLote, SubestadoLote, TipoLote, Prisma } from '../generated/prisma';
+import {
+    EstadoLote,
+    EstadoOperativo,
+    EstadoVenta,
+    Moneda,
+    SubestadoLote,
+    TipoLote,
+    Prisma,
+} from '../generated/prisma';
 import type {
     QueryReporteInventario,
     QueryReporteVentas,
@@ -194,6 +202,46 @@ export interface TarjetaVentas {
     montoUSDAnterior: string;
 }
 
+/** Igual que TarjetaVentas, para una moneda distinta de USD: el monto va en esa moneda. */
+export interface TarjetaOtraMoneda {
+    cantidad: number;
+    monto: string;
+    cantidadAnterior: number;
+    montoAnterior: string;
+}
+
+export interface VentasOtraMoneda {
+    moneda: Moneda;
+    iniciadas: TarjetaOtraMoneda;
+    escrituradas: TarjetaOtraMoneda;
+    canceladas: TarjetaOtraMoneda;
+}
+
+export interface VentaFila {
+    ventaId: number;
+    /** Venta.numero (texto único de la venta). */
+    numero: string;
+    loteId: number;
+    /** Lote.numero: opcional en el schema. */
+    loteNumero: number | null;
+    fraccionId: number;
+    /** Número visible de la fracción (Fraccion.numero). */
+    fraccion: number;
+    estado: EstadoVenta;
+    /** Día de negocio (Buenos Aires) de Venta.fechaVenta. */
+    fechaAlta: string;
+    /** Día de negocio de Venta.fechaEscrituraReal, o null. */
+    fechaEscritura: string | null;
+    /** Día de negocio de Venta.fechaCancelacion, o null. */
+    fechaCancelacion: string | null;
+    /** Moneda de la venta: la de su plan de pagos (USD si no tiene plan). */
+    moneda: Moneda;
+    /** Venta.monto, decimal con 2 cifras, en `moneda`. */
+    monto: string;
+    /** Ruta del frontend que abre la venta. */
+    enlace: string;
+}
+
 export interface ReporteVentas {
     corte: string;
     periodo: Periodo;
@@ -203,22 +251,211 @@ export interface ReporteVentas {
         escrituradas: TarjetaVentas;
         canceladas: TarjetaVentas;
     };
-    otrasMonedas: unknown[];
-    filas: unknown[];
+    otrasMonedas: VentasOtraMoneda[];
+    filas: VentaFila[];
 }
 
-const tarjetaVacia = (): TarjetaVentas => ({ cantidad: 0, montoUSD: '0.00', cantidadAnterior: 0, montoUSDAnterior: '0.00' });
+// Argentina no tiene horario de verano desde 2009: el día de negocio va de 00:00 a 24:00 en UTC-3.
+const OFFSET_NEGOCIO = '-03:00';
+
+/** Instante en que empieza el día `fecha` (YYYY-MM-DD) en Buenos Aires. */
+export function inicioDiaNegocio(fecha: string): Date {
+    return new Date(`${fecha}T00:00:00${OFFSET_NEGOCIO}`);
+}
+
+/** Rango semiabierto [inicio de `desde`, inicio del día siguiente a `hasta`) en días de Buenos Aires. */
+export function rangoNegocio({ desde, hasta }: Periodo): { gte: Date; lt: Date } {
+    return { gte: inicioDiaNegocio(desde), lt: inicioDiaNegocio(sumarDias(hasta, 1)) };
+}
+
+/** Día de Buenos Aires (YYYY-MM-DD) en el que cae un instante. */
+export const diaNegocio = (instante: Date): string => fechaCorte(instante);
+
+export const enlaceVenta = (ventaId: number) => `/ventas?openId=${ventaId}`;
+
+/** Moneda en la que se informa una venta sin plan de pagos: la que usa el alta de ventas. */
+export const MONEDA_VENTA_SIN_PLAN = Moneda.USD;
+
+/** Métrica de cada tarjeta: qué fecha la cuenta y en qué estado tiene que estar la venta. */
+const METRICAS = [
+    { tarjeta: 'iniciadas', fecha: 'fechaVenta', estado: undefined },
+    { tarjeta: 'escrituradas', fecha: 'fechaEscrituraReal', estado: EstadoVenta.ESCRITURADO },
+    { tarjeta: 'canceladas', fecha: 'fechaCancelacion', estado: EstadoVenta.CANCELADA },
+] as const;
+
+type Metrica = (typeof METRICAS)[number];
+type NombreTarjeta = Metrica['tarjeta'];
+
+// Select de la consulta del reporte. Trae la moneda del último plan (todas las versiones de un plan
+// comparten moneda: el reemplazo no permite cambiarla).
+export const SELECT_VENTAS_REPORTE = {
+    id: true,
+    numero: true,
+    loteId: true,
+    monto: true,
+    estado: true,
+    fechaVenta: true,
+    fechaEscrituraReal: true,
+    fechaCancelacion: true,
+    lote: { select: { numero: true, fraccionId: true, fraccion: { select: { numero: true } } } },
+    planPagos: { select: { moneda: true }, orderBy: { version: 'desc' }, take: 1 },
+} satisfies Prisma.VentaSelect;
+
+export const ORDER_BY_VENTAS_REPORTE = [
+    { fechaVenta: 'desc' },
+    { id: 'desc' },
+] satisfies Prisma.VentaOrderByWithRelationInput[];
+
+/**
+ * Ventas no eliminadas con alguna de sus 3 fechas en `rango`. Escrituradas y canceladas solo cuentan
+ * si la venta está en ese estado: ESCRITURADO y CANCELADA no tienen transiciones de salida, así que
+ * una fecha cargada en otro estado no es un hecho ocurrido.
+ */
+export function whereVentasReporte(rango: { gte: Date; lt: Date }, fraccionId?: number): Prisma.VentaWhereInput {
+    return {
+        estadoOperativo: EstadoOperativo.OPERATIVO,
+        ...(fraccionId !== undefined && { lote: { fraccionId } }),
+        OR: [
+            { fechaVenta: rango },
+            { estado: EstadoVenta.ESCRITURADO, fechaEscrituraReal: rango },
+            { estado: EstadoVenta.CANCELADA, fechaCancelacion: rango },
+        ],
+    };
+}
+
+type VentaReporte = Prisma.VentaGetPayload<{ select: typeof SELECT_VENTAS_REPORTE }>;
+
+/** Día de negocio en que la venta cuenta para la métrica, o null si no cuenta. */
+function diaDeMetrica(v: VentaReporte, m: Metrica): string | null {
+    const fecha = v[m.fecha];
+    if (fecha === null) return null;
+    if (m.estado !== undefined && v.estado !== m.estado) return null;
+    return diaNegocio(fecha);
+}
+
+const enPeriodo = (dia: string | null, p: Periodo) => dia !== null && dia >= p.desde && dia <= p.hasta;
+
+interface Acumulado {
+    cantidad: number;
+    monto: Prisma.Decimal;
+    cantidadAnterior: number;
+    montoAnterior: Prisma.Decimal;
+}
+
+const acumuladoVacio = (): Acumulado => ({
+    cantidad: 0,
+    monto: new Prisma.Decimal(0),
+    cantidadAnterior: 0,
+    montoAnterior: new Prisma.Decimal(0),
+});
+
+type AcumuladoMoneda = Record<NombreTarjeta, Acumulado>;
+
+const acumuladoMonedaVacio = (): AcumuladoMoneda => ({
+    iniciadas: acumuladoVacio(),
+    escrituradas: acumuladoVacio(),
+    canceladas: acumuladoVacio(),
+});
+
+const ORDEN_MONEDA = Object.values(Moneda);
 
 export async function getReporteVentas(filtros: QueryReporteVentas): Promise<ReporteVentas> {
-    // Pendiente 38.3: iniciadas, escrituradas y canceladas por su propia fecha, contra el período anterior.
-    const periodo = { desde: filtros.desde, hasta: filtros.hasta };
+    const corte = fechaCorte();
+    const periodo: Periodo = { desde: filtros.desde, hasta: filtros.hasta };
+    const anterior = periodoAnterior(periodo);
+
+    // Una sola consulta cubre los dos períodos (contiguos); la clasificación se hace acá porque
+    // cada venta cuenta en hasta 3 tarjetas por fechas distintas y la moneda sale de la relación
+    // con el plan, que groupBy no admite.
+    const ventas = await prisma.venta.findMany({
+        where: whereVentasReporte(rangoNegocio({ desde: anterior.desde, hasta: periodo.hasta }), filtros.fraccion),
+        select: SELECT_VENTAS_REPORTE,
+        orderBy: ORDER_BY_VENTAS_REPORTE,
+    });
+
+    const porMoneda = new Map<Moneda, AcumuladoMoneda>();
+    const filas: VentaFila[] = [];
+
+    for (const v of ventas) {
+        const moneda = v.planPagos[0]?.moneda ?? MONEDA_VENTA_SIN_PLAN;
+        const acumulado = porMoneda.get(moneda) ?? acumuladoMonedaVacio();
+        let entraEnPeriodo = false;
+
+        for (const m of METRICAS) {
+            const dia = diaDeMetrica(v, m);
+            const a = acumulado[m.tarjeta];
+            if (enPeriodo(dia, periodo)) {
+                a.cantidad += 1;
+                a.monto = a.monto.plus(v.monto);
+                entraEnPeriodo = true;
+            } else if (enPeriodo(dia, anterior)) {
+                a.cantidadAnterior += 1;
+                a.montoAnterior = a.montoAnterior.plus(v.monto);
+            }
+        }
+        porMoneda.set(moneda, acumulado);
+
+        // Filas: las ventas que suman en alguna tarjeta del período elegido.
+        if (entraEnPeriodo) {
+            filas.push({
+                ventaId: v.id,
+                numero: v.numero,
+                loteId: v.loteId,
+                loteNumero: v.lote.numero,
+                fraccionId: v.lote.fraccionId,
+                fraccion: v.lote.fraccion.numero,
+                estado: v.estado,
+                fechaAlta: diaNegocio(v.fechaVenta),
+                fechaEscritura: v.fechaEscrituraReal && diaNegocio(v.fechaEscrituraReal),
+                fechaCancelacion: v.fechaCancelacion && diaNegocio(v.fechaCancelacion),
+                moneda,
+                monto: v.monto.toFixed(2),
+                enlace: enlaceVenta(v.id),
+            });
+        }
+    }
+
+    const usd = porMoneda.get(Moneda.USD) ?? acumuladoMonedaVacio();
+    const tarjetaUSD = (a: Acumulado): TarjetaVentas => ({
+        cantidad: a.cantidad,
+        montoUSD: a.monto.toFixed(2),
+        cantidadAnterior: a.cantidadAnterior,
+        montoUSDAnterior: a.montoAnterior.toFixed(2),
+    });
+    const tarjetaOtra = (a: Acumulado): TarjetaOtraMoneda => ({
+        cantidad: a.cantidad,
+        monto: a.monto.toFixed(2),
+        cantidadAnterior: a.cantidadAnterior,
+        montoAnterior: a.montoAnterior.toFixed(2),
+    });
+    const tieneMovimiento = (a: AcumuladoMoneda) =>
+        Object.values(a).some((t) => t.cantidad > 0 || t.cantidadAnterior > 0);
+
+    // Otras monedas: cada una aparte, sin convertir ni sumar a USD; solo las que tienen ventas.
+    const otrasMonedas: VentasOtraMoneda[] = ORDEN_MONEDA
+        .filter((moneda) => moneda !== Moneda.USD)
+        .flatMap((moneda) => {
+            const a = porMoneda.get(moneda);
+            if (!a || !tieneMovimiento(a)) return [];
+            return [{
+                moneda,
+                iniciadas: tarjetaOtra(a.iniciadas),
+                escrituradas: tarjetaOtra(a.escrituradas),
+                canceladas: tarjetaOtra(a.canceladas),
+            }];
+        });
+
     return {
-        corte: fechaCorte(),
+        corte,
         periodo,
-        periodoAnterior: periodoAnterior(periodo),
-        tarjetas: { iniciadas: tarjetaVacia(), escrituradas: tarjetaVacia(), canceladas: tarjetaVacia() },
-        otrasMonedas: [],
-        filas: [],
+        periodoAnterior: anterior,
+        tarjetas: {
+            iniciadas: tarjetaUSD(usd.iniciadas),
+            escrituradas: tarjetaUSD(usd.escrituradas),
+            canceladas: tarjetaUSD(usd.canceladas),
+        },
+        otrasMonedas,
+        filas,
     };
 }
 
