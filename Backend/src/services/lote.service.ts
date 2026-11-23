@@ -61,6 +61,34 @@ function stripFieldsForTecnico<T>(lote: T): T {
   return sanitized as T;
 }
 
+// Persona sin documento (identificadorTipo/Valor): se mantienen nombre y razón social.
+function sinDocumento<T>(persona: T): T {
+  if (!persona || typeof persona !== 'object') return persona;
+  const { identificadorTipo: _tipo, identificadorValor: _valor, ...resto } = persona as Record<string, any>;
+  return resto as T;
+}
+
+// INMOBILIARIA: lo mismo que se le oculta a TECNICO (deuda, ventas, reservas), los documentos de
+// propietario e inquilino y el titular de las prioridades que no son de su inmobiliaria.
+function stripFieldsForInmobiliaria<T>(lote: T, inmobiliariaId?: number | null): T {
+  if (!lote) return lote;
+  const sanitized: Record<string, any> = stripFieldsForTecnico(lote) as Record<string, any>;
+  if (sanitized.propietario) sanitized.propietario = sinDocumento(sanitized.propietario);
+  if (sanitized.inquilino) sanitized.inquilino = sinDocumento(sanitized.inquilino);
+  if (sanitized.alquilerActivo) {
+    sanitized.alquilerActivo = { ...sanitized.alquilerActivo, inquilino: sinDocumento(sanitized.alquilerActivo.inquilino) };
+  }
+  if (Array.isArray(sanitized.alquileres)) {
+    sanitized.alquileres = sanitized.alquileres.map((a: any) => ({ ...a, inquilino: sinDocumento(a.inquilino) }));
+  }
+  // Prioridad de otra inmobiliaria o del Club: el lote sigue CON_PRIORIDAD, pero sin titular.
+  if (Array.isArray(sanitized.prioridad)) {
+    sanitized.prioridad = sanitized.prioridad.map((p: any) =>
+      inmobiliariaId != null && p.inmobiliariaId === inmobiliariaId ? p : { id: p.id });
+  }
+  return sanitized as T;
+}
+
 function normalizeSuperficie(payload: any) {
   // Función mantenida por compatibilidad, pero ya no valida frente/fondo
   // La superficie se maneja directamente en el payload
@@ -184,15 +212,20 @@ function buildWhereFromQueryDTO(query: any, role?: string) {
     }
   }
 
+  // INMOBILIARIA no ve lotes NO_DISPONIBLE, ni siquiera si los pide con ?estado.
+  if (role === 'INMOBILIARIA') {
+    where.NOT = { estado: 'NO_DISPONIBLE' };
+  }
+
   if (query?.subestado)   where.subestado   = subestadoLoteToPrisma(query.subestado);
   if (query?.tipo)        where.tipo        = tipoLoteToPrisma(query.tipo);
   if (query?.propietarioId) where.propietarioId = Number(query.propietarioId) || undefined;
   if (query?.ubicacionId)   where.ubicacionId   = Number(query.ubicacionId) || undefined;
 
-  // TECNICO no ve la deuda: filtrar por ella le permitiría inferir quién es deudor por el
-  // conjunto de resultados, aunque el DTO oculte el campo. Se rechaza en lugar de ignorarlo.
-  if (role === 'TECNICO' && query?.deudor !== undefined) {
-    const error: any = new Error('El filtro deudor no está disponible para el rol TECNICO');
+  // TECNICO e INMOBILIARIA no ven la deuda: filtrar por ella les permitiría inferir quién es deudor
+  // por el conjunto de resultados, aunque el DTO oculte el campo. Se rechaza en lugar de ignorarlo.
+  if ((role === 'TECNICO' || role === 'INMOBILIARIA') && query?.deudor !== undefined) {
+    const error: any = new Error(`El filtro deudor no está disponible para el rol ${role}`);
     error.statusCode = 400;
     throw error;
   }
@@ -224,7 +257,8 @@ function filterByOcupacion(lotes: any[], ocupacion?: 'ALQUILADO' | 'NO_ALQUILADO
 }
 // ---------------------------------------
 
-export async function getAllLotes(query: any = {}, role?: string) {
+// inmobiliariaId: tenant del actor (req.user), para distinguir prioridades propias de ajenas.
+export async function getAllLotes(query: any = {}, role?: string, inmobiliariaId?: number | null) {
   const where = buildWhereFromQueryDTO(query, role);
 
   const [lotes, total] = await Promise.all([
@@ -308,14 +342,16 @@ export async function getAllLotes(query: any = {}, role?: string) {
 
   const lotesVisibles = role === 'TECNICO'
     ? lotesFiltrados.map((lote) => stripFieldsForTecnico(lote))
-    : lotesFiltrados;
+    : role === 'INMOBILIARIA'
+      ? lotesFiltrados.map((lote) => stripFieldsForInmobiliaria(lote, inmobiliariaId))
+      : lotesFiltrados;
 
   return { lotes: lotesVisibles, total: lotesFiltrados.length };
 }
 
 
 
-export async function getLoteById(id: number, role?: string) {
+export async function getLoteById(id: number, role?: string, inmobiliariaId?: number | null) {
   const lote = await prisma.lote.findUnique({
     where: { id: id },
     include: {
@@ -353,7 +389,8 @@ export async function getLoteById(id: number, role?: string) {
       },
     },
   });
-  if (!lote) {
+  // Para INMOBILIARIA un lote NO_DISPONIBLE responde igual que uno inexistente: no revela que existe.
+  if (!lote || (role === 'INMOBILIARIA' && lote.estado === 'NO_DISPONIBLE')) {
     const e: any = new Error('Lote no encontrado'); e.statusCode = 404; throw e;
   }
 
@@ -376,6 +413,9 @@ export async function getLoteById(id: number, role?: string) {
 
   if (role === 'TECNICO') {
     return stripFieldsForTecnico(loteEnriquecido);
+  }
+  if (role === 'INMOBILIARIA') {
+    return stripFieldsForInmobiliaria(loteEnriquecido, inmobiliariaId);
   }
   return loteEnriquecido;
 }

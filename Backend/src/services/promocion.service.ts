@@ -133,7 +133,7 @@ export async function quitarPromocion(loteId: number) {
 // ==============================
 // Obtener promoción activa de un lote
 // ==============================
-export async function getPromocionActiva(loteId: number) {
+export async function getPromocionActiva(loteId: number, role?: string) {
   const promocion = await prisma.promocion.findFirst({
     where: {
       loteId,
@@ -150,6 +150,11 @@ export async function getPromocionActiva(loteId: number) {
     },
   });
 
+  // Para INMOBILIARIA un lote NO_DISPONIBLE responde como sin promoción, igual que un lote
+  // inexistente: no revela que el lote existe.
+  if (role === 'INMOBILIARIA' && promocion?.lote.estado === EstadoLote.NO_DISPONIBLE) {
+    return null;
+  }
   return promocion;
 }
 

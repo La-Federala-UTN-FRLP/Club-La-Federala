@@ -14,7 +14,7 @@ export async function obtenerTodos(req: Request, res: Response, next: NextFuncti
         // @ts-ignore
         const user = req.user;
         const query = validatedQuery(req, queryLoteSchema);
-        const data = await loteService.getAllLotes(query, user?.role);
+        const data = await loteService.getAllLotes(query, user?.role, user?.inmobiliariaId);
         res.json({success: true,data});
     } catch (error) {
         next(error); // Paso el error al middleware de manejo
@@ -27,7 +27,7 @@ export async function obtenerLotePorId(req: Request, res: Response, next: NextFu
     try {
         const user = req.user;
         const { id } = validatedParams(req, getLoteSchema);
-        const data = await loteService.getLoteById(id, user?.role);
+        const data = await loteService.getLoteById(id, user?.role, user?.inmobiliariaId);
         res.json({success: true,data});
     } catch (error) {
         next(error);

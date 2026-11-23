@@ -39,7 +39,7 @@ export async function quitarPromocion(req: Request, res: Response, next: NextFun
 export async function getPromocionActiva(req: Request, res: Response, next: NextFunction) {
   try {
     const { id: loteId } = validatedParams(req, getPromocionActivaSchema);
-    const promocion = await promocionService.getPromocionActiva(loteId);
+    const promocion = await promocionService.getPromocionActiva(loteId, req.user?.role);
     
     // Si no hay promoción activa, devolver null (no error 404)
     if (!promocion) {

@@ -28,7 +28,7 @@ describe('GET /api/lotes — query', () => {
         const res = await get('');
         expect(res.status).toBe(200);
         expect(res.body).toEqual({ success: true, data: { lotes: [], total: 0 } });
-        expect(getAllLotesMock).toHaveBeenCalledWith({}, 'ADMINISTRADOR');
+        expect(getAllLotesMock).toHaveBeenCalledWith({}, 'ADMINISTRADOR', undefined);
     });
 
     test('filtros enum llegan al service sin cambios', async () => {
@@ -42,9 +42,9 @@ describe('GET /api/lotes — query', () => {
         });
     });
 
-    test.each(['ADMINISTRADOR', 'GESTOR', 'INMOBILIARIA', 'TECNICO'])('el rol %s llega al service', async (role) => {
+    test.each(['ADMINISTRADOR', 'GESTOR', 'INMOBILIARIA', 'TECNICO'])('el rol %s y su inmobiliariaId llegan al service', async (role) => {
         await request(app).get('/api/lotes').set(authHeader(role, 5));
-        expect(getAllLotesMock).toHaveBeenCalledWith({}, role);
+        expect(getAllLotesMock).toHaveBeenCalledWith({}, role, 5);
     });
 });
 
