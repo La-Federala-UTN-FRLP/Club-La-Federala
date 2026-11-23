@@ -1282,6 +1282,70 @@ Se corrige LOT-03 en el backend: para INMOBILIARIA se excluyen los lotes NO_DISP
 - Jira CCLF-30 · bug LOT-03
 - `AI-DECISIONS.md`
 
+### AI-022 — Campos "Actualizado" y "Deuda" de lotes según el rol
+
+**Fecha:** 2026-11-23
+**Área:** Frontend / Lotes
+**Herramientas:** Claude Code
+
+#### Problema
+
+QA (#297) encontró dos problemas en el detalle de lote (`LoteVerCard.jsx`):
+
+- "Actualizado" se mostraba vacío o incorrecto para todos los roles: `lote.service.ts` nunca setea `updateAt`, y ningún requerimiento documentado pide el campo.
+- "Deuda" aparecía como "Sin información" para INMOBILIARIA y TECNICO, porque desde AI-019 el backend ya no les envía `deuda`.
+
+El líder del proyecto (Nico) decidió eliminar "Actualizado" del detalle para todos los roles y que la deuda la vean y editen solo ADMINISTRADOR y GESTOR, en toda la UI. Al aplicar esa regla aparecieron dos lugares más:
+
+- Tabla de lotes: la columna "deuda" solo estaba en el preset de ADMINISTRADOR (faltaba GESTOR), y el selector de columnas se la ofrecía a INMOBILIARIA y TECNICO, que la veían vacía porque el backend no les envía `deuda`; una selección guardada en el navegador también podía mostrarla.
+- Editor de lote (`LoteEditarCard.jsx`): mostraba el checkbox "Deuda" a TECNICO y mandaba `deuda` en el payload para todos los roles. Para TECNICO, el backend filtra el payload a `subestado`, `superficie` y `archivos`: con otros campos válidos el cambio de deuda se ignoraba en silencio, y con `deuda` como único campo respondía 403.
+
+#### Prompt / intención
+
+Aplicar la regla con cambios mínimos y solo de frontend, reutilizando el usuario que ya existe (`useAuth()`) y un único criterio de rol en `rbac.ui.js`, sin tocar backend, OpenAPI ni Prisma; contemplar las columnas guardadas en el navegador; no cambiar qué campos manda el editor más allá de no incluir `deuda`; y listar, sin modificarlos, otros lugares con `updateAt`/`updatedAt` o `deuda` de lotes y los campos no técnicos que el editor le muestra a TECNICO.
+
+#### Propuesta generada por IA
+
+- `lib/auth/rbac.ui.js`: nuevo helper `canSeeDeuda(user)` (ADMINISTRADOR o GESTOR con `hasRole`; sin usuario u otro rol, `false`), junto a `canUseDeudorFilter`, para no repetir la lista de roles en cada componente. No se reutilizó `canUseDeudorFilter` porque deduce INMOBILIARIA por permisos y devuelve `true` para un usuario sin rol (no falla cerrado); se dejó sin cambios.
+- `LoteVerCard.jsx`: quitar la fila `["ACTUALIZADO", …]` y agregar la fila `["DEUDA", …]` solo si `canSeeDeuda(user)`.
+- `Table/TablaLotes/presets/lotes.table.jsx`: agregar `'deuda'` al final del preset de `gestor`, en la misma posición relativa que en `admin` (después de `precio`). La definición de la columna es compartida, así que no cambia; los presets de `tecnico` e `inmobiliaria` quedan igual.
+- `Table/TablaLotes/TablaLotes.jsx`: excluir la columna `deuda` del catálogo `ALL_SAFE` salvo que `canSeeDeuda(auth.user)` (el usuario que la tabla ya obtiene de `useAuth()`). El selector recibe `all={ALL_SAFE}` y las columnas guardadas en `localStorage` y las visibles se filtran contra `ALL_SAFE`, así que un solo cambio cubre el selector, la tabla y una selección guardada. Sin usuario, la columna no se ofrece.
+- `Cards/Lotes/LoteEditarCard.jsx`: obtener `user` con `useAuth()`; el checkbox "Deuda" y `payload.deuda` quedan solo si `canSeeDeuda(user)`. El resto del payload no cambia.
+- Un commit por cambio: dos sobre `LoteVerCard.jsx` (primero "Actualizado", después "Deuda"), uno para el preset, uno para el helper (antes de los que lo usan), uno para `TablaLotes.jsx` y uno para `LoteEditarCard.jsx`.
+- Sin tests: el frontend no tiene infraestructura de tests (no hay script `test` ni archivos `*.test.*`) y no se creó.
+- Otros usos relevados, sin cambios: `LoteSidePanel.jsx` (mapa) muestra "Deuda" solo si `deuda` es true, así que no aparece para INMOBILIARIA ni TECNICO, porque el backend no la envía; `LABELS` de `LoteEditarCard.jsx` conserva `"DEUDA"` porque solo calcula el ancho de las etiquetas. `updateAt`/`updatedAt` no se muestra en otros componentes de lotes (los demás usos son de inmobiliarias, reservas, ventas y prioridades).
+- Campos no técnicos que el editor le muestra a TECNICO y que el backend descarta en silencio (para TECNICO solo acepta `subestado` y `superficie`), sin cambios, para decidir aparte: Número Partida, Tipo (y Nombre del Espacio Común y Capacidad), Estado, Precio, Propietario, Calle, Número, Ocupación e Inquilino.
+- La tabla guarda en `localStorage` las columnas elegidas por cada usuario: un GESTOR con una selección guardada ve la nueva columna después de restablecer las columnas en el selector (o de limpiar el almacenamiento).
+
+### Validación humana
+
+- Revisión del diff: cambios solo de frontend; la regla de visibilidad se centralizó en el helper `canSeeDeuda(user)` de `rbac.ui.js` (true solo para ADMINISTRADOR y GESTOR). Se descartó reutilizar `canUseDeudorFilter` porque devuelve true para cualquier rol que no sea INMOBILIARIA o TECNICO, incluso un usuario sin rol.
+- `npm run build` OK. Lint de los archivos tocados: mismos hallazgos que en `main` (preexistentes), ninguno nuevo. El frontend no tiene tests automatizados.
+- Verificación por API (base QA local): el backend no envía `deuda` a INMOBILIARIA (0/45 lotes) ni a TECNICO (0/47); `PUT /api/lotes/:id` con `deuda` como TECNICO → 403; desde el editor, el backend respondía 200 descartando la deuda en silencio.
+- Prueba manual en navegador con las cuatro cuentas QA sobre `Lote2-4`: ADMINISTRADOR y GESTOR ven y editan la deuda en el detalle, la tabla, el selector de columnas y el editor; INMOBILIARIA y TECNICO no la ven en ningún lugar; "Actualizado" no aparece para ningún rol; el filtro "Deudor" ya estaba oculto para INMOBILIARIA y TECNICO.
+- Se descartó corregir `updateAt` en el backend: no hay requerimiento que pida el campo y el freeze pre-Cloud solo admite bugs reales.
+- Queda fuera del alcance, para otro PR: el editor le muestra a TECNICO campos no técnicos (precio, propietario, estado, etc.) que el backend descarta en silencio.
+
+### Decisión adoptada
+
+Por decisión del líder del proyecto (Nico) y en línea con la Guía QA (LOT-04, LOT-10, LOT-27, LOT-33): la deuda la ven y la editan solo ADMINISTRADOR y GESTOR en toda la interfaz (detalle, tabla, selector de columnas y editor), y "Actualizado" se elimina del detalle de lote para todos los roles. La regla vive en un único helper (`canSeeDeuda`) para que la UI quede alineada con el backend.
+
+#### Resultado
+
+- `npm run build` PASS con cada uno de los cambios (detalle sin "Actualizado", "Deuda" condicionada, preset de GESTOR, selector de columnas y editor).
+- `npx eslint` sobre los cinco archivos tocados: mismos hallazgos que en `main`, comparados regla por regla (`LoteVerCard.jsx` 1 error y 4 warnings; `lotes.table.jsx` 1; `TablaLotes.jsx` 4 errores y 3 warnings; `LoteEditarCard.jsx` 6 errores y 1 warning; `rbac.ui.js` sin cambios en sus hallazgos; todos preexistentes); los cambios no agregan ninguno. `npm run lint` global sigue con los errores preexistentes del baseline (lint masivo pendiente post-Cloud).
+- Prueba manual por rol (qa.admin, qa.gestor, qa.inmo.a, qa.tecnico) en el detalle, la tabla, el selector de columnas y el editor: PENDIENTE.
+
+#### Evidencia / archivos relacionados
+
+- `frontend/src/components/Cards/Lotes/LoteVerCard.jsx`
+- `frontend/src/components/Table/TablaLotes/presets/lotes.table.jsx`
+- `frontend/src/components/Table/TablaLotes/TablaLotes.jsx`
+- `frontend/src/components/Cards/Lotes/LoteEditarCard.jsx`
+- `frontend/src/lib/auth/rbac.ui.js`
+- Refs #297
+- `AI-DECISIONS.md`
+
 
 ## Plantilla para entradas nuevas
 
