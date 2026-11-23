@@ -199,6 +199,12 @@ export async function listByLote(
     return rows.map(toFileMetadata);
   }
 
+  // Lote NO_DISPONIBLE: para INMOBILIARIA, la misma lista vacía que un lote inexistente (no revela que existe).
+  const lote = await prisma.lote.findUnique({ where: { id: idLoteAsociado }, select: { estado: true } });
+  if (lote?.estado === "NO_DISPONIBLE") {
+    return [];
+  }
+
   const ventaIds = [...new Set(rows.map((r) => r.ventaId).filter((id): id is number => id != null))];
   const ventas =
     ventaIds.length > 0
