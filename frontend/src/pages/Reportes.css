@@ -1,0 +1,54 @@
+/* src/pages/Reportes.css */
+/* Pestañas de Reportes: react-bootstrap Tabs en forma de píldora, solo con tokens de tokens.css.
+   Activa: verde del header con texto claro. Inactiva: transparente con texto oscuro.
+   Patrón acotado a esta pantalla (no reemplaza las pestañas Mapa/Lotes del Header).
+   Los selectores llevan `.nav-tabs` para ganarle a Bootstrap: main.jsx carga su CSS después
+   del de las páginas, así que con igual especificidad pisaría estas reglas. */
+
+.nav-tabs.reportes-tabs {
+  gap: var(--space-2);
+  border-bottom: 0;
+  margin-bottom: var(--space-4);
+}
+
+.nav-tabs.reportes-tabs .nav-link {
+  min-width: 130px;
+  padding: var(--space-3) var(--space-6);
+  color: var(--color-text-dark);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-weight: 700;
+  line-height: 1.1;
+  text-align: center;
+}
+
+/* Hover y foco de una inactiva: contorno verde, sin cambiar el fondo */
+.nav-tabs.reportes-tabs .nav-link:hover,
+.nav-tabs.reportes-tabs .nav-link:focus-visible {
+  color: var(--color-header-bg);
+  background: transparent;
+  border-color: var(--color-header-bg);
+}
+
+.nav-tabs.reportes-tabs .nav-link.active,
+.nav-tabs.reportes-tabs .nav-link.active:hover,
+.nav-tabs.reportes-tabs .nav-link.active:focus-visible {
+  color: var(--color-text-light);
+  background: var(--color-header-bg);
+  border-color: var(--color-header-bg);
+  box-shadow: var(--elev-1);
+}
+
+.reportes-panel {
+  padding-top: var(--space-2);
+}
+
+.reportes-selector {
+  max-width: 320px;
+  margin-bottom: var(--space-4);
+}
+
+.reportes-titulo {
+  margin-bottom: var(--space-4);
+}
