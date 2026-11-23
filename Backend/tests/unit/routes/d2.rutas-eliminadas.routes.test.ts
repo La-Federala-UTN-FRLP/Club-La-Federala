@@ -102,7 +102,7 @@ describe('RBAC de /api/lotes/:id sin lote.auth.middleware', () => {
         const res = await request(app).get('/api/lotes/1').set(TECNICO);
 
         expect(res.status).toBe(200);
-        expect(loteService.getLoteById).toHaveBeenCalledWith(1, 'TECNICO');
+        expect(loteService.getLoteById).toHaveBeenCalledWith(1, 'TECNICO', undefined);
     });
 
     test('PUT: TECNICO llega al service con su rol (el service restringe sus campos)', async () => {

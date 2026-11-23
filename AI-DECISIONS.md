@@ -1090,6 +1090,7 @@ Implementar la subtarea 38.2 (CCLF-53) solo para el inventario: universo `LOTE_V
 - Jira CCLF-53
 - `AI-DECISIONS.md`
 
+
 ### AI-018 — Pantalla base de Reportes (frontend) con cliente HTTP y datos simulados
 
 **Fecha:** 2026-11-22
@@ -1216,6 +1217,70 @@ Trabajo en cinco etapas, cada una con aprobación humana y sin commits de la IA:
 - `frontend/.env.example`
 - `Backend/documents/documentacionApi.yaml` (contrato de `/reportes`)
 - Jira CCLF-39 (39.1), CCLF-37 (especificación) y CCLF-52 (backend, AI-016)
+
+### AI-019 — Visibilidad de lotes para INMOBILIARIA (LOT-03)
+
+**Fecha:** 2026-11-22
+**Área:** Seguridad / Backend / Lotes
+**Herramientas:** Claude Code
+
+#### Problema
+
+El chequeo automático de QA (AI-014, caso LOT-03, Base E, P0) mostró que la API de lotes le entregaba a INMOBILIARIA datos que la UI le oculta:
+
+- `GET /api/lotes` incluía los lotes `NO_DISPONIBLE`, el campo `deuda`, `identificadorTipo`/`identificadorValor` del propietario y del inquilino, y la prioridad de otra inmobiliaria con su nombre;
+- `GET /api/lotes/:id` de un lote `NO_DISPONIBLE` respondía 200.
+
+La regla existía solo en el frontend (`frontend/src/lib/auth/rbac.js` y `rbac.ui.js`); `lote.service.ts` solo filtraba para TECNICO.
+
+#### Prompt / intención
+
+Corregir el bug en el backend, que es la barrera real, sin refactors (freeze pre-Cloud): aplicar a INMOBILIARIA reglas de visibilidad en todas las lecturas de lotes que puede hacer, reutilizando el patrón de TECNICO (`restrictedLoteFields`), sin cambiar rutas, roles ni el comportamiento de ADMINISTRADOR, GESTOR y TECNICO, y trabajando regression-first.
+
+#### Propuesta generada por IA
+
+- Revisión previa de los otros caminos de lectura de lotes: `/api/reportes` es solo staff; reservas, prioridades y personas embeben datos mínimos del lote (id, número, `mapId`, estado, precio) y acotados al tenant. No se encontraron otras filtraciones.
+- `buildWhereFromQueryDTO`: para INMOBILIARIA, `NOT { estado: NO_DISPONIBLE }` en la consulta (también con `?estado`) y el filtro `deudor` rechazado con 400, igual que TECNICO.
+- Helper local `stripFieldsForInmobiliaria`, junto a `stripFieldsForTecnico`: reutiliza `restrictedLoteFields` (deuda, ventas, reservas), quita los documentos de propietario e inquilino (también en `alquilerActivo` y `alquileres[]`) conservando nombre y razón social, y deja las prioridades ajenas o del Club solo con `id`.
+- `getLoteById`: un lote `NO_DISPONIBLE` responde 404 con el mismo body que uno inexistente.
+- `getPromocionActiva`: para INMOBILIARIA, un lote `NO_DISPONIBLE` responde `data: null`, porque esa ruta responde `200 null` para un lote inexistente; un 404 revelaría que el lote existe.
+- El controller pasa `req.user.inmobiliariaId` al service (patrón de AI-003) para distinguir la prioridad propia.
+- Tests nuevos escritos antes del fix (RED verificado localmente) y commits por tipo de cambio: fix, tests, OpenAPI y este registro.
+
+#### Validación humana
+
+- Se revisó que los 21 tests nuevos fallen con el código de `main` (11 RED por el motivo esperado) y pasen con el fix (21/21), y que ADMINISTRADOR, GESTOR y TECNICO no cambien (8 tests de control). `npm run typecheck` PASS y `npm test`: 86 suites, 3271 tests PASS, verificados localmente.
+- Se verificó en el entorno QA local con `npm run qa:api`: LOT-03 pasa de FAIL a PASS (`GET /api/lotes/21` de un NO_DISPONIBLE → 404) y los otros 37 casos siguen en PASS (38 PASS · 0 FAIL).
+- Verificación manual en el navegador: como ADMINISTRADOR el Lote 4-2 muestra "Deuda: Sí" y aparecen los lotes NO_DISPONIBLE; como INMOBILIARIA A el mismo lote muestra "Sin información" en Deuda y no aparecen lotes NO_DISPONIBLE.
+- Se aceptó que `promociones/activa` responda `data: null` en lugar de 404 para un lote NO_DISPONIBLE, porque esa ruta ya responde `200 null` para un lote inexistente y un 404 revelaría su existencia.
+- Hallazgos derivados (fuera de este PR): el detalle muestra la fila "Deuda" vacía a roles sin acceso (se corrige en un PR de frontend aparte) y el campo "Actualizado" de lotes nunca se completa (registrado para decisión del equipo).
+- Las decisiones de visibilidad (404 en el detalle, campos ocultos, prioridad ajena solo con id) se proponen al equipo para su confirmación en el PR.
+
+#### Decisión adoptada
+
+Se corrige LOT-03 en el backend: para INMOBILIARIA se excluyen los lotes NO_DISPONIBLE (detalle → 404), se omiten `deuda`, documentos de personas, ventas y reservas, se oculta el titular de prioridades ajenas y se rechaza el filtro `deudor`. Las reglas viven en el service, igual que la de TECNICO. Las decisiones de visibilidad quedan sujetas a confirmación del equipo.
+
+#### Resultado
+
+- RED: `tests/unit/security/lotes.inmobiliaria.authz.test.ts`, 21 tests; 11 fallaban por el motivo esperado (la consulta no excluía `NO_DISPONIBLE`, el detalle respondía 200, aparecían `deuda`, `inmobiliariaId: 6` y `ownerType: "CCLF"`, `deudor` respondía 200) y 10 pasaban (8 controles de ADMINISTRADOR/GESTOR/TECNICO, nombre del propietario y prioridad propia).
+- GREEN: 21/21 sin `test.failing`.
+- Se actualizaron 4 aserciones de argumentos exactos en `lotes.query.routes.test.ts` y `d2.rutas-eliminadas.routes.test.ts` (el service recibe el `inmobiliariaId` del actor); el comportamiento probado no cambió.
+- Backend: typecheck PASS; 86 suites, 3271 tests PASS; build PASS; `git diff --check` limpio.
+- OpenAPI: solo descripciones; la paridad sigue en 84 operaciones `/api` + `GET /health`.
+- `npm run qa:api` no se corrió: el entorno QA no estaba levantado.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/services/lote.service.ts`
+- `Backend/src/controllers/lote.controller.ts`
+- `Backend/src/services/promocion.service.ts`
+- `Backend/src/controllers/promocion.controller.ts`
+- `Backend/tests/unit/security/lotes.inmobiliaria.authz.test.ts`
+- `Backend/tests/unit/routes/lotes.query.routes.test.ts`, `Backend/tests/unit/routes/d2.rutas-eliminadas.routes.test.ts`
+- `Backend/documents/documentacionApi.yaml`
+- `docs/qa/resultados/api-permisos-2026-11-21.md`
+- Jira CCLF-30 · bug LOT-03
+- `AI-DECISIONS.md`
 
 
 ## Plantilla para entradas nuevas
