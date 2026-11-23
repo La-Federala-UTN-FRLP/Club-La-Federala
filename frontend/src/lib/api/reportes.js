@@ -64,15 +64,15 @@ async function getReporte(path, params, mockFn, fallbackMsg) {
  *   corte: string,
  *   totales: {
  *     porEstado: Array<{estado: string, cantidad: number}>,
- *     porFraccion: Array<{fraccion: number, cantidad: number}>,
+ *     porFraccion: Array<{fraccionId: number, fraccion: number, cantidad: number, ofrecibles: number}>,
  *     porSubestado: Array<{subestado: string, cantidad: number}>,
  *     ofrecibles: number
  *   },
  *   filas: Array<{
- *     loteId: number, numero: string|null, fraccion: number, estado: string,
+ *     loteId: number, numero: number|null, fraccionId: number, fraccion: number, estado: string,
  *     subestado: string, precio: string|null, enlace: string
  *   }>
- * }>}
+ * }>} `fraccionId` es el id (el que se usa para filtrar); `fraccion`, el número visible.
  */
 export function getInventario({ fraccion, estado, subestado } = {}) {
   return getReporte(
@@ -98,7 +98,7 @@ export function getInventario({ fraccion, estado, subestado } = {}) {
  *   },
  *   otrasMonedas: Array<object>,
  *   filas: Array<{
- *     ventaId: number, numero: string, loteId: number, lote: string, fraccion: number,
+ *     ventaId: number, numero: string, loteId: number, loteNumero: number|null, fraccion: number,
  *     fechaAlta: string, fechaEscritura: string|null, fechaCancelacion: string|null,
  *     estado: string, montoUSD: string, enlace: string
  *   }>
@@ -128,8 +128,8 @@ export function getVentas({ desde, hasta, fraccion } = {}) {
  *   ventas: number,
  *   tramos: Array<{tramo: "1-30"|"31-60"|"+60", cuotas: number, saldo: string}>,
  *   filas: Array<{
- *     cuotaId: number, ventaId: number, ventaNumero: string, loteId: number, lote: string,
- *     fraccion: number, numeroCuota: number, cantidadCuotas: number, fechaVencimiento: string,
+ *     cuotaId: number, ventaId: number, ventaNumero: string, loteId: number,
+ *     loteNumero: number|null, fraccion: number, numeroCuota: number, cantidadCuotas: number, fechaVencimiento: string,
  *     diasAtraso: number, tramo: "1-30"|"31-60"|"+60", saldoPendiente: string, enlace: string
  *   }>
  * }>}

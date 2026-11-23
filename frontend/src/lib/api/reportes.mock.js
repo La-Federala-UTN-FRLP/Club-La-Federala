@@ -53,7 +53,7 @@ function validationError(errors) {
   return err;
 }
 
-/** Valida `fraccion` (opcional) y devuelve el número, o null si no vino. */
+/** Valida el filtro `fraccion` (opcional; es el id, no el número visible) y lo devuelve como número, o null. */
 function parseFraccion(valor, errors) {
   if (vacio(valor)) return null;
   if (!esIdValido(valor)) {
@@ -64,7 +64,11 @@ function parseFraccion(valor, errors) {
 }
 
 /* ------------------------------- inventario ------------------------------ */
-// [loteId, fraccion, nro de lote, estado, subestado, precio]
+// Id de cada fracción según su número visible. Distintos a propósito: si algo confunde
+// `fraccionId` con `fraccion`, el filtro no devuelve filas y se nota.
+const FRACCION_ID = { 1: 11, 2: 12, 3: 13 };
+
+// [loteId, fracción (número visible), nro de lote, estado, subestado, precio]
 // Solo LOTE_VENTA. El lote 140 tiene numero y precio nulos (Lote.numero y Lote.precio son
 // anulables en Prisma): la interfaz tiene que tolerarlo.
 const LOTES = [
@@ -92,11 +96,11 @@ const LOTES = [
   [155, 3, 106, "NO_DISPONIBLE", "NO_CONSTRUIDO", "46000.00"],
   [156, 3, 107, "VENDIDO", "CONSTRUIDO", "69000.00"],
   [157, 3, 108, "DISPONIBLE", "CONSTRUIDO", "71000.00"],
-].map(([loteId, fraccion, nro, estado, subestado, precio]) => ({
+].map(([loteId, fraccion, numero, estado, subestado, precio]) => ({
   loteId,
+  numero,
+  fraccionId: FRACCION_ID[fraccion],
   fraccion,
-  // Cadena compuesta F<fraccion>-<nro de lote>; null si el lote no tiene número.
-  numero: nro == null ? null : `F${fraccion}-${String(nro).padStart(3, "0")}`,
   estado,
   subestado,
   precio,
@@ -113,6 +117,32 @@ function contarPor(filas, campo, comparar) {
   return [...cuenta.entries()]
     .sort(([a], [b]) => comparar(a, b))
     .map(([valor, cantidad]) => ({ [campo]: valor, cantidad }));
+}
+
+/** Ofrecible: DISPONIBLE o EN_PROMOCION, con cualquier subestado. */
+const esOfrecible = (f) => f.estado === "DISPONIBLE" || f.estado === "EN_PROMOCION";
+
+/** Totales por fracción, agrupados por id y ordenados por número visible. */
+function totalesPorFraccion(filas) {
+  const porId = new Map();
+  filas.forEach((f) => {
+    const t = porId.get(f.fraccionId) ?? { fraccionId: f.fraccionId, fraccion: f.fraccion, cantidad: 0, ofrecibles: 0 };
+    t.cantidad += 1;
+    if (esOfrecible(f)) t.ofrecibles += 1;
+    porId.set(f.fraccionId, t);
+  });
+  return [...porId.values()].sort((a, b) => a.fraccion - b.fraccion || a.fraccionId - b.fraccionId);
+}
+
+/** Mismo orden que el backend: número de fracción, número de lote (null al final), id. */
+function compararLotes(a, b) {
+  if (a.fraccion !== b.fraccion) return a.fraccion - b.fraccion;
+  if (a.numero !== b.numero) {
+    if (a.numero === null) return 1;
+    if (b.numero === null) return -1;
+    return a.numero - b.numero;
+  }
+  return a.loteId - b.loteId;
 }
 
 /**
@@ -133,13 +163,14 @@ export async function getInventario({ fraccion, estado, subestado } = {}) {
   if (errors.length) throw validationError(errors);
 
   const filas = LOTES
-    .filter((l) => fraccionId == null || l.fraccion === fraccionId)
+    .filter((l) => fraccionId == null || l.fraccionId === fraccionId)
     .filter((l) => vacio(estado) || l.estado === estado)
     .filter((l) => vacio(subestado) || l.subestado === subestado)
-    .sort((a, b) => a.loteId - b.loteId)
+    .sort(compararLotes)
     .map((l) => ({
       loteId: l.loteId,
       numero: l.numero,
+      fraccionId: l.fraccionId,
       fraccion: l.fraccion,
       estado: l.estado,
       subestado: l.subestado,
@@ -151,10 +182,9 @@ export async function getInventario({ fraccion, estado, subestado } = {}) {
     corte: fechaCorte(),
     totales: {
       porEstado: contarPor(filas, "estado", (a, b) => ordenEn(ESTADOS_LOTE, a) - ordenEn(ESTADOS_LOTE, b)),
-      porFraccion: contarPor(filas, "fraccion", (a, b) => a - b),
+      porFraccion: totalesPorFraccion(filas),
       porSubestado: contarPor(filas, "subestado", (a, b) => ordenEn(SUBESTADOS, a) - ordenEn(SUBESTADOS, b)),
-      // Ofrecibles: DISPONIBLE o EN_PROMOCION.
-      ofrecibles: filas.filter((f) => f.estado === "DISPONIBLE" || f.estado === "EN_PROMOCION").length,
+      ofrecibles: filas.filter(esOfrecible).length,
     },
     filas,
   };
@@ -198,7 +228,8 @@ function ventasHidratadas(corte, fraccionId) {
         ventaId: v.ventaId,
         numero: v.numero,
         loteId: v.loteId,
-        lote: lote.numero,
+        loteNumero: lote.numero,
+        fraccionId: lote.fraccionId, // solo para filtrar: no va en la fila
         fraccion: lote.fraccion,
         fechaAlta: dia(v.altaOff),
         fechaEscritura: dia(v.escOff),
@@ -207,7 +238,7 @@ function ventasHidratadas(corte, fraccionId) {
         montoCents: v.montoCents,
       };
     })
-    .filter((v) => fraccionId == null || v.fraccion === fraccionId);
+    .filter((v) => fraccionId == null || v.fraccionId === fraccionId);
 }
 
 /**
@@ -262,7 +293,7 @@ export async function getVentas({ desde, hasta, fraccion } = {}) {
       ventaId: v.ventaId,
       numero: v.numero,
       loteId: v.loteId,
-      lote: v.lote,
+      loteNumero: v.loteNumero,
       fraccion: v.fraccion,
       fechaAlta: v.fechaAlta,
       fechaEscritura: v.fechaEscritura,
@@ -325,7 +356,8 @@ function cuotasVencidas() {
         ventaId,
         ventaNumero: venta.numero,
         loteId: venta.loteId,
-        lote: lote.numero,
+        loteNumero: lote.numero,
+        fraccionId: lote.fraccionId, // solo para filtrar: no va en la fila
         fraccion: lote.fraccion,
         numeroCuota,
         cantidadCuotas,
@@ -356,7 +388,7 @@ export async function getCuotasVencidas({ moneda, fraccion } = {}) {
   const corte = fechaCorte();
   const seleccion = cuotasVencidas()
     .filter((c) => c.moneda === moneda)
-    .filter((c) => fraccionId == null || c.fraccion === fraccionId)
+    .filter((c) => fraccionId == null || c.fraccionId === fraccionId)
     .sort((a, b) => b.diasAtraso - a.diasAtraso || a.cuotaId - b.cuotaId);
 
   const total = (lista) => lista.reduce((acc, c) => acc + c.saldoCents, 0);
@@ -377,7 +409,7 @@ export async function getCuotasVencidas({ moneda, fraccion } = {}) {
       ventaId: c.ventaId,
       ventaNumero: c.ventaNumero,
       loteId: c.loteId,
-      lote: c.lote,
+      loteNumero: c.loteNumero,
       fraccion: c.fraccion,
       numeroCuota: c.numeroCuota,
       cantidadCuotas: c.cantidadCuotas,
