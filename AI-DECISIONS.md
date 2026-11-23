@@ -1039,6 +1039,7 @@ Implementar la subtarea 38.1 (CCLF-52) siguiendo las convenciones de los routers
 - Jira CCLF-52
 - `AI-DECISIONS.md`
 
+
 ### AI-017 — Reporte de inventario de lotes
 
 **Fecha:** 2026-11-22  
@@ -1088,6 +1089,134 @@ Implementar la subtarea 38.2 (CCLF-53) solo para el inventario: universo `LOTE_V
 - `Backend/tests/unit/routes/reportes.permisos.routes.test.ts`
 - Jira CCLF-53
 - `AI-DECISIONS.md`
+
+### AI-018 — Pantalla base de Reportes (frontend) con cliente HTTP y datos simulados
+
+**Fecha:** 2026-11-22
+**Área:** Frontend / Reportes / RBAC / Cliente HTTP
+**Herramientas:** Claude (claude.ai) para planificar las etapas y redactar los prompts;
+Claude Code para ejecutar el código.
+
+#### Problema
+
+El módulo Reportes del frontend era un placeholder (`Reportes.jsx`, 58 líneas, con filtros y botones que solo
+mostraban un toast). La subtarea 39.1 (CCLF-39) necesitaba la estructura de navegación (pestañas
+Comercial / Cobranzas y selector de reporte), un cliente HTTP y el control de acceso correcto antes de
+construir cada reporte (39.2 a 39.5). El backend (`/api/reportes`, AI-016) respondía solo el esqueleto
+con datos vacíos, así que el frontend tenía que avanzar contra datos simulados que respetaran el contrato.
+Además, el rol TECNICO veía el módulo en el menú aunque el backend ya le responde 403.
+
+#### Prompt / intención
+
+Trabajo en cinco etapas, cada una con aprobación humana y sin commits de la IA:
+
+1. Exploración de solo lectura del frontend (rutas, RBAC, cliente HTTP, FilterBar, tablas, estados de
+   pantalla, navegación a entidades) y del contrato del backend, con un informe de riesgos y preguntas.
+2. Sacar `REPORTS_ACCESS` del rol TECNICO en `rbac.js`, sin tocar nada más.
+3. Cliente `lib/api/reportes.js` con tres funciones (inventario, ventas, cuotas vencidas) según el contrato
+   de CCLF-37, más un mock en archivo aparte detrás de `VITE_REPORTES_MOCK`.
+4. Reemplazar el placeholder por pestañas y selector, con el reporte activo en `?reporte=`, y probar el
+   circuito pantalla → cliente → mock.
+5. Verificación final y esta entrada.
+
+#### Propuesta generada por IA
+
+- Informe de la etapa 1 (Claude Code): relevó el estado actual y recomendó no reutilizar `TablaBase`
+  (columna de checkbox y de acciones fijas, sin estados de carga ni de error, paginado del lado cliente) ni
+  `FilterBar` (el control de fechas trabaja con epoch-ms y es frágil para fechas de calendario de Buenos
+  Aires; los campos obligatorios `desde`/`hasta`/`moneda` no encajan con un filtro pensado para ser
+  opcional y limpiable). El mismo informe señaló que la forma de las filas no estaba definida **en lo que
+  el código mostraba** (el service tipa `filas` como `unknown[]` y la OpenAPI como `object`).
+- Etapa 2 (Claude Code): quitar `REPORTS_ACCESS` de TECNICO (una línea).
+- Etapa 3 (Claude Code): adaptador con el patrón de `lib/api/pagos.js` (`http()`, lanza `Error` con
+  `statusCode` y `response` si `!res.ok`, devuelve el `data` interno); mock con datos coherentes, filtros que
+  recalculan totales, validaciones que devuelven el mismo 400 `VALIDATION_ERROR` del backend, retardo de
+  400 ms y los casos borde pedidos. El mock se carga con `import()` dinámico solo si
+  `VITE_REPORTES_MOCK === "true"`, y por defecto se usa la API real.
+- Etapa 4 (Claude Code): `Tabs`/`Tab` de react-bootstrap controlado por `?reporte=`, la pestaña derivada del
+  reporte, carga sin filtros (30 días y `moneda: "USD"` como valores por defecto) y conteo de filas.
+
+#### Validación humana
+
+- **Fila del inventario:** el informe de la etapa 1 (Claude Code) la marcó como no definida, a partir de lo
+  que veía en el código. La persona, con acceso a la especificación CCLF-37 (un PDF que Claude Code no
+  tiene), corrigió que sí estaba definida (`{ loteId, numero, fraccion, estado, subestado, precio, enlace }`,
+  con `precio` como string decimal) y la dio para el mock. Esa era la forma del ejemplo de la V2 de CCLF-37;
+  el contrato tipado de 38.2 agregó `fraccionId` y fijó `numero` como entero o null (ver el punto de la
+  revisión cruzada).
+- **TablaBase y FilterBar:** la persona aprobó el informe de la etapa 1 y, con él, la recomendación de no
+  reutilizarlos para los reportes. Ninguno de los dos se construyó todavía (queda para 39.2 a 39.4).
+- **Filas de `ventas` y `cuotas-vencidas`:** CCLF-37 solo define la forma de la fila de inventario. La
+  persona propuso una forma propia para las otras dos filas (apoyada en el schema de Prisma y en las rutas
+  reales de navegación del frontend) y se la indicó a Claude Code en el prompt de la etapa 3 sin distinguir
+  con claridad qué parte venía del contrato y cuál era una propuesta a confirmar. Queda marcado como
+  pendiente de validar con Agostina antes de que el backend implemente esas filas (38.3 y 38.4).
+- **`/map`:** la IA (Claude Code, etapa 1) señaló que `rbac.ui.js` (línea 33) acopla `/map` a
+  `REPORTS_ACCESS`. La persona decidió no tocarlo en esta tarea y dejarlo para otro ticket.
+- **Pestañas:** Claude Code implementó primero las pestañas con el aspecto de las del Header (usando
+  `tokens.css`), porque no había un patrón de pestañas reutilizable. La persona pidió luego cambiarlas a
+  forma de píldora según el boceto de Agostina, usando solo tokens existentes (fondo
+  `--color-header-bg` y texto claro en la activa, transparente y texto oscuro en la inactiva). Es un patrón
+  acotado a esta pantalla; no se tocó el Header ni se unificó con el resto de la app.
+- **Bug propio, autocorregido:** en la etapa 4, Claude Code vio en una captura que los colores de las
+  pestañas salían invertidos. La causa: en `main.jsx`, `App` (y con él, `Reportes.css`) se importa antes que
+  el CSS de Bootstrap, así que con la misma especificidad Bootstrap ganaba. Lo corrigió subiendo la
+  especificidad (`.nav-tabs.reportes-tabs`) antes de reportar la etapa.
+- **Defecto detectado en la verificación final, ya corregido:** al cambiar de pestaña, durante la transición
+  de `Tabs` quedaban montados dos paneles por 100 a 200 ms; el panel viejo recibía el `reporte` nuevo, lo
+  que producía un parpadeo del selector y una llamada duplicada. Se corrigió con `transition={false}`.
+- **Comentario de `rbac.js`:** Claude Code agregó en la etapa 2 un comentario explicativo más largo
+  (`// Cuenta (sin Reportes: el backend solo lo permite a ADMINISTRADOR y GESTOR)`). La persona pidió
+  acortarlo a `// Cuenta`, siguiendo la convención breve del resto del archivo.
+- **Revisión cruzada del PR:** Agostina detectó que la fila del mock de inventario no coincidía con el
+  contrato real de 38.2: `numero` era un string compuesto en vez de entero o null, faltaba `fraccionId`, y
+  `fraccion` se usaba a la vez como id y como número visible (en el mock no se notaba porque valían lo
+  mismo). Se corrigió el mock con ids de fracción distintos del número visible (11, 12, 13), `porFraccion`
+  con `fraccionId` y `ofrecibles`, filtro por `fraccionId` en los tres reportes, orden de filas de inventario
+  igual al del backend, y `loteNumero` + `fraccion` en ventas y cuotas vencidas.
+- **Lint:** `npm run lint` falla en el repositorio por deuda previa (114 errores y 50 warnings en 68
+  archivos). Se verificó contra un export limpio de `HEAD` que el total es idéntico y que ninguno de los
+  archivos de la tarea tiene problemas.
+- **Pruebas:** el frontend no tiene infraestructura de tests. Se verificó a mano con el dev server y el mock
+  activo (Chrome headless con la sesión simulada), y los totales del mock se contrastaron con sus filas con
+  un script en Node que no se versionó. La ruta contra la API real y el build de producción no se
+  verificaron.
+
+#### Decisión adoptada
+
+- `REPORTS_ACCESS` queda solo en ADMINISTRADOR y GESTOR, alineado con el backend. TECNICO no ve el ítem del
+  menú y la URL directa a `/reportes` lo manda a `/403` (verificado en navegador).
+- Cliente `lib/api/reportes.js`: tres funciones, los parámetros opcionales vacíos no se envían, los errores
+  llegan a la UI como `Error` con `statusCode` y `response`. El default es la API real: el mock solo se
+  activa con `VITE_REPORTES_MOCK=true` (documentada en `.env.example`) y se borra en la tarea 39.6 junto con
+  su import dinámico.
+- Pantalla `Reportes.jsx` con pestañas Comercial / Cobranzas, un único query param `?reporte=` (la pestaña
+  se deriva de él; default `inventario`) y selector de reporte en Comercial. Por ahora solo muestra la
+  cantidad de filas: el render de cada reporte, los filtros y los estados de carga y error con reintentar
+  quedan para 39.2 a 39.5.
+- Pestañas en forma de píldora, solo con tokens de `tokens.css`, acotadas a esta pantalla.
+- **Pendientes que requieren corrección humana futura (de Agostina):**
+  - La forma de las filas de `ventas` y `cuotas-vencidas` que usa el mock es una propuesta propia que falta
+    confirmar contra lo que implemente el backend en 38.3 y 38.4.
+  - El `enlace` del inventario (`/?lote=<id>`) no lo entiende el Dashboard del frontend: hoy solo abre un
+    lote por `location.state` (`openLoteId`). Se va a resolver en 39.2.
+  - Decisiones de forma del mock sin contrato, solo en ventas y cuotas vencidas: el orden de las filas es
+    propio y, en cuotas vencidas, `tramos` trae siempre los tres tramos. En inventario, el orden y los buckets
+    de `totales` (solo cantidades mayores a cero) ya coinciden con el backend (#338).
+  - El mock no tiene lotes en estado `ELIMINADO`, así que no reproduce esa exclusión del backend.
+  - Las ventas no tienen moneda en el schema (`otrasMonedas` queda siempre vacío); las cuotas sí, por plan.
+
+#### Evidencia / archivos relacionados
+
+- `frontend/src/lib/auth/rbac.js`
+- `frontend/src/lib/api/reportes.js`
+- `frontend/src/lib/api/reportes.mock.js`
+- `frontend/src/pages/Reportes.jsx`
+- `frontend/src/pages/Reportes.css`
+- `frontend/.env.example`
+- `Backend/documents/documentacionApi.yaml` (contrato de `/reportes`)
+- Jira CCLF-39 (39.1), CCLF-37 (especificación) y CCLF-52 (backend, AI-016)
+
 
 ## Plantilla para entradas nuevas
 
