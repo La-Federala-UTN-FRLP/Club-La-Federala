@@ -222,7 +222,8 @@ export async function createReserva(
 ): Promise<any> {
   try {
     const lote = await prisma.lote.findUnique({ where: { id: body.loteId } });
-    if (!lote) {
+    // Para INMOBILIARIA un lote NO_DISPONIBLE responde igual que uno inexistente: no revela que existe.
+    if (!lote || (user?.role === 'INMOBILIARIA' && lote.estado === EstadoLote.NO_DISPONIBLE)) {
       const err: any = new Error("Lote no encontrado.");
       err.status = 404;
       throw err;
