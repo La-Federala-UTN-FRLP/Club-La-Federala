@@ -82,9 +82,10 @@ function stripFieldsForInmobiliaria<T>(lote: T, inmobiliariaId?: number | null):
     sanitized.alquileres = sanitized.alquileres.map((a: any) => ({ ...a, inquilino: sinDocumento(a.inquilino) }));
   }
   // Prioridad de otra inmobiliaria o del Club: el lote sigue CON_PRIORIDAD, pero sin titular.
+  // Propia = ownerType INMOBILIARIA y su tenant (mismo criterio que prioridad.service).
   if (Array.isArray(sanitized.prioridad)) {
     sanitized.prioridad = sanitized.prioridad.map((p: any) =>
-      inmobiliariaId != null && p.inmobiliariaId === inmobiliariaId ? p : { id: p.id });
+      inmobiliariaId != null && p.ownerType === 'INMOBILIARIA' && p.inmobiliariaId === inmobiliariaId ? p : { id: p.id });
   }
   return sanitized as T;
 }
