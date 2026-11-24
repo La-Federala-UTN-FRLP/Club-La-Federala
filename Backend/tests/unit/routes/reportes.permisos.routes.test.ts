@@ -1,6 +1,6 @@
 // REP-A3 (CCLF-52, subtarea 38.1): router /api/reportes con permisos y validación de query.
 // Solo staff (ADMINISTRADOR, GESTOR); las rutas JSON responden la forma final del contrato y las
-// .xlsx responden 501 hasta 38.5 (CCLF-56).
+// .xlsx un archivo adjunto (38.5, CCLF-56).
 // Inventario (38.2, CCLF-53), ventas (38.3, CCLF-54) y cuotas vencidas (38.4, CCLF-55) consultan la
 // base: acá corren contra los fakes de Prisma vacíos. Los contratos con datos están en
 // reportes.inventario.routes.test.ts, reportes.ventas.routes.test.ts y
@@ -113,10 +113,12 @@ describe.each(['ADMINISTRADOR', 'GESTOR'])('GET /api/reportes — %s', (rol) => 
         });
     });
 
-    test.each(RUTAS_XLSX)('%s → 501 exportación pendiente', async (url) => {
+    // Exportación (38.5, CCLF-56): el contenido del archivo se prueba en reportes.excel.routes.test.ts.
+    test.each(RUTAS_XLSX)('%s con la base vacía → 200 con un .xlsx adjunto', async (url) => {
         const res = await request(app).get(url).set(authHeader(rol));
-        expect(res.status).toBe(501);
-        expect(res.body).toEqual({ success: false, code: 'INTERNAL_ERROR', message: 'Exportación pendiente (CCLF-56)' });
+        expect(res.status).toBe(200);
+        expect(res.headers['content-type']).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        expect(res.headers['content-disposition']).toMatch(/^attachment; filename="reporte-[A-Za-z0-9._-]+\.xlsx"$/);
     });
 });
 

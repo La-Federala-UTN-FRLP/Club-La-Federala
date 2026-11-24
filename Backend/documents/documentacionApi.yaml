@@ -2258,7 +2258,11 @@ paths:
       tags: [Reportes]
       operationId: exportarReporteInventario
       summary: Exportar reporte de inventario a Excel
-      description: Mismos filtros que el reporte JSON. La exportación todavía no está disponible (501).
+      description: >-
+        Mismos filtros, validaciones y filas que `GET /reportes/inventario`. Hojas: "Inventario" (ID de
+        lote, Fracción, N.º de lote, Estado, Subestado constructivo, Precio (USD)), "Totales" (ofrecibles,
+        por estado, por fracción y por subestado) y "Parámetros". Archivo
+        `reporte-inventario_corte-YYYY-MM-DD.xlsx`.
       x-roles: [ADMINISTRADOR, GESTOR]
       security: [{ bearerAuth: [] }]
       parameters:
@@ -2266,11 +2270,11 @@ paths:
         - { name: estado, in: query, schema: { $ref: '#/components/schemas/EstadoLote' } }
         - { name: subestado, in: query, schema: { $ref: '#/components/schemas/SubestadoLote' } }
       responses:
+        '200': { $ref: '#/components/responses/ReporteXlsx' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
-        '501': { $ref: '#/components/responses/ExportacionPendiente' }
   /reportes/ventas:
     get:
       tags: [Reportes]
@@ -2305,7 +2309,12 @@ paths:
       tags: [Reportes]
       operationId: exportarReporteVentas
       summary: Exportar reporte de ventas a Excel
-      description: Mismos parámetros y validaciones que el reporte JSON. La exportación todavía no está disponible (501).
+      description: >-
+        Mismos parámetros, validaciones y filas que `GET /reportes/ventas`. Hojas: "Ventas" (ID de venta,
+        N.º de venta, Fracción, N.º de lote, Estado, Fecha de alta, Fecha de escritura, Fecha de
+        cancelación, Moneda, Monto con el formato de su moneda), "Totales" (tarjetas en USD y cada otra
+        moneda aparte, sin sumar) y "Parámetros". Archivo
+        `reporte-ventas_YYYY-MM-DD_a_YYYY-MM-DD_corte-YYYY-MM-DD.xlsx` (desde, hasta y corte).
       x-roles: [ADMINISTRADOR, GESTOR]
       security: [{ bearerAuth: [] }]
       parameters:
@@ -2313,11 +2322,11 @@ paths:
         - { name: hasta, in: query, required: true, schema: { type: string, format: date } }
         - { name: fraccion, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
       responses:
+        '200': { $ref: '#/components/responses/ReporteXlsx' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
-        '501': { $ref: '#/components/responses/ExportacionPendiente' }
   /reportes/cuotas-vencidas:
     get:
       tags: [Reportes]
@@ -2350,18 +2359,23 @@ paths:
       tags: [Reportes]
       operationId: exportarReporteCuotasVencidas
       summary: Exportar reporte de cuotas vencidas a Excel
-      description: Mismos parámetros y validaciones que el reporte JSON. La exportación todavía no está disponible (501).
+      description: >-
+        Mismos parámetros, validaciones y filas que `GET /reportes/cuotas-vencidas`. Hojas: "Cuotas
+        vencidas" (ID de cuota, N.º de venta, Fracción, N.º de lote, N.º de cuota, Cantidad de cuotas,
+        Vencimiento, Días de atraso, Tramo, Saldo (incluye recargos) en la moneda pedida), "Totales"
+        (saldo vencido, cuotas, ventas afectadas y los 3 tramos) y "Parámetros". Archivo
+        `reporte-cuotas-vencidas_<MONEDA>_corte-YYYY-MM-DD.xlsx`.
       x-roles: [ADMINISTRADOR, GESTOR]
       security: [{ bearerAuth: [] }]
       parameters:
         - { name: moneda, in: query, required: true, schema: { $ref: '#/components/schemas/Moneda' } }
         - { name: fraccion, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
       responses:
+        '200': { $ref: '#/components/responses/ReporteXlsx' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
-        '501': { $ref: '#/components/responses/ExportacionPendiente' }
 
 components:
   securitySchemes:
@@ -2462,12 +2476,22 @@ components:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
           example: { success: false, code: INTERNAL_ERROR, message: Error al subir archivo }
 
-    ExportacionPendiente:
-      description: Exportación a Excel todavía no implementada.
+    ReporteXlsx:
+      description: >-
+        Libro de Excel generado con ExcelJS con la hoja de datos del reporte, "Totales" y "Parámetros"
+        (fecha de corte, fecha y hora de generación en Buenos Aires y filtros usados; "Todas"/"Todos"
+        si no se filtró). Montos como número con formato de su moneda (`"USD" #,##0.00`, `"ARS"
+        #,##0.00`; ARS y USD nunca se suman), fechas como fecha de Excel (`dd/mm/yyyy`) y nulos como
+        celda vacía. Con validación fallida, sin token o sin rol la respuesta es el JSON de error, no
+        un archivo.
+      headers:
+        Content-Disposition:
+          description: Descarga con nombre del reporte y fecha de corte (solo `[a-z0-9._-]`).
+          schema: { type: string }
+          example: attachment; filename="reporte-inventario_corte-2026-11-24.xlsx"
       content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ErrorResponse' }
-          example: { success: false, code: INTERNAL_ERROR, message: Exportación pendiente (CCLF-56) }
+        application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+          schema: { type: string, format: binary }
 
   schemas:
     # ------------------------------------------------------------ Errores
