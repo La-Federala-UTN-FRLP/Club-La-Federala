@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useAuth } from "../app/providers/AuthProvider";
 import { useToast } from "../app/providers/ToastProvider";
 import FilterBarLotes from "../components/FilterBar/FilterBarLotes";
@@ -31,6 +31,7 @@ export default function Dashboard() {
   const userRole = (user?.role ?? user?.rol ?? "ADMIN").toString().trim().toUpperCase();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const authRaw = localStorage.getItem("auth:user");
   const authUser = authRaw ? JSON.parse(authRaw) : null;
@@ -181,7 +182,43 @@ export default function Dashboard() {
       }
     }
   }, [location.state, allLotes, fetchAndMergeLote]);
-    
+
+  // Abrir el modal "Ver" cuando se entra con ?lote=<id> (enlace de los reportes).
+  // Se procesa una sola vez por valor: fetchAndMergeLote actualiza allLotes y volvería a
+  // disparar el efecto, así que el ref recuerda qué id ya se resolvió.
+  const loteParam = searchParams.get("lote");
+  const loteParamResuelto = useRef(null);
+  useEffect(() => {
+    // Sin parámetro no hay nada que hacer; se libera el ref para un próximo ?lote=.
+    if (loteParam == null) {
+      loteParamResuelto.current = null;
+      return;
+    }
+    // Hasta que no terminó la carga no se puede saber si el lote existe.
+    if (loading) return;
+    if (loteParamResuelto.current === loteParam) return;
+    loteParamResuelto.current = loteParam;
+
+    const id = loteParam.trim();
+    const lote = /^[1-9]\d*$/.test(id)
+      ? allLotes.find((l) => String(l?.id) === id)
+      : null;
+
+    if (lote) onVer(lote);
+    else error("El lote no existe o ya no está disponible");
+
+    // Se saca solo `lote` y se conservan los demás parámetros. Con replace, cerrar el modal
+    // o refrescar no lo vuelve a abrir.
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("lote");
+        return next;
+      },
+      { replace: true }
+    );
+  }, [loteParam, loading, allLotes, onVer, error, setSearchParams]);
+
       const onEditar = useCallback(
         (lot) => {
           if (!lot) return;
