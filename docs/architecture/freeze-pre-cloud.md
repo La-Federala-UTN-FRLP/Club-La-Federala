@@ -95,6 +95,20 @@ Al cerrar el freeze (`npm audit --omit=dev`):
 
 Las advertencias restantes se aceptan antes de Cloud porque su remediación requiere la migración mayor a Prisma 7 (post-Cloud).
 
+### Actualización pre-despliegue (2026-11-23, AI-023)
+
+`npm audit --omit=dev` no describe la imagen: `prisma` es devDependency, pero también peer opcional de `@prisma/client`, y npm lo trata como dependencia de producción. Por eso la imagen `runtime` llevaba Prisma CLI con `effect` y `deepmerge-ts`. El Dockerfile ahora lo poda del runtime (`npm prune --legacy-peer-deps` en el stage `runtime-deps`). `npm audit --omit=dev` sigue informando las mismas 4 high porque lee el lockfile, no la imagen.
+
+Paquetes vulnerables presentes en cada imagen (inventario de `node_modules` contra los advisories de npm):
+
+| Imagen | Antes (Node 20) | Después (Node 24) |
+|---|---|---|
+| `runtime` | 2 high: `effect@3.18.4`, `deepmerge-ts@7.1.5` | 0 |
+| `migrate` | 16: 1 critical (`handlebars`), 11 high, 2 moderate, 2 low | 2 high: `effect@3.18.4`, `deepmerge-ts@7.1.5` |
+
+- **`migrate`:** `effect` y `deepmerge-ts` siguen porque los fija `@prisma/config@6.18.0`, que Prisma CLI necesita. `prisma@6.19.3` (última 6.x) solo sube `effect` a 3.21.0, que todavía tiene GHSA-7589. `deepmerge-ts` se corrige recién en 8.0.0. La exposición es baja: el job es efímero, solo procesa el schema y las migraciones del repo, y no usa RPC de Effect ni mezcla objetos externos. Se resuelve con Prisma 7.
+- **Desarrollo:** `npm audit` pasó de 23 (1 critical, 10 high, 10 moderate, 2 low) a 14 (4 high de la cadena Prisma, 10 moderate de jest 30 vía `glob@10` y `minimatch@9`). La cadena de jest no tiene corrección compatible: `npm audit` solo ofrece bajar a jest 29.
+
 ## Chequeos manuales de despliegue
 
 El código no toca Render ni Vercel: estos valores hay que verificarlos a mano en cada plataforma. Este documento no afirma que ya estén configurados.

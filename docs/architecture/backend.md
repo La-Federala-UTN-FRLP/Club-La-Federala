@@ -9,7 +9,7 @@ El runtime de desarrollo y el productivo son distintos:
 | | Desarrollo | Producción |
 |---|---|---|
 | Comando | `npm run dev` (`ts-node-dev` con watcher sobre `src/server.ts`) | `npm ci` → `npm run build` → `node dist/server.js` (`npm start`) |
-| Docker | `docker-compose.yml`: target `deps` del Dockerfile, código montado por volumen, `npm run dev` | `Backend/Dockerfile`, stage final `runtime` (multi-stage): solo `dist` + dependencias de producción, `NODE_ENV=production`, usuario sin privilegios, `CMD ["node", "dist/server.js"]` |
+| Docker | `docker-compose.yml`: target `deps` del Dockerfile, código montado por volumen, `npm run dev` | `Backend/Dockerfile` (base `node:24-bookworm-slim`), stage final `runtime` (multi-stage): solo `dist` + dependencias de producción sin Prisma CLI, `NODE_ENV=production`, usuario sin privilegios, `CMD ["node", "dist/server.js"]`. Las migraciones usan el target `migrate` (Prisma CLI + migraciones, `prisma migrate deploy`) |
 
 Que `ts-node-dev` aparezca en `docker-compose.yml` no contradice lo anterior: compose es el entorno de desarrollo, no la imagen productiva.
 
