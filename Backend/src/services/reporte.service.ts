@@ -1,9 +1,9 @@
-// Reportes (CCLF-38). Inventario implementado en 38.2 y ventas en 38.3; cuotas vencidas (38.4)
-// todavía devuelve la forma final del contrato con datos vacíos.
+// Reportes (CCLF-38). Inventario (38.2), ventas por período (38.3) y cuotas vencidas (38.4).
 import prisma from '../config/prisma';
 import {
     EstadoLote,
     EstadoOperativo,
+    EstadoPlanPago,
     EstadoVenta,
     Moneda,
     SubestadoLote,
@@ -461,25 +461,174 @@ export async function getReporteVentas(filtros: QueryReporteVentas): Promise<Rep
 
 // ------------------------------------------------------------ Cuotas vencidas (38.4)
 
+/** Tramos de atraso, en días contados desde el vencimiento hasta el corte. */
+export const TRAMOS_ATRASO = ['1-30', '31-60', '+60'] as const;
+export type TramoAtraso = (typeof TRAMOS_ATRASO)[number];
+
+export function tramoDeAtraso(diasAtraso: number): TramoAtraso {
+    if (diasAtraso <= 30) return '1-30';
+    if (diasAtraso <= 60) return '31-60';
+    return '+60';
+}
+
+export interface TramoCuotasVencidas {
+    tramo: TramoAtraso;
+    cuotas: number;
+    /** Saldo vencido del tramo, decimal con 2 cifras, en la moneda del reporte. */
+    saldo: string;
+}
+
+export interface CuotaVencidaFila {
+    cuotaId: number;
+    ventaId: number;
+    /** Venta.numero (texto único de la venta). */
+    ventaNumero: string;
+    loteId: number;
+    /** Lote.numero: opcional en el schema. */
+    loteNumero: number | null;
+    /** Número visible de la fracción (Fraccion.numero). */
+    fraccion: number;
+    numeroCuota: number;
+    /** PlanPago.cantidadCuotas del plan vigente. */
+    cantidadCuotas: number;
+    /** Día de vencimiento (YYYY-MM-DD). */
+    fechaVencimiento: string;
+    diasAtraso: number;
+    tramo: TramoAtraso;
+    /** CuotaPlanPago.saldoPendiente (incluye recargos), decimal con 2 cifras. */
+    saldoPendiente: string;
+    /** Ruta del frontend que abre los pagos de la venta. */
+    enlace: string;
+}
+
 export interface ReporteCuotasVencidas {
     corte: string;
-    moneda: QueryReporteCuotasVencidas['moneda'];
+    moneda: Moneda;
     saldoVencido: string;
     cuotas: number;
     ventas: number;
-    tramos: unknown[];
-    filas: unknown[];
+    tramos: TramoCuotasVencidas[];
+    filas: CuotaVencidaFila[];
 }
 
-export async function getReporteCuotasVencidas(filtros: QueryReporteCuotasVencidas): Promise<ReporteCuotasVencidas> {
-    // Pendiente 38.4: plan VIGENTE, saldo > 0, vencimiento < corte; tramos 1–30, 31–60, >60.
+export const enlacePagosVenta = (ventaId: number) => `/ventas/${ventaId}/pagos`;
+
+/**
+ * Día de calendario de un vencimiento. fechaVencimiento es una fecha sin hora guardada como instante:
+ * el frontend la manda a las 12:00Z y la API con "YYYY-MM-DD" la guarda a las 00:00Z. Su día es el
+ * de UTC; pasarla a Buenos Aires correría al día anterior las guardadas a las 00:00Z.
+ */
+export const diaVencimiento = (fechaVencimiento: Date): string => fechaVencimiento.toISOString().slice(0, 10);
+
+/** Primer instante cuyo día de vencimiento es `corte`: vencida ⇔ fechaVencimiento < este límite. */
+export const limiteVencimiento = (corte: string): Date => new Date(`${corte}T00:00:00.000Z`);
+
+/** Días entre el día de vencimiento y el corte (1 si venció ayer). */
+export const diasDeAtraso = (vencimiento: string, corte: string): number => diasInclusivos(vencimiento, corte) - 1;
+
+/**
+ * Cuotas vencidas al corte: plan VIGENTE en la moneda pedida, saldo > 0, vencimiento anterior al día
+ * de corte, de ventas no canceladas ni dadas de baja lógica. Una cuota que vence el día de corte no
+ * está vencida.
+ */
+export function whereCuotasVencidas(corte: string, filtros: QueryReporteCuotasVencidas): Prisma.CuotaPlanPagoWhereInput {
     return {
-        corte: fechaCorte(),
+        saldoPendiente: { gt: 0 },
+        fechaVencimiento: { lt: limiteVencimiento(corte) },
+        planPago: {
+            estadoPlan: EstadoPlanPago.VIGENTE,
+            moneda: filtros.moneda,
+            venta: {
+                estadoOperativo: EstadoOperativo.OPERATIVO,
+                estado: { not: EstadoVenta.CANCELADA },
+                ...(filtros.fraccion !== undefined && { lote: { fraccionId: filtros.fraccion } }),
+            },
+        },
+    };
+}
+
+export const SELECT_CUOTAS_VENCIDAS = {
+    id: true,
+    numeroCuota: true,
+    fechaVencimiento: true,
+    saldoPendiente: true,
+    planPago: {
+        select: {
+            cantidadCuotas: true,
+            venta: {
+                select: {
+                    id: true,
+                    numero: true,
+                    loteId: true,
+                    lote: { select: { numero: true, fraccion: { select: { numero: true } } } },
+                },
+            },
+        },
+    },
+} satisfies Prisma.CuotaPlanPagoSelect;
+
+export const ORDER_BY_CUOTAS_VENCIDAS = [
+    { fechaVencimiento: 'asc' },
+    { id: 'asc' },
+] satisfies Prisma.CuotaPlanPagoOrderByWithRelationInput[];
+
+export async function getReporteCuotasVencidas(filtros: QueryReporteCuotasVencidas): Promise<ReporteCuotasVencidas> {
+    const corte = fechaCorte();
+
+    const cuotasVencidas = await prisma.cuotaPlanPago.findMany({
+        where: whereCuotasVencidas(corte, filtros),
+        select: SELECT_CUOTAS_VENCIDAS,
+        orderBy: ORDER_BY_CUOTAS_VENCIDAS,
+    });
+
+    const filas: CuotaVencidaFila[] = cuotasVencidas
+        .map((c) => {
+            const venta = c.planPago.venta;
+            const fechaVencimiento = diaVencimiento(c.fechaVencimiento);
+            const diasAtraso = diasDeAtraso(fechaVencimiento, corte);
+            return {
+                cuotaId: c.id,
+                ventaId: venta.id,
+                ventaNumero: venta.numero,
+                loteId: venta.loteId,
+                loteNumero: venta.lote.numero,
+                fraccion: venta.lote.fraccion.numero,
+                numeroCuota: c.numeroCuota,
+                cantidadCuotas: c.planPago.cantidadCuotas,
+                fechaVencimiento,
+                diasAtraso,
+                tramo: tramoDeAtraso(diasAtraso),
+                saldoPendiente: c.saldoPendiente.toFixed(2),
+                enlace: enlacePagosVenta(venta.id),
+            };
+        })
+        // Más atrasadas primero; dos cuotas del mismo día, por id.
+        .sort((a, b) => b.diasAtraso - a.diasAtraso || a.cuotaId - b.cuotaId);
+
+    // Totales en Decimal sobre el saldo de la base: nunca se pasa por float.
+    const saldoPorTramo = new Map<TramoAtraso, { cuotas: number; saldo: Prisma.Decimal }>(
+        TRAMOS_ATRASO.map((t) => [t, { cuotas: 0, saldo: new Prisma.Decimal(0) }]),
+    );
+    let saldoVencido = new Prisma.Decimal(0);
+    for (const c of cuotasVencidas) {
+        const tramo = tramoDeAtraso(diasDeAtraso(diaVencimiento(c.fechaVencimiento), corte));
+        const t = saldoPorTramo.get(tramo)!;
+        t.cuotas += 1;
+        t.saldo = t.saldo.plus(c.saldoPendiente);
+        saldoVencido = saldoVencido.plus(c.saldoPendiente);
+    }
+
+    return {
+        corte,
         moneda: filtros.moneda,
-        saldoVencido: '0.00',
-        cuotas: 0,
-        ventas: 0,
-        tramos: [],
-        filas: [],
+        saldoVencido: saldoVencido.toFixed(2),
+        cuotas: filas.length,
+        ventas: new Set(filas.map((f) => f.ventaId)).size,
+        // Siempre los 3 tramos, en orden, aunque alguno quede en cero.
+        tramos: TRAMOS_ATRASO.map((tramo) => {
+            const t = saldoPorTramo.get(tramo)!;
+            return { tramo, cuotas: t.cuotas, saldo: t.saldo.toFixed(2) };
+        }),
+        filas,
     };
 }
