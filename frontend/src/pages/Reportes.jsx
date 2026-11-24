@@ -1,36 +1,21 @@
 // src/pages/Reportes.jsx
 // Pantalla de Reportes: pestañas Comercial / Cobranzas y selector de reporte.
 // El reporte activo vive en la URL (?reporte=inventario|ventas|cuotas-vencidas) y la pestaña
-// se deriva de él.
+// se deriva de él. El selector son chips, en la misma fila que las pestañas.
 //
 // Un reporte con `Vista` renderiza ese componente, que maneja sus propios filtros y su carga.
-// Los que todavía no la tienen muestran el conteo de filas de la pantalla base (39.3 y 39.4).
+// Los que todavía no la tienen muestran el conteo de filas de la pantalla base (39.4).
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { Tabs, Tab, Form, Alert } from "react-bootstrap";
-import { getInventario, getVentas, getCuotasVencidas } from "../lib/api/reportes";
+import { Link, useSearchParams } from "react-router-dom";
+import { Tabs, Tab, Alert } from "react-bootstrap";
+import { getInventario, getCuotasVencidas } from "../lib/api/reportes";
 import VistaInventario from "../components/Reportes/VistaInventario";
+import VistaVentas from "../components/Reportes/VistaVentas";
 import { parseApiError } from "../lib/http/errors";
 import "./Reportes.css";
 
 const REPORTE_DEFAULT = "inventario";
-const DIAS_VENTAS_DEFAULT = 30;
-const ZONA_NEGOCIO = "America/Argentina/Buenos_Aires";
-
-/** Hoy en Buenos Aires, YYYY-MM-DD (la misma zona que usa el backend para el corte). */
-function hoyNegocio() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: ZONA_NEGOCIO,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
-
-function sumarDias(ymd, dias) {
-  return new Date(Date.parse(ymd) + dias * 86_400_000).toISOString().slice(0, 10);
-}
 
 // Cada reporte: etiqueta, su vista propia si ya existe, y cómo se carga para el conteo
 // provisorio de los que todavía no la tienen (los parámetros obligatorios llevan un default).
@@ -42,10 +27,7 @@ const REPORTES = {
   },
   ventas: {
     label: "Ventas por período",
-    cargar: () => {
-      const hasta = hoyNegocio();
-      return getVentas({ desde: sumarDias(hasta, -(DIAS_VENTAS_DEFAULT - 1)), hasta });
-    },
+    Vista: VistaVentas,
   },
   "cuotas-vencidas": {
     label: "Cuotas vencidas",
@@ -94,32 +76,39 @@ function ConteoFilas({ reporte }) {
   );
 }
 
-/** Selector de reporte (solo si la pestaña tiene más de uno) + contenido del reporte activo. */
-function PanelReporte({ tab, reporte, onReporteChange }) {
-  const { Vista, label } = REPORTES[reporte];
+/** Contenido del reporte activo. El selector vive arriba, en la fila de las pestañas. */
+function PanelReporte({ reporte }) {
+  const { Vista } = REPORTES[reporte];
 
   return (
-    <div className="reportes-panel">
-      {tab.reportes.length > 1 ? (
-        <Form.Group className="reportes-selector">
-          <Form.Label htmlFor="reportes-select">Reporte</Form.Label>
-          <Form.Select
-            id="reportes-select"
-            value={reporte}
-            onChange={(e) => onReporteChange(e.target.value)}
-          >
-            {tab.reportes.map((key) => (
-              <option key={key} value={key}>
-                {REPORTES[key].label}
-              </option>
-            ))}
-          </Form.Select>
-        </Form.Group>
-      ) : (
-        <h6 className="reportes-titulo">{label}</h6>
-      )}
+    <div className="reportes-panel">{Vista ? <Vista /> : <ConteoFilas reporte={reporte} />}</div>
+  );
+}
 
-      {Vista ? <Vista /> : <ConteoFilas reporte={reporte} />}
+/**
+ * Selector de reporte: un chip por cada reporte de la pestaña activa.
+ *
+ * Hace exactamente lo mismo que el `<select>` que había antes —cambiar `?reporte=`— pero deja
+ * los reportes de la pestaña a la vista en lugar de esconderlos en un desplegable. `aria-pressed`
+ * dice cuál está activo, que es lo que el select comunicaba con la opción seleccionada.
+ */
+function ChipsReporte({ tab, reporte, onReporteChange }) {
+  return (
+    <div className="reportes-chips" role="group" aria-label="Reporte">
+      {tab.reportes.map((key) => {
+        const activo = key === reporte;
+        return (
+          <button
+            key={key}
+            type="button"
+            className={`reportes-chip${activo ? " reportes-chip--activo" : ""}`}
+            aria-pressed={activo}
+            onClick={() => onReporteChange(key)}
+          >
+            {REPORTES[key].label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -139,9 +128,21 @@ export default function Reportes() {
     if (tab && tab.key !== tabActiva.key) elegirReporte(tab.reportes[0]);
   };
 
+  // Los chips van después de las pestañas en el DOM y el CSS los acomoda en la misma fila:
+  // `Tabs` rinde la barra y el contenido como hermanos, así que no hay dónde insertarlos dentro.
   return (
-    <div className="container py-3">
-      <h5 className="mb-3">Reportes</h5>
+    <div className="container py-3 reportes-pantalla">
+      {/* La ruta sale de lo que ya se sabe: la pestaña activa es la familia y el reporte activo
+          da su etiqueta. No hay navegación nueva: solo "Inicio" es un enlace. */}
+      <div className="reportes-encabezado">
+        <p className="reportes-ruta">
+          <Link to="/" className="reportes-ruta__enlace">
+            Inicio
+          </Link>
+          {` / Reportes / ${tabActiva.label} / ${REPORTES[reporte].label}`}
+        </p>
+        <h1 className="reportes-titulo-pagina">Reportes</h1>
+      </div>
 
       <Tabs
         id="reportes-tabs"
@@ -154,10 +155,12 @@ export default function Reportes() {
       >
         {TABS.map((tab) => (
           <Tab key={tab.key} eventKey={tab.key} title={tab.label}>
-            <PanelReporte tab={tab} reporte={reporte} onReporteChange={elegirReporte} />
+            <PanelReporte reporte={reporte} />
           </Tab>
         ))}
       </Tabs>
+
+      <ChipsReporte tab={tabActiva} reporte={reporte} onReporteChange={elegirReporte} />
     </div>
   );
 }

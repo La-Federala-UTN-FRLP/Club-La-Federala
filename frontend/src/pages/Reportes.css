@@ -1,34 +1,146 @@
 /* src/pages/Reportes.css */
-/* Pestañas de Reportes: react-bootstrap Tabs en forma de píldora, solo con tokens de tokens.css.
-   Activa: verde del header con texto claro. Inactiva: transparente con texto oscuro.
-   Patrón acotado a esta pantalla (no reemplaza las pestañas Mapa/Lotes del Header).
-   Los selectores llevan `.nav-tabs` para ganarle a Bootstrap: main.jsx carga su CSS después
-   del de las páginas, así que con igual especificidad pisaría estas reglas. */
+/* Estilo de la pantalla de Reportes, acercado al boceto (39.3, etapa 5).
+   Todo vive bajo `.reportes-pantalla` / `.reportes-panel` o lleva el prefijo `reporte(s)-`:
+   ninguna regla sale de esta pantalla, así que Lotes, Ventas y el Dashboard no se enteran.
+   Los selectores que pisan a Bootstrap llevan una clase de más: main.jsx carga su CSS después
+   del de las páginas, así que con igual especificidad ganaría Bootstrap.
 
+   Los valores del boceto van como variables locales acá arriba y no en tokens.css: son de esta
+   pantalla. Se declaran en `.reportes-pantalla` y no en `.reportes-panel` porque las pestañas y
+   los chips quedan fuera del panel; el panel las hereda. Donde el boceto coincide con un token
+   que ya existe (#0d3730 y #2849af) se usa el token. */
+
+/* Fondo de la pantalla. `.app-content` es el contenedor del layout que envuelve a todas las
+   páginas (Layout.jsx), así que el `:has()` es lo que lo acota: el fondo aparece solo mientras
+   lo que hay adentro es el panel de Reportes y desaparece al navegar a otra ruta. Es la única
+   regla de esta hoja que arranca fuera del árbol de Reportes, y es la excepción pedida.
+   `flex: 1` para que el color llegue hasta abajo también en un reporte corto: `.app-content`
+   es un ítem de un flex column y, sin eso, mide lo que mide su contenido. */
+.app-content:has(.reportes-panel) {
+  flex: 1 1 auto;
+  background: #f3f5f2;
+}
+
+.reportes-pantalla {
+  /* Formas */
+  --reporte-radio-tarjeta: 20px;
+  --reporte-radio-aviso: 16px;
+  --reporte-radio-control: 12px;
+  --reporte-alto-control: 44px;
+  --reporte-gap-seccion: 20px;
+  --reporte-gap-kpis: 14px;
+
+  /* Grises y verdes del boceto */
+  --reporte-borde-tarjeta: #e3e8e4;
+  --reporte-borde-control: #d5ddd7;
+  --reporte-texto-fuerte: #1f2a24;
+  --reporte-texto-medio: #33433b;
+  --reporte-texto-suave: #5b6b63;
+  --reporte-chip-activo-bg: #e6efe9;
+  --reporte-destacada-suave: #c9d6cf;
+  --reporte-tabla-cabecera-bg: #f7f9f6;
+  --reporte-tabla-linea: #eef1ed;
+
+  /* Barras comparadas */
+  --reporte-barra-iniciadas: var(--color-action-primary);
+  --reporte-barra-escrituradas: #1d7a4f;
+  --reporte-barra-canceladas: #a8321e;
+  --reporte-barra-anterior: #a3aea8;
+  --reporte-barra-riel: #eef1ed;
+
+  /* Pastilla de diferencia */
+  --reporte-delta-sube-bg: #e3f2e9;
+  --reporte-delta-sube-texto: #17603e;
+  --reporte-delta-igual-bg: #eef1ed;
+  --reporte-delta-igual-texto: #33433b;
+  --reporte-delta-alerta-bg: #f8e3df;
+  --reporte-delta-alerta-texto: #8f2a18;
+
+  /* Aviso de otras monedas */
+  --reporte-aviso-fondo: #fdf6e6;
+  --reporte-aviso-borde: #f1dca8;
+  --reporte-aviso-texto: #5c4510;
+  --reporte-aviso-icono: #8a6212;
+
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: var(--space-3);
+}
+
+/* `Tabs` rinde la barra de pestañas y el contenido como hermanos, así que la fila se arma acá:
+   el título ocupa un renglón entero, las pestañas y los chips comparten el siguiente, y el
+   contenido vuelve a ocupar todo el ancho. */
+/* Encabezado: la ruta arriba y el título abajo, ocupando el renglón entero */
+.reportes-encabezado {
+  display: flex;
+  flex: 0 0 100%;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reportes-ruta {
+  margin: 0;
+  color: var(--reporte-texto-suave);
+  font-size: 13px;
+}
+
+.reportes-ruta__enlace {
+  color: inherit;
+  text-decoration: none;
+}
+
+.reportes-ruta__enlace:hover,
+.reportes-ruta__enlace:focus-visible {
+  color: var(--color-header-bg);
+  text-decoration: underline;
+}
+
+.reportes-titulo-pagina {
+  margin: 0;
+  color: var(--color-header-bg);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.reportes-pantalla > .tab-content {
+  order: 3;
+  flex: 0 0 100%;
+}
+
+/* Barra de pestañas: una píldora blanca con las dos opciones adentro */
 .nav-tabs.reportes-tabs {
-  gap: var(--space-2);
-  border-bottom: 0;
-  margin-bottom: var(--space-4);
+  order: 1;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 4px;
+  background: var(--color-text-light);
+  border: 1px solid var(--reporte-borde-tarjeta);
+  border-bottom: 1px solid var(--reporte-borde-tarjeta);
+  border-radius: 999px;
 }
 
 .nav-tabs.reportes-tabs .nav-link {
-  min-width: 130px;
-  padding: var(--space-3) var(--space-6);
-  color: var(--color-text-dark);
+  min-width: 0;
+  padding: 10px 20px;
+  color: var(--reporte-texto-medio);
   background: transparent;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: 999px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
   line-height: 1.1;
   text-align: center;
 }
 
-/* Hover y foco de una inactiva: contorno verde, sin cambiar el fondo */
+/* Hover y foco de una inactiva: se insinúa el verde, sin moverse de lugar */
 .nav-tabs.reportes-tabs .nav-link:hover,
 .nav-tabs.reportes-tabs .nav-link:focus-visible {
   color: var(--color-header-bg);
-  background: transparent;
-  border-color: var(--color-header-bg);
+  background: var(--reporte-chip-activo-bg);
 }
 
 .nav-tabs.reportes-tabs .nav-link.active,
@@ -36,57 +148,61 @@
 .nav-tabs.reportes-tabs .nav-link.active:focus-visible {
   color: var(--color-text-light);
   background: var(--color-header-bg);
+  border: 0;
+  box-shadow: none;
+}
+
+/* Chips de reporte, al lado de las pestañas */
+.reportes-chips {
+  order: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.reportes-chip {
+  padding: 10px 16px;
+  color: var(--reporte-texto-medio);
+  background: var(--color-text-light);
+  border: 1px solid var(--reporte-borde-control);
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+.reportes-chip:hover {
   border-color: var(--color-header-bg);
-  box-shadow: var(--elev-1);
+  color: var(--color-header-bg);
+}
+
+.reportes-chip--activo,
+.reportes-chip--activo:hover {
+  color: var(--color-header-bg);
+  background: var(--reporte-chip-activo-bg);
+  border-color: var(--color-header-bg);
+  font-weight: 600;
 }
 
 .reportes-panel {
   padding-top: var(--space-2);
 }
 
-.reportes-selector {
-  max-width: 320px;
-  margin-bottom: var(--space-4);
-}
-
-.reportes-titulo {
-  margin-bottom: var(--space-4);
-}
-
 /* ------------------------------------------------------------------------ */
 /* Vista de un reporte: filtros, tarjetas y resúmenes.                        */
-/* Inspirado en .vp-summary-* de venta-pagos.css, pero sin importarlo y sin   */
-/* colores nuevos: todo sale de tokens.css. Las tres variables de abajo son   */
-/* derivadas locales del negro y el blanco que ya usan los tokens (igual que  */
-/* --border-color y --elev-1, que son rgba negro), solo con menos opacidad.   */
+/* Los tres nombres de abajo quedaron del primer estilo (grises derivados del */
+/* negro) y ahora apuntan a los del boceto, así todo lo que ya los usaba se   */
+/* actualiza sin repetir los valores en cada regla.                           */
 /* ------------------------------------------------------------------------ */
 .reportes-panel {
   --reportes-superficie: var(--color-text-light);
-  --reportes-borde: rgba(0, 0, 0, 0.12);
-  --reportes-texto-suave: rgba(0, 0, 0, 0.6);
+  --reportes-borde: var(--reporte-borde-tarjeta);
+  --reportes-texto-suave: var(--reporte-texto-suave);
 }
 
-/* Filtros */
-.reportes-filtros {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--space-3);
-  margin-bottom: var(--space-4);
-}
-
-.reportes-filtro {
-  display: flex;
-  flex-direction: column;
-  min-width: 190px;
-}
-
-.reportes-filtros__boton {
-  background: var(--color-action-primary);
-  border-color: var(--color-action-primary);
-  border-radius: var(--radius-sm);
-  font-weight: 600;
-}
+/* Los filtros del inventario usan `.reporte-filtros-card` y `.reporte-filtro`, las mismas
+   clases que la tarjeta de filtros compartida: las reglas viven una sola vez, más abajo. */
 
 .reportes-aviso {
   margin-bottom: var(--space-4);
@@ -117,40 +233,54 @@
 }
 
 .reportes-kpi {
+  display: flex;
   flex: 1 1 200px;
+  flex-direction: column;
+  gap: 6px;
   max-width: 280px;
-  padding: var(--space-4);
+  padding: 18px 20px;
   background: var(--reportes-superficie);
   border: 1px solid var(--reportes-borde);
-  border-radius: var(--radius-lg);
+  border-radius: var(--reporte-radio-tarjeta);
 }
 
+/* La destacada va en el verde profundo del boceto, con el texto claro encima */
 .reportes-kpi--destacada {
+  background: var(--color-header-bg);
   border-color: var(--color-header-bg);
-  box-shadow: var(--elev-1);
+  box-shadow: none;
 }
 
+.reportes-kpi--destacada .reportes-kpi__valor {
+  color: var(--color-text-light);
+}
+
+.reportes-kpi--destacada .reportes-kpi__etiqueta,
+.reportes-kpi--destacada .reportes-kpi__leyenda {
+  color: var(--reporte-destacada-suave);
+}
+
+/* En minúscula: es el nombre de lo que se cuenta, no un rótulo de sistema */
 .reportes-kpi__etiqueta {
-  margin-bottom: var(--space-1);
+  margin: 0;
   color: var(--reportes-texto-suave);
-  font-size: 0.75rem;
+  font-size: 13px;
   font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .reportes-kpi__valor {
   color: var(--color-header-bg);
-  font-size: 1.75rem;
+  font-size: 34px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
   line-height: 1.1;
 }
 
 .reportes-kpi__leyenda {
-  margin-top: var(--space-1);
+  margin: 0;
   color: var(--reportes-texto-suave);
-  font-size: 0.75rem;
+  font-size: 13px;
 }
 
 /* Resúmenes compactos (por estado, por fracción, por subestado) */
@@ -163,19 +293,17 @@
 
 .reportes-resumen {
   flex: 1 1 240px;
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-4) 20px;
   background: var(--reportes-superficie);
   border: 1px solid var(--reportes-borde);
-  border-radius: var(--radius-md);
+  border-radius: var(--reporte-radio-tarjeta);
 }
 
 .reportes-resumen__titulo {
   margin-bottom: var(--space-2);
   color: var(--reportes-texto-suave);
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .reportes-resumen__lista {
@@ -197,12 +325,13 @@
 }
 
 .reportes-resumen__etiqueta {
-  color: var(--color-text-dark);
-  font-size: 0.875rem;
+  color: var(--reporte-texto-fuerte);
+  font-size: 14px;
 }
 
 .reportes-resumen__valor {
-  color: var(--color-text-dark);
+  color: var(--reporte-texto-fuerte);
+  font-size: 14px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -231,6 +360,14 @@
   margin-top: var(--space-2);
 }
 
+/* La tabla del inventario va suelta, sin la tarjeta que envuelve a la de ventas, así que se
+   queda con el radio de 12px de `.tl-table`. Se le pone el de las tarjetas para que en la misma
+   pantalla no convivan dos radios. Acotado al inventario: la tabla de ventas va adentro de
+   `.reporte-tabla-card`, que ya tiene el suyo, y las de Lotes y Ventas están fuera del panel. */
+.reportes-panel .reportes-inventario .tl-table {
+  border-radius: var(--reporte-radio-tarjeta);
+}
+
 /* `.tl-tr` separa las columnas con `column-gap: 20px` (TablaLotes.css). Ese hueco no
    pertenece a ninguna celda, así que no recibe el fondo alternado ni el borde inferior, que
    se pintan sobre `.tl-td`: deja ver el blanco de `.tl-table` como franjas verticales más
@@ -240,8 +377,427 @@
   column-gap: 0;
 }
 
-.tabla-reportes .tl-th,
-.tabla-reportes .tl-td {
-  padding-left: 24px;
-  padding-right: 24px;
+/* Cabecera, celdas y líneas con los valores del boceto. Va acotado a `.reportes-panel` y a
+   `.tabla-reportes` (la clase que esta tabla agrega sobre `.tl-table`), así que la tabla de
+   Lotes y la de Ventas no se tocan. */
+.reportes-panel .tabla-reportes .tl-th,
+.reportes-panel .tabla-reportes .tl-td {
+  padding: 12px 16px;
+}
+
+.reportes-panel .tabla-reportes .tl-thead {
+  background: var(--reporte-tabla-cabecera-bg);
+  border-bottom: 1px solid var(--reporte-tabla-linea);
+}
+
+.reportes-panel .tabla-reportes .tl-th {
+  color: var(--reporte-texto-suave);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.reportes-panel .tabla-reportes .tl-td {
+  color: var(--reporte-texto-fuerte);
+  font-size: 14px;
+  border-bottom: 1px solid var(--reporte-tabla-linea);
+}
+
+/* ------------------------------------------------------------------------ */
+/* Componentes compartidos de los reportes (39.3): tarjeta de filtros,      */
+/* tarjeta de KPI y tarjeta de tabla, con el estilo del boceto.             */
+/*                                                                          */
+/* Prefijo `reporte-` (singular) a propósito: las clases `reportes-*` de    */
+/* arriba las usa la vista de inventario, que migra a estos componentes en  */
+/* otra tarea. Hasta entonces las dos familias conviven sin pisarse.        */
+/*                                                                          */
+/* Las variables --reportes-* se declaran en `.reportes-panel`, así que      */
+/* estos componentes se ven bien solo dentro de la pantalla de Reportes.    */
+/*                                                                          */
+/* El boceto usa radios de ~20px en las tarjetas y ~12px en los campos;     */
+/* tokens.css llega hasta --radius-lg (12px) y acá no se agregan tokens, así */
+/* que las dos cosas usan --radius-lg. El padding de 16px 20px del boceto   */
+/* queda en --space-4 --space-6 (16px 24px) por la misma razón.             */
+/* ------------------------------------------------------------------------ */
+
+/* Tarjeta de filtros */
+.reporte-filtros-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-4);
+  margin-bottom: var(--reporte-gap-seccion);
+  padding: var(--space-4) 20px;
+  background: var(--reportes-superficie);
+  border: 1px solid var(--reportes-borde);
+  border-radius: var(--reporte-radio-tarjeta);
+}
+
+.reporte-filtros-card__campos {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-4);
+}
+
+/* Un campo del filtro: el rótulo arriba y el control abajo */
+.reporte-filtro {
+  display: flex;
+  flex-direction: column;
+  min-width: 190px;
+}
+
+.reporte-filtros-card .form-label {
+  margin-bottom: 6px;
+  color: var(--reporte-texto-suave);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.reporte-filtros-card .form-select,
+.reporte-filtros-card .form-control {
+  height: var(--reporte-alto-control);
+  padding: 0 12px;
+  color: var(--reporte-texto-fuerte);
+  border: 1px solid var(--reporte-borde-control);
+  border-radius: var(--reporte-radio-control);
+  font-size: 14px;
+}
+
+/* El select necesita lugar a la derecha para su flecha, que Bootstrap dibuja como fondo: con
+   `padding: 0 12px` el texto de la opción se le metería encima. */
+.reporte-filtros-card .form-select {
+  padding-right: 36px;
+}
+
+/* `margin-left: auto` empuja el botón al borde derecho de la tarjeta.
+   Va con `.reportes-panel` delante para ganarle a `.btn-primary` de Bootstrap, que define su
+   fondo y su sombra de foco con una sola clase y se carga después que esta hoja. */
+.reportes-panel .reporte-filtros-card__boton {
+  height: var(--reporte-alto-control);
+  padding: 0 20px;
+  color: var(--color-text-light);
+  background: var(--color-action-primary);
+  border: 0;
+  border-radius: var(--reporte-radio-control);
+  box-shadow: none;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.reportes-panel .reporte-filtros-card__boton {
+  margin-left: auto;
+}
+
+.reportes-panel .reporte-filtros-card__boton:disabled {
+  background: var(--color-action-primary);
+}
+
+/* Por qué todavía no se puede generar: ocupa el ancho para caer debajo de los campos */
+.reporte-filtros-card__motivo {
+  flex: 0 0 100%;
+  margin: 0;
+  color: var(--reportes-texto-suave);
+  font-size: 0.8125rem;
+}
+
+/* Tarjetas de KPI */
+.reporte-kpis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--reporte-gap-kpis);
+  margin-bottom: var(--reporte-gap-seccion);
+}
+
+.reporte-kpi {
+  flex: 1 1 200px;
+  max-width: 280px;
+  padding: 18px 20px;
+  background: var(--reportes-superficie);
+  border: 1px solid var(--reportes-borde);
+  border-radius: var(--reporte-radio-tarjeta);
+}
+
+.reporte-kpi--destacada {
+  background: var(--color-header-bg);
+  border-color: var(--color-header-bg);
+  box-shadow: none;
+}
+
+.reporte-kpi__etiqueta {
+  margin-bottom: var(--space-1);
+  color: var(--reportes-texto-suave);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.reporte-kpi__valor {
+  color: var(--color-header-bg);
+  font-size: 34px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.reporte-kpi__leyenda {
+  margin-top: var(--space-1);
+  color: var(--reportes-texto-suave);
+  font-size: 0.75rem;
+}
+
+/* Sobre el verde profundo el texto va claro, con el gris verdoso del boceto para lo secundario */
+.reporte-kpi--destacada .reporte-kpi__valor {
+  color: var(--color-text-light);
+}
+
+.reporte-kpi--destacada .reporte-kpi__etiqueta,
+.reporte-kpi--destacada .reporte-kpi__leyenda {
+  color: var(--reporte-destacada-suave);
+}
+
+/* Tarjeta de la tabla */
+.reporte-tabla-card {
+  margin-bottom: var(--reporte-gap-seccion);
+  overflow: hidden;
+  background: var(--reportes-superficie);
+  border: 1px solid var(--reportes-borde);
+  border-radius: var(--reporte-radio-tarjeta);
+}
+
+.reporte-tabla-card__encabezado {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) 20px;
+  border-bottom: 1px solid var(--reportes-borde);
+}
+
+.reporte-tabla-card__titulo {
+  margin: 0;
+  color: var(--reporte-texto-fuerte);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.reporte-tabla-card__detalle {
+  color: var(--reporte-texto-suave);
+  font-size: 13px;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Vista de ventas por período (39.3): estado inicial, tarjetas con barras  */
+/* comparadas y aviso de otras monedas.                                     */
+/*                                                                          */
+/* Mismo criterio que el bloque anterior: prefijo `reporte-`, y las          */
+/* variables --reportes-* vienen de `.reportes-panel`.                       */
+/* ------------------------------------------------------------------------ */
+/* Antes del primer Generar: no hay nada que mostrar y tampoco nada cargando */
+.reporte-sin-consulta {
+  margin: 0 0 var(--reporte-gap-seccion);
+  padding: var(--space-6);
+  color: var(--reporte-texto-suave);
+  text-align: center;
+  background: var(--reportes-superficie);
+  border: 1px dashed var(--reportes-borde);
+  border-radius: var(--reporte-radio-tarjeta);
+}
+
+/* Tarjeta de una métrica de ventas: las cuatro partes separadas por el mismo gap */
+.reporte-venta-kpi {
+  display: flex;
+  flex: 1 1 260px;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 18px 20px;
+  background: var(--reportes-superficie);
+  border: 1px solid var(--reportes-borde);
+  border-radius: var(--reporte-radio-tarjeta);
+}
+
+.reporte-venta-kpi__cabecera {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.reporte-venta-kpi__titulo {
+  margin: 0;
+  color: var(--reporte-texto-suave);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Pastilla de diferencia: clases propias en vez de `.tl-badge`, que fuerza mayúsculas porque
+   está pensada para insignias de estado de una o dos palabras, no para una frase. */
+.reporte-delta {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.reporte-delta--sube {
+  color: var(--reporte-delta-sube-texto);
+  background: var(--reporte-delta-sube-bg);
+}
+
+/* Sin cambios y bajas comparten el gris: una baja no se pinta de ningún color, porque que caigan
+   las ventas y que caigan las cancelaciones no significan lo mismo. */
+.reporte-delta--igual {
+  color: var(--reporte-delta-igual-texto);
+  background: var(--reporte-delta-igual-bg);
+}
+
+.reporte-delta--alerta {
+  color: var(--reporte-delta-alerta-texto);
+  background: var(--reporte-delta-alerta-bg);
+}
+
+/* Cantidad y monto en la misma línea, apoyados en la misma base */
+.reporte-venta-kpi__cifras {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.reporte-venta-kpi__valor {
+  color: var(--color-header-bg);
+  font-size: 34px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.reporte-venta-kpi__monto {
+  color: var(--reporte-texto-medio);
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.reporte-venta-kpi__anterior {
+  margin: 0;
+  color: var(--reporte-texto-suave);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Las dos barras comparadas: período actual y anterior */
+.reporte-barras {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.reporte-barra {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.reporte-barra__etiqueta {
+  flex: 0 0 76px;
+  color: var(--reporte-texto-suave);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.reporte-barra__riel {
+  flex: 1 1 auto;
+  height: 8px;
+  overflow: hidden;
+  background: var(--reporte-barra-riel);
+  border-radius: 999px;
+}
+
+/* El ancho lo pone el componente en línea: es la escala del dibujo, no una cifra informada */
+.reporte-barra__relleno {
+  height: 100%;
+  border-radius: 999px;
+}
+
+.reporte-barra__relleno--iniciadas {
+  background: var(--reporte-barra-iniciadas);
+}
+
+.reporte-barra__relleno--escrituradas {
+  background: var(--reporte-barra-escrituradas);
+}
+
+.reporte-barra__relleno--canceladas {
+  background: var(--reporte-barra-canceladas);
+}
+
+.reporte-barra__relleno--anterior {
+  background: var(--reporte-barra-anterior);
+}
+
+/* Aviso de las monedas que no son USD: van aparte y no se suman */
+.reporte-otras-monedas {
+  display: flex;
+  gap: var(--space-3);
+  margin-bottom: var(--reporte-gap-seccion);
+  padding: 14px 16px;
+  color: var(--reporte-aviso-texto);
+  background: var(--reporte-aviso-fondo);
+  border: 1px solid var(--reporte-aviso-borde);
+  border-radius: var(--reporte-radio-aviso);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.reporte-otras-monedas__icono {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--reporte-aviso-icono);
+}
+
+.reporte-otras-monedas__titulo {
+  margin: 0 0 var(--space-2);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.reporte-otras-monedas__grupo + .reporte-otras-monedas__grupo {
+  margin-top: var(--space-3);
+}
+
+.reporte-otras-monedas__moneda {
+  margin: 0 0 var(--space-1);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.reporte-otras-monedas__lista {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reporte-otras-monedas__item {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.reporte-otras-monedas__nota {
+  margin: var(--space-2) 0 0;
+  font-size: 14px;
+}
+
+/* La tabla va dentro de .reporte-tabla-card, que ya tiene borde y radio propios */
+.reporte-tabla-card .tl-table {
+  border: 0;
+  border-radius: 0;
 }
