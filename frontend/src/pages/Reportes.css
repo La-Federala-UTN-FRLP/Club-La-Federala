@@ -147,6 +147,12 @@
   line-height: 1.1;
 }
 
+.reportes-kpi__leyenda {
+  margin-top: var(--space-1);
+  color: var(--reportes-texto-suave);
+  font-size: 0.75rem;
+}
+
 /* Resúmenes compactos (por estado, por fracción, por subestado) */
 .reportes-resumenes {
   display: flex;
@@ -223,4 +229,19 @@
 /* La tabla de los reportes no necesita el padding lateral de .tl-wrapper */
 .reportes-inventario .tl-table {
   margin-top: var(--space-2);
+}
+
+/* `.tl-tr` separa las columnas con `column-gap: 20px` (TablaLotes.css). Ese hueco no
+   pertenece a ninguna celda, así que no recibe el fondo alternado ni el borde inferior, que
+   se pintan sobre `.tl-td`: deja ver el blanco de `.tl-table` como franjas verticales más
+   claras y corta las líneas entre filas. Se saca el gap y se compensa con padding, que sí es
+   parte de la celda (14 + 20 + 14 mantiene la misma separación entre contenidos). */
+.tabla-reportes .tl-tr {
+  column-gap: 0;
+}
+
+.tabla-reportes .tl-th,
+.tabla-reportes .tl-td {
+  padding-left: 24px;
+  padding-right: 24px;
 }

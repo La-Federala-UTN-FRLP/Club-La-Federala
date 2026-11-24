@@ -33,7 +33,7 @@ export default function TablaReportes({
   const sinFilas = filas.length === 0;
 
   return (
-    <div className="tl-table">
+    <div className="tl-table tabla-reportes">
       <div className="tl-thead">
         <div className="tl-tr" style={estiloGrilla}>
           {columnas.map((columna) => (

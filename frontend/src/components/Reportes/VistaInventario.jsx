@@ -8,9 +8,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Alert, Button, Form } from "react-bootstrap";
-import StatusBadge, { fmtEstadoLote } from "../Table/TablaLotes/cells/StatusBadge";
-import SubstatusBadge from "../Table/TablaLotes/cells/SubstatusBadge";
 import TablaReportes from "./TablaReportes";
+import { InsigniaEstado, InsigniaSubestado } from "./Insignias";
+import { BOTON_GENERAR, etiquetaEstado, etiquetaSubestado } from "./etiquetas";
 import { getInventario, getFraccionesReporte } from "../../lib/api/reportes";
 import { parseApiError } from "../../lib/http/errors";
 import { fmtFechaCalendario } from "../../lib/fechas";
@@ -43,8 +43,8 @@ const etiquetaLote = (fila) =>
 const columnas = [
   { clave: "lote", titulo: "Lote", align: "left", render: etiquetaLote },
   { clave: "fraccion", titulo: "Fracción", align: "center", render: (f) => `Fracción ${f.fraccion}` },
-  { clave: "estado", titulo: "Estado", align: "center", render: (f) => <StatusBadge value={f.estado} /> },
-  { clave: "subestado", titulo: "Subestado", align: "center", render: (f) => <SubstatusBadge value={f.subestado} /> },
+  { clave: "estado", titulo: "Estado", align: "center", render: (f) => <InsigniaEstado value={f.estado} /> },
+  { clave: "subestado", titulo: "Subestado", align: "center", render: (f) => <InsigniaSubestado value={f.subestado} /> },
   {
     clave: "precio",
     titulo: "Precio",
@@ -68,12 +68,13 @@ const columnas = [
 const GRID_TEMPLATE =
   "minmax(150px, 1fr) minmax(110px, 0.7fr) minmax(140px, 0.9fr) minmax(150px, 0.9fr) minmax(120px, 0.8fr) minmax(100px, 0.6fr)";
 
-/** Tarjeta de KPI: número grande y etiqueta. */
-function TarjetaKpi({ etiqueta, valor, destacada = false }) {
+/** Tarjeta de KPI: número grande, etiqueta y una leyenda opcional que aclara qué cuenta. */
+function TarjetaKpi({ etiqueta, valor, leyenda, destacada = false }) {
   return (
     <div className={`reportes-kpi${destacada ? " reportes-kpi--destacada" : ""}`}>
       <div className="reportes-kpi__etiqueta">{etiqueta}</div>
       <div className="reportes-kpi__valor">{valor}</div>
+      {leyenda && <div className="reportes-kpi__leyenda">{leyenda}</div>}
     </div>
   );
 }
@@ -194,7 +195,7 @@ export default function VistaInventario() {
             <option value="">Todos</option>
             {ESTADOS.map((estado) => (
               <option key={estado} value={estado}>
-                {fmtEstadoLote(estado)}
+                {etiquetaEstado(estado)}
               </option>
             ))}
           </Form.Select>
@@ -210,14 +211,14 @@ export default function VistaInventario() {
             <option value="">Todos</option>
             {SUBESTADOS.map((subestado) => (
               <option key={subestado} value={subestado}>
-                {fmtEstadoLote(subestado)}
+                {etiquetaSubestado(subestado)}
               </option>
             ))}
           </Form.Select>
         </Form.Group>
 
         <Button type="submit" variant="primary" className="reportes-filtros__boton">
-          Aplicar filtros
+          {BOTON_GENERAR}
         </Button>
       </form>
 
@@ -241,7 +242,12 @@ export default function VistaInventario() {
           <p className="reportes-corte">Datos al {fmtFechaCalendario(datos.corte)}</p>
 
           <div className="reportes-kpis">
-            <TarjetaKpi etiqueta="Ofrecibles" valor={totales?.ofrecibles ?? 0} destacada />
+            <TarjetaKpi
+              etiqueta="Lotes ofrecibles"
+              valor={totales?.ofrecibles ?? 0}
+              leyenda="Disponibles + en promoción"
+              destacada
+            />
             <TarjetaKpi etiqueta="Lotes en inventario" valor={lotesEnInventario} />
           </div>
 
@@ -250,7 +256,7 @@ export default function VistaInventario() {
               titulo="Por estado"
               items={(totales?.porEstado ?? []).map((e) => ({
                 clave: e.estado,
-                etiqueta: fmtEstadoLote(e.estado),
+                etiqueta: etiquetaEstado(e.estado),
                 valor: e.cantidad,
               }))}
             />
@@ -266,7 +272,7 @@ export default function VistaInventario() {
               titulo="Por subestado"
               items={(totales?.porSubestado ?? []).map((s) => ({
                 clave: s.subestado,
-                etiqueta: fmtEstadoLote(s.subestado),
+                etiqueta: etiquetaSubestado(s.subestado),
                 valor: s.cantidad,
               }))}
             />
