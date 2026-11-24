@@ -9,7 +9,7 @@ import { getAllPersonas } from "../../../lib/api/personas.js";
 import { uploadArchivo, getArchivosByLote, deleteArchivo, getFileSignedUrl } from "../../../lib/api/archivos.js";
 import { useToast } from "../../../app/providers/ToastProvider.jsx";
 import { useAuth } from "../../../app/providers/AuthProvider.jsx";
-import { canSeeDeuda } from "../../../lib/auth/rbac.ui.js";
+import { canSeeDeuda, canEditLoteComercial } from "../../../lib/auth/rbac.ui.js";
 import { getLoteIdFormatted } from "../../Table/TablaLotes/utils/getters.js";
 import PersonaSearchSelect from "./PersonaSearchSelect.jsx";
 import LoteImageUploader from "./LoteImageUploader.jsx";
@@ -167,6 +167,9 @@ export default function LoteEditarCard({
   const { success, error: showError } = useToast();
   const { user } = useAuth();
   const puedeVerDeuda = canSeeDeuda(user);
+  // TECNICO solo edita subestado y superficie (el backend descarta el resto): lo demás queda en solo lectura.
+  const puedeEditarComercial = canEditLoteComercial(user);
+  const roClass = puedeEditarComercial ? "" : " is-readonly is-locked";
   const [detalle, setDetalle] = useState(lote || null);
   const [loadingDetalle, setLoadingDetalle] = useState(false);
   const [form, setForm] = useState(buildInitialForm(lote));
@@ -326,7 +329,8 @@ export default function LoteEditarCard({
   // Venta válida del lote (OPERATIVA y no CANCELADA): habilita el guard de VENDIDO
   useEffect(() => {
     setVentaAsociada(null);
-    if (!open || !detalle?.id) return;
+    // La venta solo alimenta la validación de VENDIDO, que aplica a quien edita el estado.
+    if (!open || !detalle?.id || !puedeEditarComercial) return;
     let cancelled = false;
     (async () => {
       try {
@@ -337,7 +341,7 @@ export default function LoteEditarCard({
       }
     })();
     return () => { cancelled = true; };
-  }, [open, detalle?.id]);
+  }, [open, detalle?.id, puedeEditarComercial]);
 
   const updateForm = (patch) => {
     setForm(prev => ({ ...prev, ...patch }));
@@ -363,6 +367,15 @@ export default function LoteEditarCard({
   const buildPayload = () => {
     try {
       const payload = {};
+
+      // TECNICO: solo subestado y superficie (el backend descarta el resto sin avisar).
+      if (!puedeEditarComercial) {
+        if (form.subestado) payload.subestado = form.subestado;
+        const superficieTecnico = toNumberOrNull(form.superficie);
+        if (superficieTecnico != null && superficieTecnico >= 0) payload.superficie = superficieTecnico;
+        return payload;
+      }
+
       if (form.tipo) payload.tipo = form.tipo;
       
       // Solo enviar estado si no es derivado (y si el usuario lo cambió a uno editable)
@@ -449,7 +462,7 @@ export default function LoteEditarCard({
     if (!detalle?.id) return;
     
     // Validación: si ocupación=ALQUILADO, inquilinoId es requerido
-    if (form.ocupacion === "ALQUILADO" && !form.inquilinoId) {
+    if (puedeEditarComercial && form.ocupacion === "ALQUILADO" && !form.inquilinoId) {
       setErrors({ inquilinoId: "Debes seleccionar un inquilino si la ocupación es Alquilado." });
       setSaving(false);
       return;
@@ -457,7 +470,7 @@ export default function LoteEditarCard({
 
     // Validación: NO_DISPONIBLE no permite ocupación ALQUILADO
     const estadoUpper = String(form.estado || "").toUpperCase();
-    if (form.ocupacion === "ALQUILADO" && (estadoUpper === "NO_DISPONIBLE" || estadoUpper === "NO DISPONIBLE")) {
+    if (puedeEditarComercial && form.ocupacion === "ALQUILADO" && (estadoUpper === "NO_DISPONIBLE" || estadoUpper === "NO DISPONIBLE")) {
       setError("No se puede alquilar un lote en estado NO DISPONIBLE.");
       setSaving(false);
       return;
@@ -473,7 +486,7 @@ export default function LoteEditarCard({
       const estadoUpperPayload = String(nuevoEstado || "").toUpperCase();
 
       // Validación de VENDIDO: solo permitir si hay una venta válida (no CANCELADA)
-      if (estadoUpperPayload === "VENDIDO") {
+      if (puedeEditarComercial && estadoUpperPayload === "VENDIDO") {
         if (!ventaAsociada) {
           setError("No se puede establecer el estado VENDIDO sin una venta registrada para este lote.");
           setSaving(false);
@@ -619,13 +632,13 @@ export default function LoteEditarCard({
           <div className="lote-grid" style={{ ["--sale-label-w"]: `${computedLabelWidth}px` }}>
             <div className="lote-data-col">
               <div className="field-row"><div className="field-label">ID</div><div className="field-value is-readonly">{loteDisplayId}</div></div>
-              <div className="field-row"><div className="field-label">Número Partida</div><div className="field-value p0"><input className="field-input" type="number" inputMode="numeric" value={form.numPartido ?? ""} onChange={(e) => updateForm({ numPartido: e.target.value })} placeholder="Número de partida" /></div></div>
-              <div className="field-row"><div className="field-label">Tipo</div><div className="field-value p0"><NiceSelect value={form.tipo} options={TIPOS} placeholder="" onChange={(value) => updateForm({ tipo: value, nombreEspacioComun: value === "Espacio Comun" ? form.nombreEspacioComun : "", capacidad: value === "Espacio Comun" ? form.capacidad : "" })} /></div></div>
+              <div className="field-row"><div className="field-label">Número Partida</div><div className={`field-value p0${roClass}`}><input className="field-input" type="number" inputMode="numeric" value={form.numPartido ?? ""} onChange={(e) => updateForm({ numPartido: e.target.value })} placeholder="Número de partida" disabled={!puedeEditarComercial} /></div></div>
+              <div className="field-row"><div className="field-label">Tipo</div><div className={`field-value p0${roClass}`}><NiceSelect value={form.tipo} options={TIPOS} placeholder="" onChange={(value) => updateForm({ tipo: value, nombreEspacioComun: value === "Espacio Comun" ? form.nombreEspacioComun : "", capacidad: value === "Espacio Comun" ? form.capacidad : "" })} disabled={!puedeEditarComercial} /></div></div>
 
               {form.tipo === "Espacio Comun" && (
                 <>
-                  <div className="field-row"><div className="field-label">Nombre del Espacio Común</div><div className="field-value p0"><input className="field-input" type="text" value={form.nombreEspacioComun ?? ""} onChange={(e) => updateForm({ nombreEspacioComun: e.target.value })} placeholder="Ej. Piscina" /></div></div>
-                  <div className="field-row"><div className="field-label">Capacidad</div><div className="field-value p0"><input className="field-input" type="number" inputMode="numeric" value={form.capacidad ?? ""} onChange={(e) => updateForm({ capacidad: e.target.value })} placeholder="Ej. 100" /></div></div>
+                  <div className="field-row"><div className="field-label">Nombre del Espacio Común</div><div className={`field-value p0${roClass}`}><input className="field-input" type="text" value={form.nombreEspacioComun ?? ""} onChange={(e) => updateForm({ nombreEspacioComun: e.target.value })} placeholder="Ej. Piscina" disabled={!puedeEditarComercial} /></div></div>
+                  <div className="field-row"><div className="field-label">Capacidad</div><div className={`field-value p0${roClass}`}><input className="field-input" type="number" inputMode="numeric" value={form.capacidad ?? ""} onChange={(e) => updateForm({ capacidad: e.target.value })} placeholder="Ej. 100" disabled={!puedeEditarComercial} /></div></div>
                 </>
               )}
 
@@ -633,13 +646,13 @@ export default function LoteEditarCard({
                 <div className="field-label">
                   Estado
                 </div>
-                <div className="field-value p0" style={{ position: "relative" }}>
+                <div className={`field-value p0${roClass}`} style={{ position: "relative" }}>
                   <NiceSelect 
                     value={form.estado} 
                     options={opcionesEstado} 
                     placeholder="" 
                     onChange={(value) => updateForm({ estado: value })} 
-                    disabled={estadoEsDerivado}
+                    disabled={estadoEsDerivado || !puedeEditarComercial}
                   />
                   {estadoEsDerivado && (
                     <span
@@ -653,7 +666,7 @@ export default function LoteEditarCard({
               </div>
               <div className="field-row"><div className="field-label">Sub-Estado</div><div className="field-value p0"><NiceSelect value={form.subestado} options={SUBESTADOS} placeholder="" onChange={(value) => updateForm({ subestado: value })} /></div></div>
               <div className="field-row"><div className="field-label">Superficie</div><div className="field-value p0"><input className="field-input" type="number" inputMode="decimal" value={form.superficie ?? ""} onChange={(e) => updateForm({ superficie: e.target.value })} placeholder="m²" /></div></div>
-              <div className="field-row"><div className="field-label">Precio</div><div className="field-value p0"><input className="field-input" type="number" inputMode="decimal" value={form.precio ?? ""} onChange={(e) => updateForm({ precio: e.target.value })} placeholder="USD" /></div></div>
+              <div className="field-row"><div className="field-label">Precio</div><div className={`field-value p0${roClass}`}><input className="field-input" type="number" inputMode="decimal" value={form.precio ?? ""} onChange={(e) => updateForm({ precio: e.target.value })} placeholder="USD" disabled={!puedeEditarComercial} /></div></div>
               
               <PersonaSearchSelect
                 label="Propietario"
@@ -663,14 +676,15 @@ export default function LoteEditarCard({
                 loading={loadingPersonas}
                 placeholder="Buscar por nombre, apellido o DNI"
                 tooltipText="Si no aparece en la lista, primero registrá a la persona en el módulo Personas."
+                disabled={!puedeEditarComercial}
               />
 
-              <div className="field-row"><div className="field-label">Calle</div><div className="field-value p0"><NiceSelect value={form.ubicacionCalle ?? ""} options={CALLES_OPTIONS} placeholder="Seleccionar calle" onChange={(value) => updateForm({ ubicacionCalle: value || "" })} /></div></div>
-              <div className="field-row"><div className="field-label">Número</div><div className="field-value p0"><input className="field-input" type="number" inputMode="numeric" value={form.ubicacionNumero ?? ""} onChange={(e) => updateForm({ ubicacionNumero: e.target.value })} placeholder="Ej. 202" /></div></div>
+              <div className="field-row"><div className="field-label">Calle</div><div className={`field-value p0${roClass}`}><NiceSelect value={form.ubicacionCalle ?? ""} options={CALLES_OPTIONS} placeholder="Seleccionar calle" onChange={(value) => updateForm({ ubicacionCalle: value || "" })} disabled={!puedeEditarComercial} /></div></div>
+              <div className="field-row"><div className="field-label">Número</div><div className={`field-value p0${roClass}`}><input className="field-input" type="number" inputMode="numeric" value={form.ubicacionNumero ?? ""} onChange={(e) => updateForm({ ubicacionNumero: e.target.value })} placeholder="Ej. 202" disabled={!puedeEditarComercial} /></div></div>
               
               <div className="field-row">
                 <div className="field-label">Ocupación</div>
-                <div className="field-value p0">
+                <div className={`field-value p0${roClass}`}>
                   <NiceSelect 
                     value={form.ocupacion} 
                     options={OCUPACION_OPTIONS} 
@@ -692,7 +706,7 @@ export default function LoteEditarCard({
                         return newErrors;
                       });
                     }}
-                    disabled={!puedeAlquilar}
+                    disabled={!puedeEditarComercial || !puedeAlquilar}
                   />
                 </div>
               </div>
@@ -718,6 +732,7 @@ export default function LoteEditarCard({
                     placeholder="Buscar por nombre, apellido o DNI"
                     tooltipText="Para elegir un inquilino, la persona debe existir como cliente previamente."
                     error={errors.inquilinoId ? true : false}
+                    disabled={!puedeEditarComercial}
                   />
                   {errors.inquilinoId && (
                     <div className="fieldError">{errors.inquilinoId}</div>
@@ -742,8 +757,8 @@ export default function LoteEditarCard({
               <div className="lote-description">
                 <span className="lote-description__icon">ℹ️</span>
                 <div className="lote-description__body">
-                  <strong>Descripción</strong>
-                  <textarea style={{ margin: "8px 0 0", width: "100%", minHeight: "80px", padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "14px", fontFamily: "inherit", resize: "vertical" }} value={form.descripcion ?? ""} onChange={(e) => updateForm({ descripcion: e.target.value })} placeholder="Notas relevantes del lote…" />
+                  <strong style={puedeEditarComercial ? undefined : { opacity: 0.55 }}>Descripción</strong>
+                  <textarea style={{ margin: "8px 0 0", width: "100%", minHeight: "80px", padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "14px", fontFamily: "inherit", resize: "vertical", ...(puedeEditarComercial ? {} : { background: "#f3f4f6", color: "#9ca3af", WebkitTextFillColor: "#9ca3af", cursor: "not-allowed" }) }} value={form.descripcion ?? ""} onChange={(e) => updateForm({ descripcion: e.target.value })} placeholder="Notas relevantes del lote…" disabled={!puedeEditarComercial} />
                 </div>
               </div>
 
