@@ -7,6 +7,7 @@ import { getArchivosByLote, getFileSignedUrl } from "../../../lib/api/archivos.j
 import { getReservaActivaByLoteId } from "../../../lib/api/reservas.js";
 import { getLoteById } from "../../../lib/api/lotes.js";
 import { useAuth } from "../../../app/providers/AuthProvider.jsx";
+import { canSeeDeuda } from "../../../lib/auth/rbac.ui.js";
 import { ChevronLeft, ChevronRight, Image as ImageIcon } from "lucide-react";
 import { getLoteIdFormatted } from "../../Table/TablaLotes/utils/getters.js";
 import { isLoteReservable } from "../../../utils/loteStates.js";
@@ -304,9 +305,8 @@ export default function LoteVerCard({
   const rightPairs = [
     ["SUPERFICIE", fmtSurface(lot?.superficie ?? lot?.surface)],
     ["PRECIO", fmtMoney(lot?.precio ?? lot?.price)],
-    ["DEUDA", fmtBoolean(lot?.deuda)],
+    ...(canSeeDeuda(user) ? [["DEUDA", fmtBoolean(lot?.deuda)]] : []),
     ["CREADO", fmtDate(lot?.createdAt ?? lot?.creadoEl)],
-    ["ACTUALIZADO", fmtDate(lot?.updateAt ?? lot?.updatedAt)],
   ];
 
   const canUploadDocs = useMemo(

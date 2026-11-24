@@ -19,7 +19,7 @@ import {
 import { getAllPrioridades } from '../../../lib/api/prioridades';
 
 // rbac y visibilidad de estados
-import { canDashboardAction, filterEstadoOptionsFor } from '../../../lib/auth/rbac.ui';
+import { canDashboardAction, filterEstadoOptionsFor, canSeeDeuda } from '../../../lib/auth/rbac.ui';
 
 // Partes de UI
 import PageSizeDropdown from './parts/PageSizeDropdown';
@@ -287,9 +287,12 @@ export default function TablaLotes({
 
   // ===== catálogo de columnas desde el preset =====
   const ALL_COLUMNS = useMemo(() => tablePreset.makeColumns(helpers), [helpers]);
+  // Deuda: solo ADMINISTRADOR y GESTOR (el backend no la envía al resto). Fuera de ALL_SAFE, el selector
+  // no la ofrece y no se muestra aunque haya quedado guardada en localStorage.
+  const puedeVerDeuda = canSeeDeuda(auth?.user);
   const ALL_SAFE = useMemo(
-    () => [...new Map(ALL_COLUMNS.map((c) => [c.id, c])).values()],
-    [ALL_COLUMNS]
+    () => [...new Map(ALL_COLUMNS.map((c) => [c.id, c])).values()].filter((c) => c.id !== 'deuda' || puedeVerDeuda),
+    [ALL_COLUMNS, puedeVerDeuda]
   );
 
   // ===== plantillas por rol  =====
