@@ -2277,8 +2277,13 @@ paths:
       operationId: reporteVentas
       summary: Reporte de ventas por período
       description: >-
-        Período obligatorio con `desde` <= `hasta` y como máximo 366 días (ambos extremos incluidos).
-        `periodoAnterior` es el tramo de igual duración que termina el día anterior a `desde`.
+        Período obligatorio con `desde` <= `hasta` y como máximo 366 días (ambos extremos incluidos),
+        en días calendario de America/Argentina/Buenos_Aires. `periodoAnterior` es el tramo de igual
+        duración que termina el día anterior a `desde`, con las mismas métricas. Cada venta cuenta por
+        su propia fecha: iniciada por `fechaVenta`, escriturada por `fechaEscrituraReal` (estado
+        ESCRITURADO) y cancelada por `fechaCancelacion` (estado CANCELADA). Se excluyen las ventas
+        dadas de baja lógica. La moneda de una venta es la de su plan de pagos (USD si no tiene plan):
+        las tarjetas suman solo USD y cada otra moneda va aparte en `otrasMonedas`, sin convertir.
       x-roles: [ADMINISTRADOR, GESTOR]
       security: [{ bearerAuth: [] }]
       parameters:
@@ -3449,6 +3454,78 @@ components:
         montoUSD: { $ref: '#/components/schemas/Decimal' }
         cantidadAnterior: { type: integer }
         montoUSDAnterior: { $ref: '#/components/schemas/Decimal' }
+    TarjetaVentasOtraMoneda:
+      type: object
+      description: Igual que TarjetaVentas, con los montos en la moneda del grupo (sin convertir).
+      required: [cantidad, monto, cantidadAnterior, montoAnterior]
+      properties:
+        cantidad: { type: integer }
+        monto: { $ref: '#/components/schemas/Decimal' }
+        cantidadAnterior: { type: integer }
+        montoAnterior: { $ref: '#/components/schemas/Decimal' }
+    VentasOtraMoneda:
+      type: object
+      description: Ventas de una moneda distinta de USD. Nunca se suman a las tarjetas en USD.
+      required: [moneda, iniciadas, escrituradas, canceladas]
+      properties:
+        moneda: { $ref: '#/components/schemas/Moneda' }
+        iniciadas: { $ref: '#/components/schemas/TarjetaVentasOtraMoneda' }
+        escrituradas: { $ref: '#/components/schemas/TarjetaVentasOtraMoneda' }
+        canceladas: { $ref: '#/components/schemas/TarjetaVentasOtraMoneda' }
+    VentaReporteFila:
+      type: object
+      required: [ventaId, numero, loteId, loteNumero, fraccionId, fraccion, estado, fechaAlta, fechaEscritura, fechaCancelacion, moneda, monto, enlace]
+      properties:
+        ventaId: { type: integer }
+        numero: { type: string, description: Número de la venta (Venta.numero). }
+        loteId: { type: integer }
+        loteNumero: { type: integer, nullable: true, description: Lote.numero (opcional en el schema). }
+        fraccionId: { type: integer }
+        fraccion: { type: integer, description: Número visible de la fracción (Fraccion.numero). }
+        estado: { $ref: '#/components/schemas/EstadoVenta' }
+        fechaAlta: { type: string, format: date, description: Día de Venta.fechaVenta en Buenos Aires. }
+        fechaEscritura: { type: string, format: date, nullable: true, description: Día de Venta.fechaEscrituraReal en Buenos Aires. }
+        fechaCancelacion: { type: string, format: date, nullable: true, description: Día de Venta.fechaCancelacion en Buenos Aires. }
+        moneda:
+          allOf: [{ $ref: '#/components/schemas/Moneda' }]
+          description: Moneda del último plan de pagos de la venta; USD si no tiene plan.
+        monto: { $ref: '#/components/schemas/Decimal' }
+        enlace: { type: string, example: '/ventas?openId=603', description: Ruta del frontend que abre la venta. }
+    InventarioPorEstado:
+      type: object
+      required: [estado, cantidad]
+      properties:
+        estado: { $ref: '#/components/schemas/EstadoLote' }
+        cantidad: { type: integer }
+    InventarioPorFraccion:
+      type: object
+      required: [fraccionId, fraccion, cantidad, ofrecibles]
+      properties:
+        fraccionId: { type: integer }
+        fraccion: { type: integer, description: Número visible de la fracción (Fraccion.numero). }
+        cantidad: { type: integer }
+        ofrecibles: { type: integer }
+    InventarioPorSubestado:
+      type: object
+      required: [subestado, cantidad]
+      properties:
+        subestado: { $ref: '#/components/schemas/SubestadoLote' }
+        cantidad: { type: integer }
+    InventarioFila:
+      type: object
+      required: [loteId, numero, fraccionId, fraccion, estado, subestado, precio, enlace]
+      properties:
+        loteId: { type: integer }
+        numero: { type: integer, nullable: true, description: Lote.numero (opcional en el schema). }
+        fraccionId: { type: integer }
+        fraccion: { type: integer, description: Número visible de la fracción (Fraccion.numero). }
+        estado: { $ref: '#/components/schemas/EstadoLote' }
+        subestado: { $ref: '#/components/schemas/SubestadoLote' }
+        precio:
+          allOf: [{ $ref: '#/components/schemas/Decimal' }]
+          nullable: true
+          description: Precio en USD con 2 decimales; null si el lote no tiene precio.
+        enlace: { type: string, example: '/?lote=128', description: Ruta del frontend que abre el lote. }
     ReporteInventarioResponse:
       type: object
       required: [success, data]
@@ -3463,11 +3540,11 @@ components:
               type: object
               required: [porEstado, porFraccion, porSubestado, ofrecibles]
               properties:
-                porEstado: { type: array, items: { type: object } }
-                porFraccion: { type: array, items: { type: object } }
-                porSubestado: { type: array, items: { type: object } }
+                porEstado: { type: array, items: { $ref: '#/components/schemas/InventarioPorEstado' } }
+                porFraccion: { type: array, items: { $ref: '#/components/schemas/InventarioPorFraccion' } }
+                porSubestado: { type: array, items: { $ref: '#/components/schemas/InventarioPorSubestado' } }
                 ofrecibles: { type: integer }
-            filas: { type: array, items: { type: object } }
+            filas: { type: array, items: { $ref: '#/components/schemas/InventarioFila' } }
     ReporteVentasResponse:
       type: object
       required: [success, data]
@@ -3487,8 +3564,14 @@ components:
                 iniciadas: { $ref: '#/components/schemas/TarjetaVentas' }
                 escrituradas: { $ref: '#/components/schemas/TarjetaVentas' }
                 canceladas: { $ref: '#/components/schemas/TarjetaVentas' }
-            otrasMonedas: { type: array, items: { type: object } }
-            filas: { type: array, items: { type: object } }
+            otrasMonedas:
+              type: array
+              description: Una entrada por moneda distinta de USD con ventas en alguno de los dos períodos.
+              items: { $ref: '#/components/schemas/VentasOtraMoneda' }
+            filas:
+              type: array
+              description: Ventas que suman en alguna tarjeta del período elegido, por fecha de alta descendente.
+              items: { $ref: '#/components/schemas/VentaReporteFila' }
     ReporteCuotasVencidasResponse:
       type: object
       required: [success, data]
