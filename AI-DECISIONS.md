@@ -1890,6 +1890,69 @@ Archivos:
 - GitHub #288, CCLF-21 / CL-07
 - `AI-DECISIONS.md`
 
+### AI-028 — Editor de lote: el técnico edita solo subestado y superficie
+
+**Fecha:** 2026-11-24
+**Área:** Frontend / Lotes
+**Herramientas:** Claude Code
+
+#### Problema
+
+QA (#297, bug #8, caso LOT-27) encontró que el editor de lote (`LoteEditarCard.jsx`) deja al rol TECNICO modificar campos que no son técnicos: Número Partida, Tipo (y, en espacios comunes, Nombre y Capacidad), Estado, Precio, Propietario, Calle, Número, Ocupación e Inquilino, además de la Descripción. `lote.service.ts` (`updatedLote`) filtra para TECNICO a `subestado`, `superficie` y `archivos`: descarta el resto y responde 200, y solo responde 403 si no queda ningún campo permitido ("Como TECNICO, solo puedes modificar los campos: subestado, superficie y archivos (planos)"). La pantalla mostraba cambios que no se guardaban.
+
+Del código se deduce un segundo efecto: para guardar un lote VENDIDO el editor exige una venta asociada, y esa búsqueda usa `GET /api/ventas`, que TECNICO no puede consultar (403, solo ADMINISTRADOR y GESTOR). La venta quedaba siempre en `null` y el chequeo corre con `form.estado` aunque el payload no lleve estado, así que un TECNICO no podía guardar ni el subestado ni la superficie de un lote VENDIDO (error "No se puede establecer el estado VENDIDO sin una venta registrada"). Este efecto no se reprodujo en ejecución: queda como punto de la prueba manual.
+
+La regla aplicable es la de la Guía QA (LOT-27) y el Manual Maestro (§10.2 y §16.4): el TECNICO edita solo campos técnicos y no puede alterar precio ni propietario. El requisito original del Seminario Integrador 2025 es más estricto ("Técnico: solo podrá consultar lotes y espacios comunes y modificar el estado del plano interno del lote"); se sigue la regla vigente del backend.
+
+En una primera versión los campos no editables quedaron con un estilo de solo lectura inconsistente: los inputs se veían grises, pero los desplegables (Tipo, Estado, Calle, Ocupación) y los buscadores de persona (Propietario, Inquilino) se veían blancos aunque estuvieran deshabilitados. El trigger de `NiceSelect` trae `background: #fff` propio, que tapa el gris del contenedor, y `PersonaSearchSelect` dibuja su propio contenedor, que no recibía la clase `is-readonly`.
+
+#### Prompt / intención
+
+Alinear el editor con la regla del backend actual: Subestado y Superficie editables para TECNICO, el resto de los campos visible pero deshabilitado con un estilo de solo lectura uniforme, y un payload con solo esos dos campos. Solo frontend: sin tocar backend, OpenAPI ni Prisma. ADMINISTRADOR y GESTOR quedan exactamente igual, los planos siguen por su flujo propio (botón "Planos") y no se crea infraestructura de tests.
+
+#### Propuesta generada por IA
+
+- `lib/auth/rbac.ui.js`: helper `canEditLoteComercial(user)` junto a `canSeeDeuda`, con roles explícitos (ADMINISTRADOR y GESTOR) y `false` para cualquier otro caso, incluido un usuario sin rol.
+- `Cards/Lotes/LoteEditarCard.jsx`, cuando `canEditLoteComercial(user)` es falso:
+  - Nº Partida, Tipo, Nombre y Capacidad, Estado, Precio, Propietario, Calle, Número, Ocupación, Inquilino y Descripción quedan visibles y deshabilitados, todos con el mismo estilo de solo lectura: fondo gris (`is-readonly`, el que el editor ya usa en la fila "ID") y cursor `not-allowed`, incluidos los desplegables y los buscadores de persona. Subestado y Superficie quedan editables y blancos.
+  - `buildPayload` devuelve solo `subestado` y `superficie`.
+  - Se omiten las tres validaciones que dependen de campos que ya no se envían: inquilino obligatorio si ocupación es Alquilado, no alquilar un lote NO DISPONIBLE y no pasar a VENDIDO sin venta registrada.
+  - No se busca la venta asociada, porque solo alimenta esa última validación y para TECNICO siempre devolvía 403.
+  - Para ADMINISTRADOR y GESTOR cada condición nueva se evalúa como verdadera y el comportamiento no cambia.
+- Descripción: no estaba entre los campos reportados, pero el backend también la descarta para TECNICO, así que recibe el mismo tratamiento.
+- Estilo de solo lectura unificado (`Cards/Base/cards.css` y `Cards/Lotes/PersonaSearchSelect.jsx`): una regla de CSS acotada a `.cclf-card .field-value.is-readonly` hace transparente el trigger de `NiceSelect` (toma el gris del contenedor) y pone cursor `not-allowed` en sus controles deshabilitados; `PersonaSearchSelect` marca su contenedor como `is-readonly is-locked` cuando recibe `disabled` (el editor de lote es hoy el único que se lo pasa). Los campos no se ocultan, solo se deshabilitan. El único campo que sigue sin mostrarse a TECNICO es la deuda, por la regla de AI-022. Los campos bloqueados se ven además "apagados", como los botones deshabilitados de documentos (`.lote-doc-button:disabled`), con la clase `is-locked`: valor en gris claro (`#9ca3af`, el de las opciones deshabilitadas de `NiceSelect`), etiqueta con `opacity: 0.55` y cursor `not-allowed`. La opacidad no se aplica al campo completo para no desvanecer su fondo gris, y la etiqueta se atenúa con `:has()` (Chrome y Edge 105+, Safari 15.4+, Firefox 121+). El estilo no cambia para ADMINISTRADOR y GESTOR, porque sus contenedores no llevan `is-readonly` ni `is-locked`, ni para la fila ID.
+- No se modificaron el uploader de imágenes ni el botón "Planos". Observación sin cambios, para decidir aparte: un TECNICO puede subir imágenes (el backend lo permite) y el editor le deja marcar imágenes para borrar, pero `DELETE /api/files/:id` es solo para ADMINISTRADOR y GESTOR y el editor ignora ese error (`allSettled` más `catch`), así que ese borrado falla sin avisar.
+
+### Validación humana
+
+- Revisión del diff: cambios solo de frontend; la regla se centralizó en el helper `canEditLoteComercial(user)` de `rbac.ui.js` (true solo para ADMINISTRADOR y GESTOR, false por defecto). Admin y Gestor sin cambios.
+- `npm run build` OK; lint de los archivos tocados igual que en `main`; `git diff --check` limpio. El frontend no tiene tests automatizados.
+- Prueba manual con qa.tecnico, qa.admin y qa.gestor sobre `Lote3-1` y sobre un lote VENDIDO: el técnico solo edita Subestado y Superficie y el cambio se guarda; la Deuda sigue oculta; en el lote VENDIDO el técnico guarda sin el error de venta; Admin y Gestor mantienen el editor completo y el chequeo de venta registrada.
+- Ajustes de UX decididos durante la prueba manual: primero se evaluó ocultar los campos no editables, pero se decidió mantenerlos visibles para que el técnico tenga el contexto del lote. Como algunos campos deshabilitados (Calle, Ocupación) se veían igual que los editables, se unificó el estilo de solo lectura (fondo gris, texto y etiqueta atenuados, cursor bloqueado), igual que los botones deshabilitados de documentos, para que el técnico identifique a simple vista qué puede modificar.
+- Se aceptaron las decisiones propuestas por la IA: deshabilitar también Descripción (el backend la descarta) y omitir para TECNICO las validaciones y la consulta de venta que dependían de campos que ya no se envían.
+- Se verificó en `file.auth.utils.ts` que el TECNICO puede gestionar archivos PLANO e IMAGEN (no BOLETO, ESCRITURA ni OTRO), por lo que la carga de imágenes se mantiene. Los botones Escritura, Boleto y Planos del editor están deshabilitados para todos los roles desde antes (LOT-42, decisión abierta) y no se tocaron.
+- Queda fuera de alcance, registrado como bug QA #9: el técnico puede marcar imágenes para borrar y el backend lo rechaza sin aviso.
+
+### Decisión adoptada
+
+En el editor de lote, el TECNICO solo modifica Subestado y Superficie; el resto de los campos se muestran en solo lectura con un estilo visual atenuado y uniforme, y el payload envía únicamente esos dos campos. Así la UI queda alineada con la regla vigente del backend, la Guía QA (LOT-27), el Manual Maestro (§10.2 y §16.4) y el requisito original ("modificar el estado del plano interno del lote"). ADMINISTRADOR y GESTOR no cambian.
+
+#### Resultado
+
+- `npm run build` PASS.
+- `npx eslint` sobre `LoteEditarCard.jsx` (6 errores y 1 warning), `PersonaSearchSelect.jsx` (1 hallazgo) y `rbac.ui.js` (1 error): mismos hallazgos que en `main`, comparados regla por regla, todos preexistentes; los cambios no agregan ninguno.
+- El frontend no tiene tests automatizados. Prueba manual con qa.tecnico, qa.admin y qa.gestor (incluido un lote VENDIDO con qa.tecnico): PENDIENTE. Incluye revisar que todos los campos no editables se vean grises y apagados (valor en gris claro y etiqueta atenuada; inputs, desplegables y buscadores de persona) y que Subestado y Superficie se vean blancos y con texto normal.
+
+#### Evidencia / archivos relacionados
+
+- `frontend/src/lib/auth/rbac.ui.js`
+- `frontend/src/components/Cards/Lotes/LoteEditarCard.jsx`
+- `frontend/src/components/Cards/Lotes/PersonaSearchSelect.jsx`
+- `frontend/src/components/Cards/Base/cards.css`
+- `Backend/src/services/lote.service.ts` (`updatedLote`, regla de TECNICO; sin cambios)
+- Refs #297 · bug QA #8 (LOT-27)
+- `AI-DECISIONS.md`
+
 
 ## Plantilla para entradas nuevas
 
