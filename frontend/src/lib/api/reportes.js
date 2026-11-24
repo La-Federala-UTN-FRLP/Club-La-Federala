@@ -142,3 +142,40 @@ export function getCuotasVencidas({ moneda, fraccion } = {}) {
     "Error al obtener el reporte de cuotas vencidas"
   );
 }
+
+/**
+ * Catálogo de fracciones para los filtros de los reportes, ordenado por número visible.
+ *
+ * `id` es lo que esperan los endpoints en su parámetro `fraccion`; `numero` es lo que se
+ * muestra. No son lo mismo y no deben intercambiarse.
+ *
+ * Pega a GET /fracciones con el mismo patrón que los reportes en lugar de reusar el adaptador
+ * `lib/api/fracciones.js`: ese atrapa todo y devuelve una lista vacía con `success: true`, así
+ * que un 403 o un 500 se vería en la pantalla como "no hay fracciones" en vez de como un error.
+ *
+ * @returns {Promise<Array<{id: number, numero: number}>>}
+ */
+export async function getFraccionesReporte() {
+  if (USE_MOCK) {
+    const mock = await import("./reportes.mock");
+    return mock.getFracciones();
+  }
+
+  const res = await http("/fracciones", { method: "GET" });
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const err = new Error(data?.message || "Error al obtener las fracciones");
+    err.statusCode = res.status;
+    err.response = data;
+    throw err;
+  }
+
+  // El endpoint responde { success, message, fracciones, total }: la lista va plana, no en `data`.
+  // El backend mapea Fraccion.id a `idFraccion`; se tolera `id` por si eso cambia.
+  const lista = data?.fracciones ?? data?.data?.fracciones ?? [];
+  return lista
+    .map((f) => ({ id: Number(f.idFraccion ?? f.id), numero: Number(f.numero) }))
+    .filter((f) => Number.isFinite(f.id) && Number.isFinite(f.numero))
+    .sort((a, b) => a.numero - b.numero);
+}

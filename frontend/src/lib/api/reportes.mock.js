@@ -69,33 +69,36 @@ function parseFraccion(valor, errors) {
 const FRACCION_ID = { 1: 11, 2: 12, 3: 13 };
 
 // [loteId, fracción (número visible), nro de lote, estado, subestado, precio]
-// Solo LOTE_VENTA. El lote 140 tiene numero y precio nulos (Lote.numero y Lote.precio son
+// Solo LOTE_VENTA. El lote 9040 tiene numero y precio nulos (Lote.numero y Lote.precio son
 // anulables en Prisma): la interfaz tiene que tolerarlo.
+//
+// Los loteId viven en 9001+ a propósito: con ids bajos chocaban con los de la base real, y
+// "Ver lote" abría un lote verdadero que no tenía nada que ver con el reporte simulado.
 const LOTES = [
-  [101, 1, 1, "VENDIDO", "CONSTRUIDO", "92000.00"],
-  [102, 1, 2, "DISPONIBLE", "CONSTRUIDO", "88000.00"],
-  [103, 1, 3, "DISPONIBLE", "NO_CONSTRUIDO", "54000.00"],
-  [104, 1, 4, "VENDIDO", "CONSTRUIDO", "95000.00"],
-  [105, 1, 5, "RESERVADO", "EN_CONSTRUCCION", "61000.00"],
-  [106, 1, 6, "EN_PROMOCION", "NO_CONSTRUIDO", "49500.00"],
-  [108, 1, 8, "VENDIDO", "EN_CONSTRUCCION", "72000.00"],
-  [140, 1, null, "NO_DISPONIBLE", "NO_CONSTRUIDO", null],
-  [120, 2, 41, "VENDIDO", "CONSTRUIDO", "85000.00"],
-  [121, 2, 42, "VENDIDO", "CONSTRUIDO", "87000.00"],
-  [122, 2, 43, "CON_PRIORIDAD", "NO_CONSTRUIDO", "56000.00"],
-  [123, 2, 44, "VENDIDO", "EN_CONSTRUCCION", "78000.00"],
-  [128, 2, 45, "DISPONIBLE", "CONSTRUIDO", "85000.00"],
-  [129, 2, 46, "VENDIDO", "CONSTRUIDO", "79900.00"],
-  [130, 2, 47, "RESERVADO", "CONSTRUIDO", "91000.00"],
-  [131, 2, 48, "ALQUILADO", "CONSTRUIDO", "98000.00"],
-  [150, 3, 101, "DISPONIBLE", "NO_CONSTRUIDO", "43000.00"],
-  [151, 3, 102, "VENDIDO", "NO_CONSTRUIDO", "43500.00"],
-  [152, 3, 103, "VENDIDO", "NO_CONSTRUIDO", "44000.00"],
-  [153, 3, 104, "EN_PROMOCION", "EN_CONSTRUCCION", "52000.00"],
-  [154, 3, 105, "RESERVADO", "NO_CONSTRUIDO", "45000.00"],
-  [155, 3, 106, "NO_DISPONIBLE", "NO_CONSTRUIDO", "46000.00"],
-  [156, 3, 107, "VENDIDO", "CONSTRUIDO", "69000.00"],
-  [157, 3, 108, "DISPONIBLE", "CONSTRUIDO", "71000.00"],
+  [9001, 1, 1, "VENDIDO", "CONSTRUIDO", "92000.00"],
+  [9002, 1, 2, "DISPONIBLE", "CONSTRUIDO", "88000.00"],
+  [9003, 1, 3, "DISPONIBLE", "NO_CONSTRUIDO", "54000.00"],
+  [9004, 1, 4, "VENDIDO", "CONSTRUIDO", "95000.00"],
+  [9005, 1, 5, "RESERVADO", "EN_CONSTRUCCION", "61000.00"],
+  [9006, 1, 6, "EN_PROMOCION", "NO_CONSTRUIDO", "49500.00"],
+  [9008, 1, 8, "VENDIDO", "EN_CONSTRUCCION", "72000.00"],
+  [9040, 1, null, "NO_DISPONIBLE", "NO_CONSTRUIDO", null],
+  [9020, 2, 41, "VENDIDO", "CONSTRUIDO", "85000.00"],
+  [9021, 2, 42, "VENDIDO", "CONSTRUIDO", "87000.00"],
+  [9022, 2, 43, "CON_PRIORIDAD", "NO_CONSTRUIDO", "56000.00"],
+  [9023, 2, 44, "VENDIDO", "EN_CONSTRUCCION", "78000.00"],
+  [9028, 2, 45, "DISPONIBLE", "CONSTRUIDO", "85000.00"],
+  [9029, 2, 46, "VENDIDO", "CONSTRUIDO", "79900.00"],
+  [9030, 2, 47, "RESERVADO", "CONSTRUIDO", "91000.00"],
+  [9031, 2, 48, "ALQUILADO", "CONSTRUIDO", "98000.00"],
+  [9050, 3, 101, "DISPONIBLE", "NO_CONSTRUIDO", "43000.00"],
+  [9051, 3, 102, "VENDIDO", "NO_CONSTRUIDO", "43500.00"],
+  [9052, 3, 103, "VENDIDO", "NO_CONSTRUIDO", "44000.00"],
+  [9053, 3, 104, "EN_PROMOCION", "EN_CONSTRUCCION", "52000.00"],
+  [9054, 3, 105, "RESERVADO", "NO_CONSTRUIDO", "45000.00"],
+  [9055, 3, 106, "NO_DISPONIBLE", "NO_CONSTRUIDO", "46000.00"],
+  [9056, 3, 107, "VENDIDO", "CONSTRUIDO", "69000.00"],
+  [9057, 3, 108, "DISPONIBLE", "CONSTRUIDO", "71000.00"],
 ].map(([loteId, fraccion, numero, estado, subestado, precio]) => ({
   loteId,
   numero,
@@ -107,6 +110,18 @@ const LOTES = [
 }));
 
 const LOTE_POR_ID = new Map(LOTES.map((l) => [l.loteId, l]));
+
+/**
+ * Catálogo de fracciones del inventario simulado, con los mismos ids que usan sus filas.
+ * Equivale a GET /fracciones, normalizado a { id, numero }.
+ * @returns {Promise<Array<{id: number, numero: number}>>}
+ */
+export async function getFracciones() {
+  await sleep(DELAY_MS);
+  return Object.entries(FRACCION_ID)
+    .map(([numero, id]) => ({ id, numero: Number(numero) }))
+    .sort((a, b) => a.numero - b.numero);
+}
 
 const ordenEn = (lista, valor) => lista.indexOf(valor);
 
@@ -195,23 +210,23 @@ export async function getInventario({ fraccion, estado, subestado } = {}) {
 // Los desplazamientos son días antes del corte (null = sin esa fecha).
 // Las ventas 291-294 son antiguas: solo entran en períodos largos y alimentan las cuotas en ARS.
 const VENTAS = [
-  [291, "CCLF-2025-04", 121, 300, 290, null, "ESCRITURADO", "87000.00"],
-  [292, "CCLF-2025-09", 108, 280, 270, null, "ESCRITURADO", "72000.00"],
-  [293, "CCLF-2025-15", 151, 250, 240, null, "ESCRITURADO", "43500.00"],
-  [294, "CCLF-2025-21", 129, 200, 190, null, "ESCRITURADO", "79900.00"],
-  [301, "CCLF-2026-01", 101, 105, 80, null, "ESCRITURADO", "92000.00"],
-  [302, "CCLF-2026-02", 104, 98, 64, null, "ESCRITURADO", "95000.00"],
-  [303, "CCLF-2026-03", 120, 75, 35, null, "ESCRITURADO", "85000.00"],
-  [304, "CCLF-2026-04", 123, 60, 8, null, "ESCRITURADO", "78000.00"],
-  [305, "CCLF-2026-05", 150, 52, null, 30, "CANCELADA", "43000.00"],
-  [306, "CCLF-2026-06", 156, 44, 12, null, "ESCRITURADO", "69000.00"],
-  [307, "CCLF-2026-07", 152, 40, null, null, "CON_BOLETO", "44000.00"],
-  [308, "CCLF-2026-08", 130, 28, null, null, "CON_BOLETO", "91000.00"],
-  [309, "CCLF-2026-09", 154, 24, null, null, "INICIADA", "45000.00"],
-  [310, "CCLF-2026-10", 102, 18, null, 6, "CANCELADA", "88000.00"],
-  [311, "CCLF-2026-11", 105, 9, null, null, "INICIADA", "61000.00"],
-  [312, "CCLF-2026-12", 103, 22, null, 3, "CANCELADA", "54000.00"],
-  [313, "CCLF-2026-13", 157, 70, null, 55, "CANCELADA", "71000.00"],
+  [291, "CCLF-2025-04", 9021, 300, 290, null, "ESCRITURADO", "87000.00"],
+  [292, "CCLF-2025-09", 9008, 280, 270, null, "ESCRITURADO", "72000.00"],
+  [293, "CCLF-2025-15", 9051, 250, 240, null, "ESCRITURADO", "43500.00"],
+  [294, "CCLF-2025-21", 9029, 200, 190, null, "ESCRITURADO", "79900.00"],
+  [301, "CCLF-2026-01", 9001, 105, 80, null, "ESCRITURADO", "92000.00"],
+  [302, "CCLF-2026-02", 9004, 98, 64, null, "ESCRITURADO", "95000.00"],
+  [303, "CCLF-2026-03", 9020, 75, 35, null, "ESCRITURADO", "85000.00"],
+  [304, "CCLF-2026-04", 9023, 60, 8, null, "ESCRITURADO", "78000.00"],
+  [305, "CCLF-2026-05", 9050, 52, null, 30, "CANCELADA", "43000.00"],
+  [306, "CCLF-2026-06", 9056, 44, 12, null, "ESCRITURADO", "69000.00"],
+  [307, "CCLF-2026-07", 9052, 40, null, null, "CON_BOLETO", "44000.00"],
+  [308, "CCLF-2026-08", 9030, 28, null, null, "CON_BOLETO", "91000.00"],
+  [309, "CCLF-2026-09", 9054, 24, null, null, "INICIADA", "45000.00"],
+  [310, "CCLF-2026-10", 9002, 18, null, 6, "CANCELADA", "88000.00"],
+  [311, "CCLF-2026-11", 9005, 9, null, null, "INICIADA", "61000.00"],
+  [312, "CCLF-2026-12", 9003, 22, null, 3, "CANCELADA", "54000.00"],
+  [313, "CCLF-2026-13", 9057, 70, null, 55, "CANCELADA", "71000.00"],
 ].map(([ventaId, numero, loteId, altaOff, escOff, cancOff, estado, monto]) => ({
   ventaId, numero, loteId, altaOff, escOff, cancOff, estado, montoCents: toCents(monto),
 }));

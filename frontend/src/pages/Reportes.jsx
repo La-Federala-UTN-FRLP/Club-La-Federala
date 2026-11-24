@@ -1,13 +1,16 @@
 // src/pages/Reportes.jsx
 // Pantalla de Reportes: pestañas Comercial / Cobranzas y selector de reporte.
 // El reporte activo vive en la URL (?reporte=inventario|ventas|cuotas-vencidas) y la pestaña
-// se deriva de él. En esta etapa solo se prueba el circuito pantalla → cliente → mock:
-// el render de cada reporte (tarjetas, tablas, filtros, estados) llega en 39.2 a 39.5.
+// se deriva de él.
+//
+// Un reporte con `Vista` renderiza ese componente, que maneja sus propios filtros y su carga.
+// Los que todavía no la tienen muestran el conteo de filas de la pantalla base (39.3 y 39.4).
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Tabs, Tab, Form, Alert } from "react-bootstrap";
 import { getInventario, getVentas, getCuotasVencidas } from "../lib/api/reportes";
+import VistaInventario from "../components/Reportes/VistaInventario";
 import { parseApiError } from "../lib/http/errors";
 import "./Reportes.css";
 
@@ -29,10 +32,12 @@ function sumarDias(ymd, dias) {
   return new Date(Date.parse(ymd) + dias * 86_400_000).toISOString().slice(0, 10);
 }
 
-// Cada reporte: etiqueta y cómo se carga por ahora (sin filtros; los obligatorios llevan un default).
+// Cada reporte: etiqueta, su vista propia si ya existe, y cómo se carga para el conteo
+// provisorio de los que todavía no la tienen (los parámetros obligatorios llevan un default).
 const REPORTES = {
   inventario: {
     label: "Inventario de lotes",
+    Vista: VistaInventario,
     cargar: () => getInventario(),
   },
   ventas: {
@@ -56,8 +61,8 @@ const TABS = [
 
 const tabDeReporte = (reporte) => TABS.find((t) => t.reportes.includes(reporte));
 
-/** Selector de reporte (solo si la pestaña tiene más de uno) + resultado del reporte activo. */
-function PanelReporte({ tab, reporte, onReporteChange }) {
+/** Conteo de filas provisorio para los reportes que todavía no tienen vista propia. */
+function ConteoFilas({ reporte }) {
   const [estado, setEstado] = useState({ status: "loading", filas: 0, error: null });
 
   // Al montar o cambiar de reporte, carga sin filtros. `cancelado` descarta respuestas viejas
@@ -81,6 +86,19 @@ function PanelReporte({ tab, reporte, onReporteChange }) {
   }, [reporte]);
 
   return (
+    <>
+      {estado.status === "loading" && <p className="text-muted">Cargando…</p>}
+      {estado.status === "error" && <Alert variant="danger">{estado.error}</Alert>}
+      {estado.status === "ok" && <p>{estado.filas} filas</p>}
+    </>
+  );
+}
+
+/** Selector de reporte (solo si la pestaña tiene más de uno) + contenido del reporte activo. */
+function PanelReporte({ tab, reporte, onReporteChange }) {
+  const { Vista, label } = REPORTES[reporte];
+
+  return (
     <div className="reportes-panel">
       {tab.reportes.length > 1 ? (
         <Form.Group className="reportes-selector">
@@ -98,12 +116,10 @@ function PanelReporte({ tab, reporte, onReporteChange }) {
           </Form.Select>
         </Form.Group>
       ) : (
-        <h6 className="reportes-titulo">{REPORTES[reporte].label}</h6>
+        <h6 className="reportes-titulo">{label}</h6>
       )}
 
-      {estado.status === "loading" && <p className="text-muted">Cargando…</p>}
-      {estado.status === "error" && <Alert variant="danger">{estado.error}</Alert>}
-      {estado.status === "ok" && <p>{estado.filas} filas</p>}
+      {Vista ? <Vista /> : <ConteoFilas reporte={reporte} />}
     </div>
   );
 }

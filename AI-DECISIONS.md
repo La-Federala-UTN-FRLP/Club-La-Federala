@@ -1281,68 +1281,6 @@ Se corrige LOT-03 en el backend: para INMOBILIARIA se excluyen los lotes NO_DISP
 - `docs/qa/resultados/api-permisos-2026-11-21.md`
 - Jira CCLF-30 · bug LOT-03
 
-### AI-022 — Campos "Actualizado" y "Deuda" de lotes según el rol
-
-**Fecha:** 2026-11-23
-**Área:** Frontend / Lotes
-**Herramientas:** Claude Code
-
-#### Problema
-
-QA (#297) encontró dos problemas en el detalle de lote (`LoteVerCard.jsx`):
-
-- "Actualizado" se mostraba vacío o incorrecto para todos los roles: `lote.service.ts` nunca setea `updateAt`, y ningún requerimiento documentado pide el campo.
-- "Deuda" aparecía como "Sin información" para INMOBILIARIA y TECNICO, porque desde AI-019 el backend ya no les envía `deuda`.
-
-El líder del proyecto (Nico) decidió eliminar "Actualizado" del detalle para todos los roles y que la deuda la vean y editen solo ADMINISTRADOR y GESTOR, en toda la UI. Al aplicar esa regla aparecieron dos lugares más:
-
-- Tabla de lotes: la columna "deuda" solo estaba en el preset de ADMINISTRADOR (faltaba GESTOR), y el selector de columnas se la ofrecía a INMOBILIARIA y TECNICO, que la veían vacía porque el backend no les envía `deuda`; una selección guardada en el navegador también podía mostrarla.
-- Editor de lote (`LoteEditarCard.jsx`): mostraba el checkbox "Deuda" a TECNICO y mandaba `deuda` en el payload para todos los roles. Para TECNICO, el backend filtra el payload a `subestado`, `superficie` y `archivos`: con otros campos válidos el cambio de deuda se ignoraba en silencio, y con `deuda` como único campo respondía 403.
-
-#### Prompt / intención
-
-Aplicar la regla con cambios mínimos y solo de frontend, reutilizando el usuario que ya existe (`useAuth()`) y un único criterio de rol en `rbac.ui.js`, sin tocar backend, OpenAPI ni Prisma; contemplar las columnas guardadas en el navegador; no cambiar qué campos manda el editor más allá de no incluir `deuda`; y listar, sin modificarlos, otros lugares con `updateAt`/`updatedAt` o `deuda` de lotes y los campos no técnicos que el editor le muestra a TECNICO.
-
-#### Propuesta generada por IA
-
-- `lib/auth/rbac.ui.js`: nuevo helper `canSeeDeuda(user)` (ADMINISTRADOR o GESTOR con `hasRole`; sin usuario u otro rol, `false`), junto a `canUseDeudorFilter`, para no repetir la lista de roles en cada componente. No se reutilizó `canUseDeudorFilter` porque deduce INMOBILIARIA por permisos y devuelve `true` para un usuario sin rol (no falla cerrado); se dejó sin cambios.
-- `LoteVerCard.jsx`: quitar la fila `["ACTUALIZADO", …]` y agregar la fila `["DEUDA", …]` solo si `canSeeDeuda(user)`.
-- `Table/TablaLotes/presets/lotes.table.jsx`: agregar `'deuda'` al final del preset de `gestor`, en la misma posición relativa que en `admin` (después de `precio`). La definición de la columna es compartida, así que no cambia; los presets de `tecnico` e `inmobiliaria` quedan igual.
-- `Table/TablaLotes/TablaLotes.jsx`: excluir la columna `deuda` del catálogo `ALL_SAFE` salvo que `canSeeDeuda(auth.user)` (el usuario que la tabla ya obtiene de `useAuth()`). El selector recibe `all={ALL_SAFE}` y las columnas guardadas en `localStorage` y las visibles se filtran contra `ALL_SAFE`, así que un solo cambio cubre el selector, la tabla y una selección guardada. Sin usuario, la columna no se ofrece.
-- `Cards/Lotes/LoteEditarCard.jsx`: obtener `user` con `useAuth()`; el checkbox "Deuda" y `payload.deuda` quedan solo si `canSeeDeuda(user)`. El resto del payload no cambia.
-- Un commit por cambio: dos sobre `LoteVerCard.jsx` (primero "Actualizado", después "Deuda"), uno para el preset, uno para el helper (antes de los que lo usan), uno para `TablaLotes.jsx` y uno para `LoteEditarCard.jsx`.
-- Sin tests: el frontend no tiene infraestructura de tests (no hay script `test` ni archivos `*.test.*`) y no se creó.
-- Otros usos relevados, sin cambios: `LoteSidePanel.jsx` (mapa) muestra "Deuda" solo si `deuda` es true, así que no aparece para INMOBILIARIA ni TECNICO, porque el backend no la envía; `LABELS` de `LoteEditarCard.jsx` conserva `"DEUDA"` porque solo calcula el ancho de las etiquetas. `updateAt`/`updatedAt` no se muestra en otros componentes de lotes (los demás usos son de inmobiliarias, reservas, ventas y prioridades).
-- Campos no técnicos que el editor le muestra a TECNICO y que el backend descarta en silencio (para TECNICO solo acepta `subestado` y `superficie`), sin cambios, para decidir aparte: Número Partida, Tipo (y Nombre del Espacio Común y Capacidad), Estado, Precio, Propietario, Calle, Número, Ocupación e Inquilino.
-- La tabla guarda en `localStorage` las columnas elegidas por cada usuario: un GESTOR con una selección guardada ve la nueva columna después de restablecer las columnas en el selector (o de limpiar el almacenamiento).
-
-### Validación humana
-
-- Revisión del diff: cambios solo de frontend; la regla de visibilidad se centralizó en el helper `canSeeDeuda(user)` de `rbac.ui.js` (true solo para ADMINISTRADOR y GESTOR). Se descartó reutilizar `canUseDeudorFilter` porque devuelve true para cualquier rol que no sea INMOBILIARIA o TECNICO, incluso un usuario sin rol.
-- `npm run build` OK. Lint de los archivos tocados: mismos hallazgos que en `main` (preexistentes), ninguno nuevo. El frontend no tiene tests automatizados.
-- Verificación por API (base QA local): el backend no envía `deuda` a INMOBILIARIA (0/45 lotes) ni a TECNICO (0/47); `PUT /api/lotes/:id` con `deuda` como TECNICO → 403; desde el editor, el backend respondía 200 descartando la deuda en silencio.
-- Prueba manual en navegador con las cuatro cuentas QA sobre `Lote2-4`: ADMINISTRADOR y GESTOR ven y editan la deuda en el detalle, la tabla, el selector de columnas y el editor; INMOBILIARIA y TECNICO no la ven en ningún lugar; "Actualizado" no aparece para ningún rol; el filtro "Deudor" ya estaba oculto para INMOBILIARIA y TECNICO.
-- Se descartó corregir `updateAt` en el backend: no hay requerimiento que pida el campo y el freeze pre-Cloud solo admite bugs reales.
-- Queda fuera del alcance, para otro PR: el editor le muestra a TECNICO campos no técnicos (precio, propietario, estado, etc.) que el backend descarta en silencio.
-
-### Decisión adoptada
-
-Por decisión del líder del proyecto (Nico) y en línea con la Guía QA (LOT-04, LOT-10, LOT-27, LOT-33): la deuda la ven y la editan solo ADMINISTRADOR y GESTOR en toda la interfaz (detalle, tabla, selector de columnas y editor), y "Actualizado" se elimina del detalle de lote para todos los roles. La regla vive en un único helper (`canSeeDeuda`) para que la UI quede alineada con el backend.
-
-#### Resultado
-
-- `npm run build` PASS con cada uno de los cambios (detalle sin "Actualizado", "Deuda" condicionada, preset de GESTOR, selector de columnas y editor).
-- `npx eslint` sobre los cinco archivos tocados: mismos hallazgos que en `main`, comparados regla por regla (`LoteVerCard.jsx` 1 error y 4 warnings; `lotes.table.jsx` 1; `TablaLotes.jsx` 4 errores y 3 warnings; `LoteEditarCard.jsx` 6 errores y 1 warning; `rbac.ui.js` sin cambios en sus hallazgos; todos preexistentes); los cambios no agregan ninguno. `npm run lint` global sigue con los errores preexistentes del baseline (lint masivo pendiente post-Cloud).
-- Prueba manual por rol (qa.admin, qa.gestor, qa.inmo.a, qa.tecnico) en el detalle, la tabla, el selector de columnas y el editor: PENDIENTE.
-
-#### Evidencia / archivos relacionados
-
-- `frontend/src/components/Cards/Lotes/LoteVerCard.jsx`
-- `frontend/src/components/Table/TablaLotes/presets/lotes.table.jsx`
-- `frontend/src/components/Table/TablaLotes/TablaLotes.jsx`
-- `frontend/src/components/Cards/Lotes/LoteEditarCard.jsx`
-- `frontend/src/lib/auth/rbac.ui.js`
-- Refs #297
 ### AI-020 — Reporte de ventas por período
 
 **Fecha:** 2026-11-23  
@@ -1397,61 +1335,6 @@ Implementar la subtarea 38.3 (CCLF-54): iniciadas por fecha de alta, escriturada
 - `Backend/documents/documentacionApi.yaml`
 - Jira CCLF-54 · Issue #321
 - `AI-DECISIONS.md`
-
-### AI-023 — Node.js 24 LTS y exposición real de vulnerabilidades en las imágenes del backend
-
-**Fecha:** 2026-11-23
-**Área:** Cloud / Docker / Dependencias / Seguridad / Prisma
-**Herramientas:** Claude Code (VS Code) + Docker Desktop + PostgreSQL 17 local descartable
-
-#### Problema
-
-Las imágenes `runtime` y `migrate` usaban `node:20-slim` (Node.js 20, fuera de soporte). `npm audit --omit=dev` informaba 4 high en la cadena de Prisma CLI y `npm audit` completo, 23 (1 critical en `handlebars`, vía `ts-jest`). No estaba claro qué llegaba realmente a cada imagen. AI-015 partía de que el runtime excluía Prisma CLI, pero la inspección mostró que `prisma`, `@prisma/config`, `effect`, `deepmerge-ts` y `typescript` estaban físicamente en `runtime`. `migrate` partía de `deps` y llevaba toda la toolchain de test, incluido `handlebars`.
-
-#### Prompt / intención
-
-Pasar las imágenes a Node.js 24 LTS con distribución Debian explícita. Determinar la exposición real inspeccionando las imágenes y no el reporte de npm. Corregir lo que admita cambios compatibles, priorizando runtime, después migraciones y después herramientas de desarrollo. Sin `npm audit fix --force`, sin Prisma 7, sin actualizaciones masivas, sin tocar GCP, credenciales ni migraciones históricas, y sin commits.
-
-#### Propuesta generada por IA
-
-- Base `node:24-bookworm-slim`: hoy tiene el mismo digest que `node:24-slim` (Node 24.22.3, Debian 12, OpenSSL 3.0). Fijar la distribución evita que un cambio del tag por defecto mueva la OpenSSL que usan los engines de Prisma.
-- Causa de la presencia de Prisma CLI en el runtime: `prisma` es peer opcional de `@prisma/client`. El cálculo de flags de npm (arborist) no lo marca `dev`, así que `npm prune --omit=dev` lo conserva con todo su árbol. Se probó y se descartó `--omit=peer` (no quita nada) y borrar los paquetes antes de otro `prune` (npm los reinstala desde el lockfile).
-- Nuevo stage `runtime-deps` con `npm prune --omit=dev --legacy-peer-deps`: quita exactamente el árbol de Prisma CLI (34 paquetes) más `typescript`, y nada más. Lleva una guarda de build que falla si Prisma CLI reaparece.
-- `migrate` parte de `prod-deps` (dependencias de producción + Prisma CLI) en lugar de `deps`, sin toolchain de build/test, con archivos de root y una guarda `prisma --version` en el build.
-- `package-lock.json`: `npm update` solo de los paquetes de desarrollo vulnerables, dentro de sus rangos (`handlebars`, `form-data`, `js-yaml`, `brace-expansion`, `minimatch`, `picomatch`, `diff`, `browserslist`, `baseline-browser-mapping`, `@babel/core`). `package.json` no cambia. El único cambio en producción es `hasown` 2.0.2 → 2.0.4, que exige `form-data@4.0.6`. Se descartó `npm audit fix` sin `--force` porque subía `prisma` a 6.19.3 con `@prisma/client` en 6.18.0 y arrastraba jest 30.5.
-- No forzar `effect`/`deepmerge-ts` con `overrides`. `deepmerge-ts` exige un salto mayor, y una versión de `effect` no probada por Prisma no se justifica para un job efímero con entradas del repo.
-
-#### Validación humana
-
-- El alcance y las restricciones los fijó la persona responsable antes de la implementación.
-- Pendiente: revisión del diff y de la evidencia en el PR, a cargo del equipo.
-
-Validaciones que ejecutó la IA durante la sesión:
-
-- Local (Node 24.13.0): `npm ci`, `npm run typecheck`, `npm run build`, `npx jest` (89 suites, 3314 tests) y `npm run test:integration` contra PostgreSQL 17.12 descartable (3 suites, 20 tests).
-- Builds de `runtime` y `migrate` sobre Node 24.22.3, usuario `node`. Smoke del runtime: `/health` 200 con `no-store`, 404/401 del contrato, SIGTERM con cierre ordenado y exit 0, fail-fast de configuración y `bcrypt` nativo.
-- Base PostgreSQL 17.12 nueva con roles equivalentes al laboratorio (`federala_migrate`/`federala_app`, sin superusuario). `migrate deploy` desde cero aplicó 69 de 69, la segunda ejecución no tuvo pendientes, `migrate status` dio al día y `migrate diff` contra `schema.prisma` no encontró diferencias. Esquema idéntico (`pg_dump --schema-only`) al del laboratorio migrado con Node 20. `federala_app` lee e inserta pero no crea tablas.
-- Runtime contra esa base como `federala_app`: login, JWT y lecturas autenticadas, más el job de expiraciones (exit 0).
-- Laboratorio `federala-pg17-lab`: `migrate status` y `migrate deploy` solo como prueba de idempotencia, sin migraciones pendientes.
-
-#### Decisión adoptada
-
-Pendiente de validación humana en el PR. Se propone:
-
-- Node.js 24 LTS con `node:24-bookworm-slim` en todos los stages del backend.
-- Runtime sin Prisma CLI y `migrate` sin toolchain de build/test.
-- Aceptar `effect`/`deepmerge-ts` en `migrate` y los moderados de jest 30 hasta Prisma 7.
-
-#### Evidencia / archivos relacionados
-
-- `Backend/Dockerfile`
-- `Backend/package-lock.json`
-- `Backend/README.md`
-- `docs/architecture/backend.md`
-- `docs/architecture/freeze-pre-cloud.md`
-- `docs/development/setup-local.md`
-- `AI-DECISIONS.md`
-
 
 ### AI-021 — Oráculos de existencia de lotes NO_DISPONIBLE
 
@@ -1515,6 +1398,218 @@ Para el rol INMOBILIARIA, un lote NO_DISPONIBLE se comporta como inexistente en 
 - `Backend/tests/unit/security/lotes.inmobiliaria.authz.test.ts`
 - `Backend/tests/unit/security/files.tipo.authz.test.ts`
 - Revisión de #340 · Refs #297
+
+### AI-022 — Campos "Actualizado" y "Deuda" de lotes según el rol
+
+**Fecha:** 2026-11-23
+**Área:** Frontend / Lotes
+**Herramientas:** Claude Code
+
+#### Problema
+
+QA (#297) encontró dos problemas en el detalle de lote (`LoteVerCard.jsx`):
+
+- "Actualizado" se mostraba vacío o incorrecto para todos los roles: `lote.service.ts` nunca setea `updateAt`, y ningún requerimiento documentado pide el campo.
+- "Deuda" aparecía como "Sin información" para INMOBILIARIA y TECNICO, porque desde AI-019 el backend ya no les envía `deuda`.
+
+El líder del proyecto (Nico) decidió eliminar "Actualizado" del detalle para todos los roles y que la deuda la vean y editen solo ADMINISTRADOR y GESTOR, en toda la UI. Al aplicar esa regla aparecieron dos lugares más:
+
+- Tabla de lotes: la columna "deuda" solo estaba en el preset de ADMINISTRADOR (faltaba GESTOR), y el selector de columnas se la ofrecía a INMOBILIARIA y TECNICO, que la veían vacía porque el backend no les envía `deuda`; una selección guardada en el navegador también podía mostrarla.
+- Editor de lote (`LoteEditarCard.jsx`): mostraba el checkbox "Deuda" a TECNICO y mandaba `deuda` en el payload para todos los roles. Para TECNICO, el backend filtra el payload a `subestado`, `superficie` y `archivos`: con otros campos válidos el cambio de deuda se ignoraba en silencio, y con `deuda` como único campo respondía 403.
+
+#### Prompt / intención
+
+Aplicar la regla con cambios mínimos y solo de frontend, reutilizando el usuario que ya existe (`useAuth()`) y un único criterio de rol en `rbac.ui.js`, sin tocar backend, OpenAPI ni Prisma; contemplar las columnas guardadas en el navegador; no cambiar qué campos manda el editor más allá de no incluir `deuda`; y listar, sin modificarlos, otros lugares con `updateAt`/`updatedAt` o `deuda` de lotes y los campos no técnicos que el editor le muestra a TECNICO.
+
+#### Propuesta generada por IA
+
+- `lib/auth/rbac.ui.js`: nuevo helper `canSeeDeuda(user)` (ADMINISTRADOR o GESTOR con `hasRole`; sin usuario u otro rol, `false`), junto a `canUseDeudorFilter`, para no repetir la lista de roles en cada componente. No se reutilizó `canUseDeudorFilter` porque deduce INMOBILIARIA por permisos y devuelve `true` para un usuario sin rol (no falla cerrado); se dejó sin cambios.
+- `LoteVerCard.jsx`: quitar la fila `["ACTUALIZADO", …]` y agregar la fila `["DEUDA", …]` solo si `canSeeDeuda(user)`.
+- `Table/TablaLotes/presets/lotes.table.jsx`: agregar `'deuda'` al final del preset de `gestor`, en la misma posición relativa que en `admin` (después de `precio`). La definición de la columna es compartida, así que no cambia; los presets de `tecnico` e `inmobiliaria` quedan igual.
+- `Table/TablaLotes/TablaLotes.jsx`: excluir la columna `deuda` del catálogo `ALL_SAFE` salvo que `canSeeDeuda(auth.user)` (el usuario que la tabla ya obtiene de `useAuth()`). El selector recibe `all={ALL_SAFE}` y las columnas guardadas en `localStorage` y las visibles se filtran contra `ALL_SAFE`, así que un solo cambio cubre el selector, la tabla y una selección guardada. Sin usuario, la columna no se ofrece.
+- `Cards/Lotes/LoteEditarCard.jsx`: obtener `user` con `useAuth()`; el checkbox "Deuda" y `payload.deuda` quedan solo si `canSeeDeuda(user)`. El resto del payload no cambia.
+- Un commit por cambio: dos sobre `LoteVerCard.jsx` (primero "Actualizado", después "Deuda"), uno para el preset, uno para el helper (antes de los que lo usan), uno para `TablaLotes.jsx` y uno para `LoteEditarCard.jsx`.
+- Sin tests: el frontend no tiene infraestructura de tests (no hay script `test` ni archivos `*.test.*`) y no se creó.
+- Otros usos relevados, sin cambios: `LoteSidePanel.jsx` (mapa) muestra "Deuda" solo si `deuda` es true, así que no aparece para INMOBILIARIA ni TECNICO, porque el backend no la envía; `LABELS` de `LoteEditarCard.jsx` conserva `"DEUDA"` porque solo calcula el ancho de las etiquetas. `updateAt`/`updatedAt` no se muestra en otros componentes de lotes (los demás usos son de inmobiliarias, reservas, ventas y prioridades).
+- Campos no técnicos que el editor le muestra a TECNICO y que el backend descarta en silencio (para TECNICO solo acepta `subestado` y `superficie`), sin cambios, para decidir aparte: Número Partida, Tipo (y Nombre del Espacio Común y Capacidad), Estado, Precio, Propietario, Calle, Número, Ocupación e Inquilino.
+- La tabla guarda en `localStorage` las columnas elegidas por cada usuario: un GESTOR con una selección guardada ve la nueva columna después de restablecer las columnas en el selector (o de limpiar el almacenamiento).
+
+### Validación humana
+
+- Revisión del diff: cambios solo de frontend; la regla de visibilidad se centralizó en el helper `canSeeDeuda(user)` de `rbac.ui.js` (true solo para ADMINISTRADOR y GESTOR). Se descartó reutilizar `canUseDeudorFilter` porque devuelve true para cualquier rol que no sea INMOBILIARIA o TECNICO, incluso un usuario sin rol.
+- `npm run build` OK. Lint de los archivos tocados: mismos hallazgos que en `main` (preexistentes), ninguno nuevo. El frontend no tiene tests automatizados.
+- Verificación por API (base QA local): el backend no envía `deuda` a INMOBILIARIA (0/45 lotes) ni a TECNICO (0/47); `PUT /api/lotes/:id` con `deuda` como TECNICO → 403; desde el editor, el backend respondía 200 descartando la deuda en silencio.
+- Prueba manual en navegador con las cuatro cuentas QA sobre `Lote2-4`: ADMINISTRADOR y GESTOR ven y editan la deuda en el detalle, la tabla, el selector de columnas y el editor; INMOBILIARIA y TECNICO no la ven en ningún lugar; "Actualizado" no aparece para ningún rol; el filtro "Deudor" ya estaba oculto para INMOBILIARIA y TECNICO.
+- Se descartó corregir `updateAt` en el backend: no hay requerimiento que pida el campo y el freeze pre-Cloud solo admite bugs reales.
+- Queda fuera del alcance, para otro PR: el editor le muestra a TECNICO campos no técnicos (precio, propietario, estado, etc.) que el backend descarta en silencio.
+
+### Decisión adoptada
+
+Por decisión del líder del proyecto (Nico) y en línea con la Guía QA (LOT-04, LOT-10, LOT-27, LOT-33): la deuda la ven y la editan solo ADMINISTRADOR y GESTOR en toda la interfaz (detalle, tabla, selector de columnas y editor), y "Actualizado" se elimina del detalle de lote para todos los roles. La regla vive en un único helper (`canSeeDeuda`) para que la UI quede alineada con el backend.
+
+#### Resultado
+
+- `npm run build` PASS con cada uno de los cambios (detalle sin "Actualizado", "Deuda" condicionada, preset de GESTOR, selector de columnas y editor).
+- `npx eslint` sobre los cinco archivos tocados: mismos hallazgos que en `main`, comparados regla por regla (`LoteVerCard.jsx` 1 error y 4 warnings; `lotes.table.jsx` 1; `TablaLotes.jsx` 4 errores y 3 warnings; `LoteEditarCard.jsx` 6 errores y 1 warning; `rbac.ui.js` sin cambios en sus hallazgos; todos preexistentes); los cambios no agregan ninguno. `npm run lint` global sigue con los errores preexistentes del baseline (lint masivo pendiente post-Cloud).
+- Prueba manual por rol (qa.admin, qa.gestor, qa.inmo.a, qa.tecnico) en el detalle, la tabla, el selector de columnas y el editor: PENDIENTE.
+
+#### Evidencia / archivos relacionados
+
+- `frontend/src/components/Cards/Lotes/LoteVerCard.jsx`
+- `frontend/src/components/Table/TablaLotes/presets/lotes.table.jsx`
+- `frontend/src/components/Table/TablaLotes/TablaLotes.jsx`
+- `frontend/src/components/Cards/Lotes/LoteEditarCard.jsx`
+- `frontend/src/lib/auth/rbac.ui.js`
+- Refs #297
+
+### AI-023 — Node.js 24 LTS y exposición real de vulnerabilidades en las imágenes del backend
+
+**Fecha:** 2026-11-23
+**Área:** Cloud / Docker / Dependencias / Seguridad / Prisma
+**Herramientas:** Claude Code (VS Code) + Docker Desktop + PostgreSQL 17 local descartable
+
+#### Problema
+
+Las imágenes `runtime` y `migrate` usaban `node:20-slim` (Node.js 20, fuera de soporte). `npm audit --omit=dev` informaba 4 high en la cadena de Prisma CLI y `npm audit` completo, 23 (1 critical en `handlebars`, vía `ts-jest`). No estaba claro qué llegaba realmente a cada imagen. AI-015 partía de que el runtime excluía Prisma CLI, pero la inspección mostró que `prisma`, `@prisma/config`, `effect`, `deepmerge-ts` y `typescript` estaban físicamente en `runtime`. `migrate` partía de `deps` y llevaba toda la toolchain de test, incluido `handlebars`.
+
+#### Prompt / intención
+
+Pasar las imágenes a Node.js 24 LTS con distribución Debian explícita. Determinar la exposición real inspeccionando las imágenes y no el reporte de npm. Corregir lo que admita cambios compatibles, priorizando runtime, después migraciones y después herramientas de desarrollo. Sin `npm audit fix --force`, sin Prisma 7, sin actualizaciones masivas, sin tocar GCP, credenciales ni migraciones históricas, y sin commits.
+
+#### Propuesta generada por IA
+
+- Base `node:24-bookworm-slim`: hoy tiene el mismo digest que `node:24-slim` (Node 24.22.3, Debian 12, OpenSSL 3.0). Fijar la distribución evita que un cambio del tag por defecto mueva la OpenSSL que usan los engines de Prisma.
+- Causa de la presencia de Prisma CLI en el runtime: `prisma` es peer opcional de `@prisma/client`. El cálculo de flags de npm (arborist) no lo marca `dev`, así que `npm prune --omit=dev` lo conserva con todo su árbol. Se probó y se descartó `--omit=peer` (no quita nada) y borrar los paquetes antes de otro `prune` (npm los reinstala desde el lockfile).
+- Nuevo stage `runtime-deps` con `npm prune --omit=dev --legacy-peer-deps`: quita exactamente el árbol de Prisma CLI (34 paquetes) más `typescript`, y nada más. Lleva una guarda de build que falla si Prisma CLI reaparece.
+- `migrate` parte de `prod-deps` (dependencias de producción + Prisma CLI) en lugar de `deps`, sin toolchain de build/test, con archivos de root y una guarda `prisma --version` en el build.
+- `package-lock.json`: `npm update` solo de los paquetes de desarrollo vulnerables, dentro de sus rangos (`handlebars`, `form-data`, `js-yaml`, `brace-expansion`, `minimatch`, `picomatch`, `diff`, `browserslist`, `baseline-browser-mapping`, `@babel/core`). `package.json` no cambia. El único cambio en producción es `hasown` 2.0.2 → 2.0.4, que exige `form-data@4.0.6`. Se descartó `npm audit fix` sin `--force` porque subía `prisma` a 6.19.3 con `@prisma/client` en 6.18.0 y arrastraba jest 30.5.
+- No forzar `effect`/`deepmerge-ts` con `overrides`. `deepmerge-ts` exige un salto mayor, y una versión de `effect` no probada por Prisma no se justifica para un job efímero con entradas del repo.
+
+#### Validación humana
+
+- El alcance y las restricciones los fijó la persona responsable antes de la implementación.
+- Pendiente: revisión del diff y de la evidencia en el PR, a cargo del equipo.
+
+Validaciones que ejecutó la IA durante la sesión:
+
+- Local (Node 24.13.0): `npm ci`, `npm run typecheck`, `npm run build`, `npx jest` (89 suites, 3314 tests) y `npm run test:integration` contra PostgreSQL 17.12 descartable (3 suites, 20 tests).
+- Builds de `runtime` y `migrate` sobre Node 24.22.3, usuario `node`. Smoke del runtime: `/health` 200 con `no-store`, 404/401 del contrato, SIGTERM con cierre ordenado y exit 0, fail-fast de configuración y `bcrypt` nativo.
+- Base PostgreSQL 17.12 nueva con roles equivalentes al laboratorio (`federala_migrate`/`federala_app`, sin superusuario). `migrate deploy` desde cero aplicó 69 de 69, la segunda ejecución no tuvo pendientes, `migrate status` dio al día y `migrate diff` contra `schema.prisma` no encontró diferencias. Esquema idéntico (`pg_dump --schema-only`) al del laboratorio migrado con Node 20. `federala_app` lee e inserta pero no crea tablas.
+- Runtime contra esa base como `federala_app`: login, JWT y lecturas autenticadas, más el job de expiraciones (exit 0).
+- Laboratorio `federala-pg17-lab`: `migrate status` y `migrate deploy` solo como prueba de idempotencia, sin migraciones pendientes.
+
+#### Decisión adoptada
+
+Pendiente de validación humana en el PR. Se propone:
+
+- Node.js 24 LTS con `node:24-bookworm-slim` en todos los stages del backend.
+- Runtime sin Prisma CLI y `migrate` sin toolchain de build/test.
+- Aceptar `effect`/`deepmerge-ts` en `migrate` y los moderados de jest 30 hasta Prisma 7.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/Dockerfile`
+- `Backend/package-lock.json`
+- `Backend/README.md`
+- `docs/architecture/backend.md`
+- `docs/architecture/freeze-pre-cloud.md`
+- `docs/development/setup-local.md`
+- `AI-DECISIONS.md`
+
+### AI-024 — Vista de inventario de lotes (frontend) y apertura de un lote desde la URL
+
+**Fecha:** 2026-11-23  
+**Área:** Frontend / Reportes / Lotes / Cliente HTTP  
+**Herramientas:** Claude (claude.ai) para planificar las etapas y redactar los prompts; Claude Code para ejecutar el código.
+
+#### Problema
+
+La pestaña Inventario de Reportes (39.1, AI-018) solo mostraba la cantidad de filas que devolvía el cliente. La subtarea 39.2 (CCLF-60) pedía la pantalla completa: filtros de fracción, estado y subestado, tarjetas de ofrecibles y totales, y la tabla de lotes con un enlace a cada lote.
+
+La fila y los totales ya estaban definidos por el backend de 38.2 (AI-017): `InventarioFila` trae `fraccionId` además del número visible de la fracción, `numero` entero o null, y `precio` decimal o null; `porFraccion` trae `fraccionId`, `fraccion`, `cantidad` y `ofrecibles`. El filtro `fraccion` de la API es el id, no el número visible, y el `enlace` de cada fila es `/?lote=<id>`, una URL que el frontend no sabía leer.
+
+#### Prompt / intención
+
+Trabajo en cinco etapas, cada una con aprobación humana y sin commits de la IA:
+
+1. Exploración de solo lectura (LoteVerCard y cómo se monta, formateo de dinero y fechas, estilos de KPI, clases `tl-*`, normalización de estados, catálogo de fracciones) con un informe de riesgos.
+2. Construir la vista de inventario sin tocar nada fuera de Reportes y del cliente.
+3. Reemplazar la obtención de fracciones por el patrón de errores del resto de reportes, y agregar la lectura de `?lote=<id>` en el Dashboard.
+4. Mover los ids del mock a un rango que no choque con la base real y verificar si el Dashboard pagina.
+5. Verificación final y esta entrada.
+
+#### Propuesta generada por IA
+
+- `VistaInventario` como componente propio, montado desde `Reportes.jsx` con una propiedad opcional `Vista` en el mapa `REPORTES`: los reportes que todavía no la tienen (39.3 y 39.4) siguen mostrando el conteo de filas sin cambios.
+- `TablaReportes`, tabla genérica y reutilizable para los tres reportes, con las clases `tl-*` de la tabla de lotes pero sin `TablaBase`, que impone columna de checkbox, columna de acciones, paginación del lado cliente y selector de columnas, y no tiene estados de carga ni de error. Como `.tl-tr` es un grid sin columnas propias, recibe `gridTemplateColumns` inline, igual que hace `TablaBase`.
+- Formulario de filtros propio en lugar de `FilterBar`: la barra existente está pensada para filtros opcionales y limpiables, y su control de fechas trabaja con epoch-ms.
+- `getFraccionesReporte()` para el catálogo del filtro, normalizado a `{ id, numero }`: se envía el id y se muestra el número.
+- Soporte de `?lote=<id>` en `Dashboard.jsx`, por el mismo camino que ya usaba el flujo de `location.state` (`onVer`), con un ref para procesar cada valor una sola vez (`fetchAndMergeLote` modifica `allLotes` y volvería a disparar el efecto) y limpieza del parámetro con `replace` para que cerrar el modal o refrescar no lo reabra.
+- `fmtFechaCalendario` en `lib/fechas.js`, que parte el string en lugar de usar `new Date`.
+- Estilos de tarjeta propios en `Reportes.css`, inspirados en `.vp-summary-*` pero sin importar `venta-pagos.css` (que además redefine `.cclf-card`) y sin colores nuevos.
+
+#### Validación humana
+
+- El alcance y las decisiones de diseño las fijó la persona responsable antes de cada etapa: una vista por reporte enchufada con `Vista`, tabla propia en vez de `TablaBase`, filtros aplicados con botón y no en vivo, y qué archivos se podían tocar en cada paso.
+- **Fracciones con el patrón de errores equivocado:** la IA resolvió el catálogo con `getAllFracciones()` de `lib/api/fracciones.js`, que atrapa todo y devuelve `{ success: true }` con lista vacía, de modo que un 403 o un 500 se habría visto como "no hay fracciones". La persona lo detectó y pidió reemplazarlo por una llamada directa con `http()` y el mismo patrón que el resto de `reportes.js` (lanzar un `Error` con `statusCode` y `response` si `!res.ok`).
+- **Enlace "Ver lote" sin destino:** el informe de la etapa 1 señaló que el `/?lote=<id>` del contrato no lo leía nadie (el Dashboard solo abría un lote por `location.state`, y `/?editLotId=` estaba sin emisor). La persona decidió dejarlo sin funcionar en la etapa 2 y resolverlo en una etapa aparte, con un toast cuando el lote no existe.
+- **Ids del mock que chocaban con la base real:** al verificar el enlace contra el backend local se vio que los `loteId` del mock (101-157) caían dentro del rango real (70-116), así que "Ver lote" abría un lote verdadero sin relación con el reporte simulado. La persona pidió moverlos a 9001 en adelante; se hizo con un desplazamiento constante que conserva el orden y la unicidad, y se verificó que ventas y cuotas sigan apuntando a los mismos lotes.
+- **Fechas de calendario:** el informe de la etapa 1 comprobó que `new Date("2026-11-23").toLocaleDateString("es-AR")` muestra el 22 en Buenos Aires, porque el string se interpreta como medianoche UTC. La persona fijó que la fecha de corte se formatee partiendo el string.
+- Decisiones menores de la IA que la persona aceptó: la moneda del precio queda fijada en USD con una constante, porque `Lote.precio` no tiene moneda en el schema; y el ancho de las columnas pasó a ser proporcional, porque con columnas fijas el sobrante se iba entero a la primera.
+- Revisión visual de la pantalla con Claude (claude.ai) contra la V2 de CCLF-37 y el boceto: se corrigieron las tildes de los estados, el rótulo del botón ("Generar" en lugar de "Aplicar filtros") y se agregó la leyenda de la tarjeta de ofrecibles. La persona responsable aprobó los cambios.
+- La revisión cruzada queda a cargo del PR.
+
+#### Decisión adoptada
+
+- `Reportes.jsx` elige entre la vista propia del reporte y el conteo de filas según la propiedad `Vista`; las pestañas de ventas y cuotas quedaron sin cambios.
+- `TablaReportes` queda como la tabla de los reportes, lista para 39.3 y 39.4; `TablaBase` sigue siendo la de las pantallas de gestión.
+- El filtro de fracción envía `fraccionId` y muestra el número visible. En la base local son distintos (ids 7-14 para las fracciones 3, 4, 6, 7, 8, 11, 14 y 15), así que confundirlos no es hipotético.
+- Un fallo al pedir las fracciones se muestra como aviso y deja el resto del reporte usable, en lugar de pasar por "no hay fracciones".
+- `Dashboard.jsx` abre el lote de `?lote=<id>` y, si el id no es un entero positivo o no está entre los lotes cargados, avisa con el toast "El lote no existe o ya no está disponible". El flujo anterior por `location.state` quedó intacto.
+- Los `loteId` del mock viven en 9001+, fuera del rango de la base. El mock completo se borra en 39.6.
+
+#### Evidencia / archivos relacionados
+
+Verificado:
+
+- Con el mock: 24 filas, tarjetas y resúmenes que cuadran con las filas, filtro por cada fracción (ids 11, 12 y 13) con 8 filas cada una, filtros de estado y subestado combinados, estado vacío de la tabla, el lote sin número como "Lote #9040" y su precio como "—", y la fecha de corte en el día correcto.
+- Contra el backend real en Docker: el reporte trae 46 filas y 16 ofrecibles; el filtro lista las 8 fracciones reales con sus ids; y el clic en "Ver lote" (`/?lote=70`) abre el modal "Lote 3-1", que es el mismo lote que muestra la fila.
+- `?lote=`: un id real abre el modal; cerrar el modal y refrescar no lo reabren; la URL queda sin el parámetro y conserva los demás; un id inexistente y uno no numérico muestran el toast sin abrir nada.
+- Con el endpoint de fracciones inalcanzable, la pantalla muestra el error y deshabilita ese filtro, en vez de una lista vacía silenciosa.
+- Con el mock activo, "Ver lote" muestra el toast y no abre ningún lote.
+- `npm run build` pasa y `npm run lint` queda en el mismo total de siempre (114 errores y 50 warnings por deuda previa), sin problemas en los archivos de la tarea.
+
+No verificado:
+
+- El frontend no tiene infraestructura de tests: toda la verificación fue manual, con un Chrome headless dirigido por scripts que no se versionaron.
+- No se probó la pantalla con los roles INMOBILIARIA ni TECNICO, que no tienen acceso a Reportes.
+- Del camino de error de `/fracciones` se probaron el 401 (lo intercepta `http()` y manda a `/login`) y el fallo de red; no se probó un 403.
+
+Riesgos y deuda:
+
+- `GET /fracciones` tiene `limit = 10` por defecto en el backend y el controller no lo cambia (`fraccion.service.ts`): hoy hay 8 fracciones, pero a partir de la 11 el filtro quedaría incompleto.
+- `location.state.openLoteId` en `Dashboard.jsx` quedó sin ningún emisor: es código muerto desde antes de esta tarea.
+- El toast de `?lote=` también aparecería para INMOBILIARIA con un lote `NO_DISPONIBLE`, porque el backend lo excluye de su listado. En ese caso es el comportamiento deseado.
+- Si falla la carga de lotes, un `?lote=` muestra dos toasts: el de la carga y el del lote no encontrado.
+- La moneda del precio del inventario es una constante del frontend hasta que el schema tenga moneda en `Lote`.
+- El mapa de variantes de color del subestado está replicado en `Insignias.jsx` porque `SubstatusBadge` no lo exporta: si cambian los colores allí, hay que actualizar ambos.
+- El botón "Generar" se ve con el azul de Bootstrap (`.btn-primary` pisa la regla propia) y no con `--color-action-primary`; queda para 39.5, junto con los estados de pantalla.
+
+Archivos:
+
+- `frontend/src/components/Reportes/VistaInventario.jsx`
+- `frontend/src/components/Reportes/TablaReportes.jsx`
+- `frontend/src/lib/fechas.js`
+- `frontend/src/lib/api/reportes.js`
+- `frontend/src/lib/api/reportes.mock.js`
+- `frontend/src/pages/Reportes.jsx`
+- `frontend/src/pages/Reportes.css`
+- `frontend/src/pages/Dashboard.jsx`
+- Jira CCLF-60 (39.2), CCLF-53 (backend, AI-017) y CCLF-59 (pantalla base, AI-018)
+- `AI-DECISIONS.md`
+- `frontend/src/components/Reportes/etiquetas.js`
+- `frontend/src/components/Reportes/Insignias.jsx`
+
 
 ## Plantilla para entradas nuevas
 

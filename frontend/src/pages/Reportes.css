@@ -52,3 +52,196 @@
 .reportes-titulo {
   margin-bottom: var(--space-4);
 }
+
+/* ------------------------------------------------------------------------ */
+/* Vista de un reporte: filtros, tarjetas y resúmenes.                        */
+/* Inspirado en .vp-summary-* de venta-pagos.css, pero sin importarlo y sin   */
+/* colores nuevos: todo sale de tokens.css. Las tres variables de abajo son   */
+/* derivadas locales del negro y el blanco que ya usan los tokens (igual que  */
+/* --border-color y --elev-1, que son rgba negro), solo con menos opacidad.   */
+/* ------------------------------------------------------------------------ */
+.reportes-panel {
+  --reportes-superficie: var(--color-text-light);
+  --reportes-borde: rgba(0, 0, 0, 0.12);
+  --reportes-texto-suave: rgba(0, 0, 0, 0.6);
+}
+
+/* Filtros */
+.reportes-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.reportes-filtro {
+  display: flex;
+  flex-direction: column;
+  min-width: 190px;
+}
+
+.reportes-filtros__boton {
+  background: var(--color-action-primary);
+  border-color: var(--color-action-primary);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+}
+
+.reportes-aviso {
+  margin-bottom: var(--space-4);
+}
+
+/* Estado de carga */
+.reportes-cargando {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30vh;
+  color: var(--reportes-texto-suave);
+}
+
+/* Fecha de corte */
+.reportes-corte {
+  margin-bottom: var(--space-3);
+  color: var(--reportes-texto-suave);
+  font-size: 0.875rem;
+}
+
+/* Tarjetas de KPI */
+.reportes-kpis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.reportes-kpi {
+  flex: 1 1 200px;
+  max-width: 280px;
+  padding: var(--space-4);
+  background: var(--reportes-superficie);
+  border: 1px solid var(--reportes-borde);
+  border-radius: var(--radius-lg);
+}
+
+.reportes-kpi--destacada {
+  border-color: var(--color-header-bg);
+  box-shadow: var(--elev-1);
+}
+
+.reportes-kpi__etiqueta {
+  margin-bottom: var(--space-1);
+  color: var(--reportes-texto-suave);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.reportes-kpi__valor {
+  color: var(--color-header-bg);
+  font-size: 1.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.reportes-kpi__leyenda {
+  margin-top: var(--space-1);
+  color: var(--reportes-texto-suave);
+  font-size: 0.75rem;
+}
+
+/* Resúmenes compactos (por estado, por fracción, por subestado) */
+.reportes-resumenes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.reportes-resumen {
+  flex: 1 1 240px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--reportes-superficie);
+  border: 1px solid var(--reportes-borde);
+  border-radius: var(--radius-md);
+}
+
+.reportes-resumen__titulo {
+  margin-bottom: var(--space-2);
+  color: var(--reportes-texto-suave);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.reportes-resumen__lista {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reportes-resumen__item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-1) 0;
+}
+
+.reportes-resumen__item + .reportes-resumen__item {
+  border-top: 1px solid var(--reportes-borde);
+}
+
+.reportes-resumen__etiqueta {
+  color: var(--color-text-dark);
+  font-size: 0.875rem;
+}
+
+.reportes-resumen__valor {
+  color: var(--color-text-dark);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.reportes-resumen__vacio {
+  margin: 0;
+  color: var(--reportes-texto-suave);
+  font-size: 0.875rem;
+}
+
+/* Enlace "Ver lote" de la tabla */
+.reportes-enlace {
+  color: var(--color-action-primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.reportes-enlace:hover,
+.reportes-enlace:focus-visible {
+  text-decoration: underline;
+}
+
+/* La tabla de los reportes no necesita el padding lateral de .tl-wrapper */
+.reportes-inventario .tl-table {
+  margin-top: var(--space-2);
+}
+
+/* `.tl-tr` separa las columnas con `column-gap: 20px` (TablaLotes.css). Ese hueco no
+   pertenece a ninguna celda, así que no recibe el fondo alternado ni el borde inferior, que
+   se pintan sobre `.tl-td`: deja ver el blanco de `.tl-table` como franjas verticales más
+   claras y corta las líneas entre filas. Se saca el gap y se compensa con padding, que sí es
+   parte de la celda (14 + 20 + 14 mantiene la misma separación entre contenidos). */
+.tabla-reportes .tl-tr {
+  column-gap: 0;
+}
+
+.tabla-reportes .tl-th,
+.tabla-reportes .tl-td {
+  padding-left: 24px;
+  padding-right: 24px;
+}
