@@ -5,13 +5,17 @@
 #   job: override del comando → node dist/jobs/runExpirations.js
 #
 # Stages:
-#   deps      npm ci con devDependencies (Prisma CLI, TypeScript). También es el target de
-#             desarrollo de docker-compose (ts-node-dev + código montado por volumen).
-#   build     prisma generate + tsc + copia del cliente Prisma a dist/generated/prisma.
-#   prod-deps node_modules sin devDependencies.
-#   runtime   solo dist + node_modules de producción, NODE_ENV=production, usuario sin privilegios.
+#   deps         npm ci con devDependencies (Prisma CLI, TypeScript). También es el target de
+#                desarrollo de docker-compose (ts-node-dev + código montado por volumen).
+#   build        prisma generate + tsc + copia del cliente Prisma a dist/generated/prisma.
+#   prod-deps    node_modules sin devDependencies, pero con Prisma CLI (ver abajo). Base de `migrate`.
+#   runtime-deps prod-deps sin Prisma CLI. Base de `runtime`.
+#   migrate      Prisma CLI + schema + migrations: `prisma migrate deploy` (Cloud Run Job).
+#   runtime      solo dist + node_modules de producción, NODE_ENV=production, usuario sin privilegios.
 
-FROM node:20-slim AS base
+# Node.js 24 LTS sobre Debian 12 (bookworm) explícito: el tag sin distro puede cambiar de Debian y,
+# con él, la OpenSSL del sistema que usan los engines de Prisma.
+FROM node:24-bookworm-slim AS base
 # OpenSSL: lo requiere el query engine de Prisma (binaryTarget debian-openssl-3.0.x).
 RUN apt-get update -y \
     && apt-get install -y --no-install-recommends openssl ca-certificates \
@@ -38,19 +42,38 @@ RUN rm -rf src/generated \
        DIRECT_URL="postgresql://build:build@localhost:5432/build" \
        npm run build
 
+# `prisma` es devDependency, pero también peer opcional de @prisma/client: npm lo considera alcanzable
+# desde producción y `--omit=dev` lo conserva junto con su árbol (@prisma/config, effect, deepmerge-ts…).
+# Este node_modules es justo lo que necesita `migrate`: Prisma CLI sin la toolchain de build/test.
 FROM build AS prod-deps
 RUN npm prune --omit=dev
 
+# El runtime no necesita Prisma CLI: el cliente generado en dist/generated/prisma trae su runtime y el
+# query engine. `--legacy-peer-deps` ignora las aristas peer, así que `prisma` (y `typescript`, el otro
+# peer opcional) quedan solo como devDependencies y se podan. Hoy no quita ninguna otra dependencia;
+# si una dependencia futura exigiera un peer que no esté en `dependencies`, también se podaría.
+# El `test` corta el build si Prisma CLI reaparece en el runtime.
+FROM prod-deps AS runtime-deps
+RUN npm prune --omit=dev --legacy-peer-deps \
+    && test ! -e node_modules/prisma \
+    && test ! -e node_modules/@prisma/config
+
 # Ejecuta migraciones Prisma como Cloud Run Job independiente.
-# Incluye Prisma CLI, schema y migrations.
-FROM deps AS migrate
+# Incluye Prisma CLI, schema y migrations; no la toolchain de build/test (jest, ts-jest, ts-node-dev…).
+# Archivos de root y proceso como `node`: el job no puede modificar el CLI ni las migraciones.
+FROM base AS migrate
+COPY --from=prod-deps /app/package.json /app/package-lock.json ./
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=prod-deps /app/prisma ./prisma
+# Corta el build si Prisma CLI no quedó instalado (depende del peer opcional descrito en prod-deps).
+RUN CHECKPOINT_DISABLE=1 ./node_modules/.bin/prisma --version
 USER node
 CMD ["./node_modules/.bin/prisma", "migrate", "deploy"]
 
 FROM base AS runtime
 ENV NODE_ENV=production
-COPY --from=prod-deps --chown=node:node /app/package.json /app/package-lock.json ./
-COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
+COPY --from=runtime-deps --chown=node:node /app/package.json /app/package-lock.json ./
+COPY --from=runtime-deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 USER node
 EXPOSE 3000

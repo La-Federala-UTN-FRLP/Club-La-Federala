@@ -1462,7 +1462,61 @@ Por decisión del líder del proyecto (Nico) y en línea con la Guía QA (LOT-04
 - `frontend/src/lib/auth/rbac.ui.js`
 - Refs #297
 
-### AI-023 — Vista de inventario de lotes (frontend) y apertura de un lote desde la URL
+### AI-023 — Node.js 24 LTS y exposición real de vulnerabilidades en las imágenes del backend
+
+**Fecha:** 2026-11-23
+**Área:** Cloud / Docker / Dependencias / Seguridad / Prisma
+**Herramientas:** Claude Code (VS Code) + Docker Desktop + PostgreSQL 17 local descartable
+
+#### Problema
+
+Las imágenes `runtime` y `migrate` usaban `node:20-slim` (Node.js 20, fuera de soporte). `npm audit --omit=dev` informaba 4 high en la cadena de Prisma CLI y `npm audit` completo, 23 (1 critical en `handlebars`, vía `ts-jest`). No estaba claro qué llegaba realmente a cada imagen. AI-015 partía de que el runtime excluía Prisma CLI, pero la inspección mostró que `prisma`, `@prisma/config`, `effect`, `deepmerge-ts` y `typescript` estaban físicamente en `runtime`. `migrate` partía de `deps` y llevaba toda la toolchain de test, incluido `handlebars`.
+
+#### Prompt / intención
+
+Pasar las imágenes a Node.js 24 LTS con distribución Debian explícita. Determinar la exposición real inspeccionando las imágenes y no el reporte de npm. Corregir lo que admita cambios compatibles, priorizando runtime, después migraciones y después herramientas de desarrollo. Sin `npm audit fix --force`, sin Prisma 7, sin actualizaciones masivas, sin tocar GCP, credenciales ni migraciones históricas, y sin commits.
+
+#### Propuesta generada por IA
+
+- Base `node:24-bookworm-slim`: hoy tiene el mismo digest que `node:24-slim` (Node 24.22.3, Debian 12, OpenSSL 3.0). Fijar la distribución evita que un cambio del tag por defecto mueva la OpenSSL que usan los engines de Prisma.
+- Causa de la presencia de Prisma CLI en el runtime: `prisma` es peer opcional de `@prisma/client`. El cálculo de flags de npm (arborist) no lo marca `dev`, así que `npm prune --omit=dev` lo conserva con todo su árbol. Se probó y se descartó `--omit=peer` (no quita nada) y borrar los paquetes antes de otro `prune` (npm los reinstala desde el lockfile).
+- Nuevo stage `runtime-deps` con `npm prune --omit=dev --legacy-peer-deps`: quita exactamente el árbol de Prisma CLI (34 paquetes) más `typescript`, y nada más. Lleva una guarda de build que falla si Prisma CLI reaparece.
+- `migrate` parte de `prod-deps` (dependencias de producción + Prisma CLI) en lugar de `deps`, sin toolchain de build/test, con archivos de root y una guarda `prisma --version` en el build.
+- `package-lock.json`: `npm update` solo de los paquetes de desarrollo vulnerables, dentro de sus rangos (`handlebars`, `form-data`, `js-yaml`, `brace-expansion`, `minimatch`, `picomatch`, `diff`, `browserslist`, `baseline-browser-mapping`, `@babel/core`). `package.json` no cambia. El único cambio en producción es `hasown` 2.0.2 → 2.0.4, que exige `form-data@4.0.6`. Se descartó `npm audit fix` sin `--force` porque subía `prisma` a 6.19.3 con `@prisma/client` en 6.18.0 y arrastraba jest 30.5.
+- No forzar `effect`/`deepmerge-ts` con `overrides`. `deepmerge-ts` exige un salto mayor, y una versión de `effect` no probada por Prisma no se justifica para un job efímero con entradas del repo.
+
+#### Validación humana
+
+- El alcance y las restricciones los fijó la persona responsable antes de la implementación.
+- Pendiente: revisión del diff y de la evidencia en el PR, a cargo del equipo.
+
+Validaciones que ejecutó la IA durante la sesión:
+
+- Local (Node 24.13.0): `npm ci`, `npm run typecheck`, `npm run build`, `npx jest` (89 suites, 3314 tests) y `npm run test:integration` contra PostgreSQL 17.12 descartable (3 suites, 20 tests).
+- Builds de `runtime` y `migrate` sobre Node 24.22.3, usuario `node`. Smoke del runtime: `/health` 200 con `no-store`, 404/401 del contrato, SIGTERM con cierre ordenado y exit 0, fail-fast de configuración y `bcrypt` nativo.
+- Base PostgreSQL 17.12 nueva con roles equivalentes al laboratorio (`federala_migrate`/`federala_app`, sin superusuario). `migrate deploy` desde cero aplicó 69 de 69, la segunda ejecución no tuvo pendientes, `migrate status` dio al día y `migrate diff` contra `schema.prisma` no encontró diferencias. Esquema idéntico (`pg_dump --schema-only`) al del laboratorio migrado con Node 20. `federala_app` lee e inserta pero no crea tablas.
+- Runtime contra esa base como `federala_app`: login, JWT y lecturas autenticadas, más el job de expiraciones (exit 0).
+- Laboratorio `federala-pg17-lab`: `migrate status` y `migrate deploy` solo como prueba de idempotencia, sin migraciones pendientes.
+
+#### Decisión adoptada
+
+Pendiente de validación humana en el PR. Se propone:
+
+- Node.js 24 LTS con `node:24-bookworm-slim` en todos los stages del backend.
+- Runtime sin Prisma CLI y `migrate` sin toolchain de build/test.
+- Aceptar `effect`/`deepmerge-ts` en `migrate` y los moderados de jest 30 hasta Prisma 7.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/Dockerfile`
+- `Backend/package-lock.json`
+- `Backend/README.md`
+- `docs/architecture/backend.md`
+- `docs/architecture/freeze-pre-cloud.md`
+- `docs/development/setup-local.md`
+- `AI-DECISIONS.md`
+
+### AI-024 — Vista de inventario de lotes (frontend) y apertura de un lote desde la URL
 
 **Fecha:** 2026-11-23  
 **Área:** Frontend / Reportes / Lotes / Cliente HTTP  
