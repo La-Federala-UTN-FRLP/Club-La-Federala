@@ -1617,6 +1617,92 @@ Archivos:
 - `frontend/src/components/Reportes/etiquetas.js`
 - `frontend/src/components/Reportes/Insignias.jsx`
 
+### AI-025 — Reporte de cuotas vencidas
+
+**Fecha:** 2026-11-24  
+**Área:** Backend / Reportes / Pagos / OpenAPI  
+**Herramientas:** Claude Code para relevar la especificación y el código, implementar y correr las validaciones.
+
+#### Problema
+
+`GET /api/reportes/cuotas-vencidas` existía desde 38.1 (CCLF-52) pero devolvía la forma del contrato con datos vacíos. La subtarea 38.4 (CCLF-55) pedía el reporte de la pestaña Cobranzas según CCLF-37: cuotas de planes VIGENTE con saldo > 0 y vencimiento anterior al corte (Buenos Aires), excluyendo ventas canceladas y eliminadas, con tramos de atraso 1–30, 31–60 y más de 60, ARS y USD siempre separados, y el caso de aceptación REP-A1.
+
+CCLF-37 define el endpoint, los parámetros (`moneda` obligatoria, `fraccion` opcional) y la respuesta `{ corte, moneda, saldoVencido, cuotas, ventas, tramos[], filas[] }`, pero no la forma de cada tramo ni de cada fila.
+
+#### Prompt / intención
+
+Implementar 38.4 en la rama ya creada, sin commits, migraciones ni cambios al schema, con estas condiciones:
+
+1. Verificar la rama y que tuviera 38.1, 38.2 y 38.3 de `main`; frenar si faltaba algo.
+2. Leer CCLF-37 y avisar antes de inventar un endpoint o un campo que no estuviera definido.
+3. Seguir las convenciones de 38.1–38.3: `authenticate` + `authorize` por ruta, validación Zod, corte en hora de Argentina, montos como string decimal y estructura de tests.
+4. Antes de programar, explicar cómo se calcularía el saldo de una cuota y qué campos se usarían.
+5. Editar solo los tests nuevos o los que fallaran por el cambio.
+
+#### Propuesta generada por IA
+
+- **Saldo:** usar el campo `CuotaPlanPago.saldoPendiente`, que el service de pagos ya mantiene como `montoTotalExigible − montoPagado` en cada pago y recargo, en lugar de recalcularlo desde `PagoRegistrado`. Así incluye los recargos (CCLF-37: "saldo con recargos: se incluye") y un pago parcial entra por lo que falta. Totales en `Prisma.Decimal`, devueltos con `toFixed(2)`.
+- **Universo en una sola consulta:** `cuotaPlanPago.findMany` con `saldoPendiente > 0`, `planPago.estadoPlan = VIGENTE`, `planPago.moneda`, `venta.estadoOperativo = OPERATIVO`, `venta.estado ≠ CANCELADA` y, si viene, `venta.lote.fraccionId`.
+- **Día de vencimiento en UTC, no en Buenos Aires:** `fechaVencimiento` es una fecha sin hora guardada como instante; el frontend la manda a las 12:00Z (`fromDateInputToISO`) y la API con `YYYY-MM-DD` la guarda a las 00:00Z. Pasarla a Buenos Aires correría al día anterior las de 00:00Z, y una cuota que vence hoy aparecería vencida. La condición queda `fechaVencimiento < <corte>T00:00:00Z`, con el corte calculado con `fechaCorte()` como en 38.2 y 38.3.
+- **Tramos:** `diasAtraso` = días entre el vencimiento y el corte (mínimo 1); `1-30`, `31-60` y `+60`, siempre los tres y en orden.
+- **Forma de tramos y filas:** la que ya esperaba el cliente del frontend (`frontend/src/lib/api/reportes.js`, CCLF-59), incluido el enlace `/ventas/:id/pagos`, para que la vista 39.4 no tuviera que adaptarse.
+- **Tests:** un fake de Prisma para `cuotaPlanPago` que evalúa `where`, `select` y `orderBy` y falla ante cualquier otra forma de consulta; tests de service, de rutas, de contrato OpenAPI y de integración contra PostgreSQL. Para fijar el corte, `fijarAhora` finge solo el reloj de `Date` y no los timers, para no frenar supertest.
+
+#### Validación humana
+
+- La persona responsable fijó las reglas del reporte, los casos mínimos de test y los límites de la tarea antes de empezar.
+- Revisó el criterio de saldo y de fecha de corte que la IA presentó antes de programar, y aprobó las decisiones del informe final: usar `saldoPendiente`, tomar el día de vencimiento en UTC, adoptar la forma de tramos y filas del cliente del frontend y excluir también los planes CANCELADO.
+- **Recargo en la fila:** la IA señaló que la fila no separa cuánto del saldo es recargo, aunque CCLF-37 dice que "se aclara en la tabla". La persona decidió no agregar un campo como `montoRecargo` por ahora.
+- **Moneda inválida:** la IA verificó que no puede darse, porque `PlanPago.moneda` es un enum obligatorio ARS/USD; no hizo falta una regla adicional.
+- Corrió el test de integración contra un PostgreSQL descartable en Docker y pasó.
+- Probó el endpoint en Postman contra el backend. Una primera consulta devolvió saldo 0; con el diagnóstico propuesto (distinguir el stub anterior, que devuelve `tramos: []`, del código nuevo, y revisar moneda, estado de la venta y del plan) la persona confirmó que el reporte devuelve las cuotas vencidas.
+- La revisión cruzada queda a cargo del PR.
+
+#### Decisión adoptada
+
+- `getReporteCuotasVencidas` en `reporte.service.ts` con el universo, el saldo, el corte y los tramos descriptos arriba. Filas ordenadas de la más atrasada a la menos atrasada (a igual atraso, por `cuotaId`).
+- Fila: `cuotaId`, `ventaId`, `ventaNumero`, `loteId`, `loteNumero`, `fraccion`, `numeroCuota`, `cantidadCuotas`, `fechaVencimiento`, `diasAtraso`, `tramo`, `saldoPendiente` y `enlace`. A diferencia de inventario y ventas, no trae `fraccionId`.
+- Se excluyen las cuotas de planes REEMPLAZADO y CANCELADO.
+- OpenAPI con los schemas `TramoCuotasVencidas`, `TramoAtraso` y `CuotaVencidaFila`, en lugar de los `{ type: object }` genéricos.
+- Sin campo de recargo en la fila.
+
+#### Evidencia / archivos relacionados
+
+Verificado:
+
+- REP-A1: quedan afuera la cuota que vence hoy (guardada a las 00:00Z y a las 12:00Z), la pagada, la del plan reemplazado y la de la venta cancelada; ARS y USD se informan por separado.
+- Venta eliminada, plan CANCELADO, pago parcial, precisión Decimal con montos grandes, bordes de 1, 30, 31, 60 y 61 días, corte a las 02:59 y 03:00 UTC, filtro por fracción.
+- 400 (moneda faltante, desconocida, en minúscula o repetida; fracción inválida), 401 (sin token o con token inválido), 403 (INMOBILIARIA y TECNICO) y 500 sin detalle.
+- La respuesta real cumple el schema de la OpenAPI.
+- `npm run typecheck` y `npm run build` pasan; `npm test -- --runInBand` pasa completo (93 suites, 3388 tests).
+- `npm run test:integration -- reportes.cuotasVencidas` pasa contra PostgreSQL descartable.
+- Consulta manual en Postman contra el backend.
+
+No verificado:
+
+- La exportación `cuotas-vencidas.xlsx`, que sigue respondiendo 501 hasta 38.5 (CCLF-56).
+
+Riesgos y deuda:
+
+- `npm test` en paralelo tiene timeouts intermitentes (5 s) en suites ajenas al reporte (`files.params`, `params.contract`, `personas.contracts`, `login.rate-limit`); en serie pasan todas.
+- `estaCuotaVencida` del módulo de pagos compara días con la hora local del servidor (UTC en Cloud Run), no con la de Buenos Aires: entre las 21:00 y las 24:00 de Argentina, la pantalla de pagos y este reporte pueden no coincidir en si una cuota está vencida.
+- Un vencimiento guardado entre las 21:00 y las 24:00 de Argentina (00:00–02:59Z del día siguiente) se toma como del día siguiente; los caminos actuales de alta guardan 00:00Z o 12:00Z.
+- El contrato del test de OpenAPI de cuotas duplica el validador de `reportes.openapi.contract.test.ts`, para no modificar un test existente.
+
+Archivos:
+
+- `Backend/src/services/reporte.service.ts`
+- `Backend/src/controllers/reporte.controller.ts`
+- `Backend/documents/documentacionApi.yaml`
+- `Backend/tests/support/fakes/cuotaVencida.fake.ts`
+- `Backend/tests/unit/services/reporte.cuotasVencidas.service.test.ts`
+- `Backend/tests/unit/routes/reportes.cuotasVencidas.routes.test.ts`
+- `Backend/tests/unit/openapi/reportes.cuotasVencidas.openapi.contract.test.ts`
+- `Backend/tests/integration/reportes.cuotasVencidas.int.test.ts`
+- `Backend/tests/unit/routes/reportes.permisos.routes.test.ts`
+- Jira CCLF-55 (38.4), CCLF-37 (especificación) y CCLF-59 (cliente del frontend, AI-018)
+- `AI-DECISIONS.md`
+
 
 ## Plantilla para entradas nuevas
 

@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import * as reporteService from '../services/reporte.service';
-import type { ReporteInventario, ReporteVentas } from '../services/reporte.service';
+import type { ReporteCuotasVencidas, ReporteInventario, ReporteVentas } from '../services/reporte.service';
 import { validatedQuery } from '../middlewares/validation.middleware';
 import { errorCodeForStatus } from '../middlewares/error.middleware';
 import {
@@ -37,8 +37,9 @@ export async function obtenerVentas(req: Request, res: Response, next: NextFunct
 export async function obtenerCuotasVencidas(req: Request, res: Response, next: NextFunction) {
     try {
         const filtros = validatedQuery(req, queryReporteCuotasVencidasSchema);
-        const data = await reporteService.getReporteCuotasVencidas(filtros);
-        res.status(200).json({ success: true, data });
+        const data: ReporteCuotasVencidas = await reporteService.getReporteCuotasVencidas(filtros);
+        const body: { success: true; data: ReporteCuotasVencidas } = { success: true, data };
+        res.status(200).json(body);
     } catch (error) {
         next(error);
     }

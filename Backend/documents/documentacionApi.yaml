@@ -2323,7 +2323,13 @@ paths:
       tags: [Reportes]
       operationId: reporteCuotasVencidas
       summary: Reporte de cuotas vencidas
-      description: Saldo vencido al corte en una sola moneda (`moneda` obligatoria; ARS y USD no se mezclan).
+      description: >-
+        Saldo vencido al corte en una sola moneda (`moneda` obligatoria; ARS y USD no se mezclan ni se
+        convierten). Cuenta las cuotas de planes VIGENTE en esa moneda con saldo pendiente > 0 y
+        vencimiento anterior al día de corte (America/Argentina/Buenos_Aires): una cuota que vence el
+        día de corte no está vencida. Se excluyen las ventas canceladas y las dadas de baja lógica. El
+        saldo incluye los recargos aplicados y descuenta los pagos parciales. Tramos por días de
+        atraso: 1-30, 31-60 y +60.
       x-roles: [ADMINISTRADOR, GESTOR]
       security: [{ bearerAuth: [] }]
       parameters:
@@ -3572,6 +3578,38 @@ components:
               type: array
               description: Ventas que suman en alguna tarjeta del período elegido, por fecha de alta descendente.
               items: { $ref: '#/components/schemas/VentaReporteFila' }
+    TramoCuotasVencidas:
+      type: object
+      required: [tramo, cuotas, saldo]
+      properties:
+        tramo: { $ref: '#/components/schemas/TramoAtraso' }
+        cuotas: { type: integer }
+        saldo:
+          allOf: [{ $ref: '#/components/schemas/Decimal' }]
+          description: Saldo vencido del tramo, en la moneda del reporte.
+    TramoAtraso:
+      type: string
+      enum: ['1-30', '31-60', '+60']
+      description: Días de atraso al corte (1 a 30, 31 a 60, más de 60).
+    CuotaVencidaFila:
+      type: object
+      required: [cuotaId, ventaId, ventaNumero, loteId, loteNumero, fraccion, numeroCuota, cantidadCuotas, fechaVencimiento, diasAtraso, tramo, saldoPendiente, enlace]
+      properties:
+        cuotaId: { type: integer }
+        ventaId: { type: integer }
+        ventaNumero: { type: string, description: Número de la venta (Venta.numero). }
+        loteId: { type: integer }
+        loteNumero: { type: integer, nullable: true, description: Lote.numero (opcional en el schema). }
+        fraccion: { type: integer, description: Número visible de la fracción (Fraccion.numero). }
+        numeroCuota: { type: integer }
+        cantidadCuotas: { type: integer, description: Cantidad de cuotas del plan vigente. }
+        fechaVencimiento: { type: string, format: date, description: Día de vencimiento de la cuota. }
+        diasAtraso: { type: integer, description: Días entre el vencimiento y el corte (mínimo 1). }
+        tramo: { $ref: '#/components/schemas/TramoAtraso' }
+        saldoPendiente:
+          allOf: [{ $ref: '#/components/schemas/Decimal' }]
+          description: Saldo pendiente de la cuota (monto exigible con recargos menos lo pagado).
+        enlace: { type: string, example: '/ventas/802/pagos', description: Ruta del frontend que abre los pagos de la venta. }
     ReporteCuotasVencidasResponse:
       type: object
       required: [success, data]
@@ -3583,8 +3621,16 @@ components:
           properties:
             corte: { $ref: '#/components/schemas/FechaCorte' }
             moneda: { $ref: '#/components/schemas/Moneda' }
-            saldoVencido: { $ref: '#/components/schemas/Decimal' }
-            cuotas: { type: integer }
-            ventas: { type: integer }
-            tramos: { type: array, items: { type: object } }
-            filas: { type: array, items: { type: object } }
+            saldoVencido:
+              allOf: [{ $ref: '#/components/schemas/Decimal' }]
+              description: Suma de saldoPendiente de las cuotas vencidas, en `moneda` (incluye recargos).
+            cuotas: { type: integer, description: Cantidad de cuotas vencidas. }
+            ventas: { type: integer, description: Cantidad de ventas distintas con alguna cuota vencida. }
+            tramos:
+              type: array
+              description: Siempre los 3 tramos, en orden (1-30, 31-60, +60), aunque alguno quede en cero.
+              items: { $ref: '#/components/schemas/TramoCuotasVencidas' }
+            filas:
+              type: array
+              description: Cuotas vencidas, más atrasadas primero (a igual atraso, por cuotaId).
+              items: { $ref: '#/components/schemas/CuotaVencidaFila' }

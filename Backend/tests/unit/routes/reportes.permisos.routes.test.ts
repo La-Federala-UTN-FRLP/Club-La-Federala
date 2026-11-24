@@ -1,14 +1,16 @@
 // REP-A3 (CCLF-52, subtarea 38.1): router /api/reportes con permisos y validación de query.
 // Solo staff (ADMINISTRADOR, GESTOR); las rutas JSON responden la forma final del contrato y las
 // .xlsx responden 501 hasta 38.5 (CCLF-56).
-// Inventario (38.2, CCLF-53) y ventas (38.3, CCLF-54) consultan la base: acá corren contra los fakes
-// de Prisma vacíos. Los contratos con datos están en reportes.inventario.routes.test.ts y
-// reportes.ventas.routes.test.ts.
+// Inventario (38.2, CCLF-53), ventas (38.3, CCLF-54) y cuotas vencidas (38.4, CCLF-55) consultan la
+// base: acá corren contra los fakes de Prisma vacíos. Los contratos con datos están en
+// reportes.inventario.routes.test.ts, reportes.ventas.routes.test.ts y
+// reportes.cuotasVencidas.routes.test.ts.
 jest.mock('../../../src/config/prisma', () => ({
     __esModule: true,
     default: {
         lote: require('../../support/fakes/loteInventario.fake').crearPrismaInventarioFake().lote,
         venta: require('../../support/fakes/ventaReporte.fake').crearPrismaVentasFake().venta,
+        cuotaPlanPago: require('../../support/fakes/cuotaVencida.fake').crearPrismaCuotasFake().cuotaPlanPago,
     },
 }));
 
@@ -90,7 +92,7 @@ describe.each(['ADMINISTRADOR', 'GESTOR'])('GET /api/reportes — %s', (rol) => 
         });
     });
 
-    test('cuotas-vencidas → 200 con la moneda pedida', async () => {
+    test('cuotas-vencidas con la base vacía → 200 con la moneda pedida y los 3 tramos en cero', async () => {
         const res = await request(app).get('/api/reportes/cuotas-vencidas?moneda=ARS').set(authHeader(rol));
         expect(res.status).toBe(200);
         expect(res.body).toEqual({
@@ -101,7 +103,11 @@ describe.each(['ADMINISTRADOR', 'GESTOR'])('GET /api/reportes — %s', (rol) => 
                 saldoVencido: '0.00',
                 cuotas: 0,
                 ventas: 0,
-                tramos: [],
+                tramos: [
+                    { tramo: '1-30', cuotas: 0, saldo: '0.00' },
+                    { tramo: '31-60', cuotas: 0, saldo: '0.00' },
+                    { tramo: '+60', cuotas: 0, saldo: '0.00' },
+                ],
                 filas: [],
             },
         });
