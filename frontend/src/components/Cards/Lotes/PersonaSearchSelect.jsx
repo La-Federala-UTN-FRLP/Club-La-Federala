@@ -190,7 +190,7 @@ export default function PersonaSearchSelect({
   // Modo sin label: renderiza solo el input (sin field-row, sin cuadrado vacío)
   if (noLabel) {
     return (
-      <div className={`field-value p0 ${error ? "hasError" : ""}`}>
+      <div className={`field-value p0 ${error ? "hasError" : ""}${disabled ? " is-readonly is-locked" : ""}`}>
         {inputBlock}
       </div>
     );
@@ -203,7 +203,7 @@ export default function PersonaSearchSelect({
           {label}
         </label>
       </div>
-      <div className="field-value p0">
+      <div className={`field-value p0${disabled ? " is-readonly is-locked" : ""}`}>
         {inputBlock}
       </div>
     </div>
