@@ -1703,6 +1703,105 @@ Archivos:
 - Jira CCLF-55 (38.4), CCLF-37 (especificación) y CCLF-59 (cliente del frontend, AI-018)
 - `AI-DECISIONS.md`
 
+### AI-026 — Exportación a Excel de los reportes
+
+**Fecha:** 2026-11-24  
+**Área:** Backend / Reportes / OpenAPI / Dependencias  
+**Herramientas:** Claude Code para relevar la especificación y el código, implementar y correr las validaciones.
+
+#### Problema
+
+Las rutas `inventario.xlsx`, `ventas.xlsx` y `cuotas-vencidas.xlsx` existían desde 38.1 (CCLF-52), con permisos y validación, pero respondían 501. La subtarea 38.5 (CCLF-56) pedía generar el archivo con ExcelJS y cumplir REP-A5: el `.xlsx` tiene que traer las mismas filas que la vista JSON con los mismos filtros.
+
+CCLF-37 fija las rutas, el `Content-Type`, la librería, el formato `"USD" #,##0.00`, las fechas como fecha de Excel y "una hoja con la fecha de corte y los filtros". No define nombres de archivo, nombres de hoja, columnas ni cómo mostrar los totales.
+
+#### Prompt / intención
+
+Implementar 38.5 en la rama ya creada, sin commits, migraciones ni cambios al schema, con estas condiciones:
+
+1. Verificar la rama y que tuviera 38.2, 38.3 y 38.4 mergeadas; frenar si faltaba algo.
+2. Usar los mismos services y la misma validación que los endpoints JSON, sin duplicar consultas ni reglas.
+3. Responder los errores (400, 401, 403, 500) en JSON, nunca como archivo.
+4. Sumar solo `exceljs`, en `dependencies`, y revisar que el lockfile quede coherente.
+5. No exponer datos que el JSON no expone.
+6. Proponer, y avisar en el informe, lo que la especificación no define.
+7. Editar solo los tests nuevos o los que fallaran por el cambio.
+
+#### Propuesta generada por IA
+
+- **Módulo aparte:** `reporte.excel.ts` arma el libro a partir del objeto `data` que devuelve el service del JSON. No consulta la base ni recalcula nada, así REP-A5 se cumple por construcción.
+- **Controller:** valida con el mismo schema, llama al mismo service y arma el libro completo antes de escribir headers. Si algo falla, el error sigue el camino normal (`next` → JSON) y nunca sale un archivo a medias.
+- **Nombre de archivo:** `reporte-<tipo>[_<parámetros>]_corte-<YYYY-MM-DD>.xlsx`, solo con `[A-Za-z0-9._-]`. Va entre comillas en `Content-Disposition`; si un nombre no cumple, el controller responde 500 en lugar de mandar un header roto.
+- **Hojas:**
+  - Datos: encabezados en castellano, en negrita, con la fila congelada y autofiltro.
+  - Totales: en bloques, con USD y ARS por separado.
+  - Parámetros: fecha de corte, fecha y hora de generación en hora de Buenos Aires, cada filtro ("Todos" o "Todas" sin filtro) y la cantidad de filas exportadas.
+- **Formatos de celda:**
+  - Los montos son números con el formato de su moneda; en ventas, cada fila usa el de la suya.
+  - Las fechas se arman desde el día calendario `YYYY-MM-DD` a las 00:00 UTC, que es como ExcelJS las serializa, así no se corre el día.
+  - Los estados se muestran con las etiquetas del frontend.
+  - Los nulos quedan como celda vacía.
+- **Columnas que quedan afuera:** `enlace`, porque es una ruta del frontend, y `fraccionId`/`loteId`, porque son ids internos. Se mantienen los ids de lote, venta y cuota que ya devuelve el JSON.
+- **Fracción en Parámetros:** se muestra el número visible y no el id. Para eso se agregó `fraccionDelFiltro`, una consulta que solo corre si se filtró por fracción. Una fracción inexistente se muestra como "Inexistente (id X)".
+- **CORS:** se agregó `exposedHeaders: ['Content-Disposition']` para que el frontend pueda leer el nombre del archivo.
+- **OpenAPI:** respuesta 200 binaria compartida (`ReporteXlsx`); se quitó `ExportacionPendiente`, que el test de paridad no admite sin uso.
+
+#### Validación humana
+
+- La persona responsable fijó las reglas, los casos de test y los límites de la tarea antes de empezar.
+- Revisó el informe final: archivos, rutas, nombres de archivo, columnas, resultados de los comandos y los puntos no definidos por CCLF-37.
+- No incluir usuario ni rol en la hoja Parámetros, porque la especificación no lo pide y así el archivo no lleva el email de quien lo descarga.
+- Probó los tres endpoints `.xlsx` en Postman contra el backend y los tres archivos se descargaron bien.
+- La revisión cruzada queda a cargo del PR.
+
+#### Decisión adoptada
+
+- `GET /api/reportes/inventario.xlsx` → `reporte-inventario_corte-<corte>.xlsx`, con las hojas Inventario, Totales y Parámetros.
+- `GET /api/reportes/ventas.xlsx` → `reporte-ventas_<desde>_a_<hasta>_corte-<corte>.xlsx`, con las hojas Ventas, Totales y Parámetros. Parámetros incluye el período anterior.
+- `GET /api/reportes/cuotas-vencidas.xlsx` → `reporte-cuotas-vencidas_<moneda>_corte-<corte>.xlsx`, con las hojas Cuotas vencidas, Totales y Parámetros. Totales trae siempre los 3 tramos.
+- Mismos permisos (ADMINISTRADOR y GESTOR), parámetros y errores que el JSON.
+- `exceljs` 4.4.0 en `dependencies`.
+
+#### Evidencia / archivos relacionados
+
+Verificado:
+
+- REP-A5: para cada reporte, el `.xlsx` leído con ExcelJS trae las mismas filas, en el mismo orden, que el JSON con los mismos filtros (varios juegos de filtros por reporte).
+- Formatos: montos numéricos con formato USD o ARS, fechas en el día correcto sin corrimiento, nulos vacíos y etiquetas de estado.
+- Totales iguales a los del JSON. La hoja Parámetros trae el corte, la generación en hora de Buenos Aires, los filtros y la cantidad de filas.
+- Headers `Content-Type`, `Content-Disposition` y `Cache-Control: no-store`. Casos vacíos (archivo válido solo con encabezados) y fracción inexistente.
+- 400, 401 y 403 en JSON y sin adjunto; error de base → 500 en JSON. GESTOR descarga los tres reportes.
+- `npm ls --all` sin errores: el lockfile suma 156 paquetes y solo sube `es-object-atoms` (transitiva) de 1.1.1 a 1.1.2.
+- `npm run typecheck` y `npm run build` pasan.
+- `npm test`: la primera corrida en paralelo tuvo 12 fallos intermitentes por timeouts en suites ajenas. En serie (`--runInBand`) y en una segunda corrida en paralelo pasa completo (94 suites, 3430 tests).
+- Descarga manual de los tres `.xlsx` en Postman contra el backend.
+
+No verificado:
+
+- La apertura de los archivos en Excel o LibreOffice: los tests los leen con ExcelJS.
+- La descarga desde el frontend.
+
+Riesgos y deuda:
+
+- Excel no guarda zona horaria: la hora de generación se escribe como hora de reloj de Buenos Aires, y la fila de Parámetros lo aclara.
+- Los montos pasan de string decimal a número de Excel (doble precisión). Para dos decimales alcanza, pero no es exacto en montos muy grandes.
+- Las etiquetas de estado están copiadas de `frontend/src/components/Reportes/etiquetas.js`: si cambian allí, hay que actualizar ambos.
+- Persisten los timeouts intermitentes de `npm test` en paralelo, ya señalados en AI-025.
+
+Archivos:
+
+- `Backend/src/services/reporte.excel.ts`
+- `Backend/src/services/reporte.service.ts`
+- `Backend/src/controllers/reporte.controller.ts`
+- `Backend/src/app.ts`
+- `Backend/documents/documentacionApi.yaml`
+- `Backend/package.json`
+- `Backend/package-lock.json`
+- `Backend/tests/unit/routes/reportes.excel.routes.test.ts`
+- `Backend/tests/unit/routes/reportes.permisos.routes.test.ts`
+- Jira CCLF-56 (38.5), CCLF-37 (especificación) y CCLF-53, CCLF-54 y CCLF-55 (reportes JSON, AI-017, AI-020 y AI-025)
+- `AI-DECISIONS.md`
+
 
 ## Plantilla para entradas nuevas
 
