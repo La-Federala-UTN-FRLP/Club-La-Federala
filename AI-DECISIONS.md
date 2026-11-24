@@ -1518,7 +1518,7 @@ Pendiente de validación humana en el PR. Se propone:
 
 ### AI-024 — Vista de inventario de lotes (frontend) y apertura de un lote desde la URL
 
-**Fecha:** 2026-11-23  
+**Fecha:** 2026-11-23 (actualizada el 2026-11-24 con las correcciones de la revisión de la PR #346)  
 **Área:** Frontend / Reportes / Lotes / Cliente HTTP  
 **Herramientas:** Claude (claude.ai) para planificar las etapas y redactar los prompts; Claude Code para ejecutar el código.
 
@@ -1557,7 +1557,7 @@ Trabajo en cinco etapas, cada una con aprobación humana y sin commits de la IA:
 - **Fechas de calendario:** el informe de la etapa 1 comprobó que `new Date("2026-11-23").toLocaleDateString("es-AR")` muestra el 22 en Buenos Aires, porque el string se interpreta como medianoche UTC. La persona fijó que la fecha de corte se formatee partiendo el string.
 - Decisiones menores de la IA que la persona aceptó: la moneda del precio queda fijada en USD con una constante, porque `Lote.precio` no tiene moneda en el schema; y el ancho de las columnas pasó a ser proporcional, porque con columnas fijas el sobrante se iba entero a la primera.
 - Revisión visual de la pantalla con Claude (claude.ai) contra la V2 de CCLF-37 y el boceto: se corrigieron las tildes de los estados, el rótulo del botón ("Generar" en lugar de "Aplicar filtros") y se agregó la leyenda de la tarjeta de ofrecibles. La persona responsable aprobó los cambios.
-- La revisión cruzada queda a cargo del PR.
+- Revisión cruzada de la PR #346: se detectaron desvíos respecto de las notas de integración con 38.2 (comentario del issue de CCLF-60), que ni la IA ni la persona tenían a la vista al implementar: el lote sin número se mostraba como "Lote #<id>" (debía ser "Sin número"), el precio sin cargar como "—" (debía ser "Sin precio") y el valor de los estados desconocidos salía crudo. Además se corrigió un bug: Generar no volvía a consultar con los mismos filtros. Sobre el texto del lote, el equipo decidió mantener "Lote 3-2" (consistente con el resto de la app) en lugar del "F2-045" del ejemplo de la nota.
 
 #### Decisión adoptada
 
@@ -1566,22 +1566,29 @@ Trabajo en cinco etapas, cada una con aprobación humana y sin commits de la IA:
 - El filtro de fracción envía `fraccionId` y muestra el número visible. En la base local son distintos (ids 7-14 para las fracciones 3, 4, 6, 7, 8, 11, 14 y 15), así que confundirlos no es hipotético.
 - Un fallo al pedir las fracciones se muestra como aviso y deja el resto del reporte usable, en lugar de pasar por "no hay fracciones".
 - `Dashboard.jsx` abre el lote de `?lote=<id>` y, si el id no es un entero positivo o no está entre los lotes cargados, avisa con el toast "El lote no existe o ya no está disponible". El flujo anterior por `location.state` quedó intacto.
+- Si la carga de lotes falló, ese aviso no se emite: con `allLotes` vacío no se puede distinguir "no existe" de "no sé", y el toast de la carga ya lo dijo. En ese caso el `?lote=` se conserva en la URL, así que un refresco que sí cargue abre el lote.
+- Los textos de la tabla los fija `etiquetas.js`: `etiquetaLote(fraccion, numero)` da "Lote 3-2" o "Sin número" (no el id interno) y `fmtPrecioUsd` da "USD 85.000,00" o "Sin precio" (no el guión de celda vacía). Un estado o subestado que no esté en el mapa se humaniza en vez de salir crudo.
+- Generar dispara una consulta en cada clic, también con los mismos filtros, y queda deshabilitado mientras la consulta está en vuelo.
+- El filtro de estado no ofrece `OPERATIVO`, por el mismo criterio que `ELIMINADO`: filtrar por él solo da listas vacías. La etiqueta se conserva por si alguna fila llega con ese valor.
 - Los `loteId` del mock viven en 9001+, fuera del rango de la base. El mock completo se borra en 39.6.
 
 #### Evidencia / archivos relacionados
 
 Verificado:
 
-- Con el mock: 24 filas, tarjetas y resúmenes que cuadran con las filas, filtro por cada fracción (ids 11, 12 y 13) con 8 filas cada una, filtros de estado y subestado combinados, estado vacío de la tabla, el lote sin número como "Lote #9040" y su precio como "—", y la fecha de corte en el día correcto.
+- Con el mock: 24 filas, tarjetas y resúmenes que cuadran con las filas, filtro por cada fracción (ids 11, 12 y 13) con 8 filas cada una, filtros de estado y subestado combinados, estado vacío de la tabla, el lote sin número (9040) como "Sin número" y su precio como "Sin precio", el resto de los precios como "USD 92.000,00" y similares, y la fecha de corte en el día correcto.
 - Contra el backend real en Docker: el reporte trae 46 filas y 16 ofrecibles; el filtro lista las 8 fracciones reales con sus ids; y el clic en "Ver lote" (`/?lote=70`) abre el modal "Lote 3-1", que es el mismo lote que muestra la fila.
 - `?lote=`: un id real abre el modal; cerrar el modal y refrescar no lo reabren; la URL queda sin el parámetro y conserva los demás; un id inexistente y uno no numérico muestran el toast sin abrir nada.
 - Con el endpoint de fracciones inalcanzable, la pantalla muestra el error y deshabilita ese filtro, en vez de una lista vacía silenciosa.
 - Con el mock activo, "Ver lote" muestra el toast y no abre ningún lote.
-- `npm run build` pasa y `npm run lint` queda en el mismo total de siempre (114 errores y 50 warnings por deuda previa), sin problemas en los archivos de la tarea.
+- `npm run build` pasa y `npm run lint` queda en el total de siempre, sin problemas nuevos en los archivos de la tarea: 114 errores y 50 warnings de deuda previa cuando se escribió esta entrada, 113 y 50 después del merge de main del 2026-11-24.
+- Se verificó que no hay lotes en estado OPERATIVO ni código que lo asigne; se quitó del filtro.
+- Correcciones de la revisión (2026-11-24), con Chrome headless: dos clics seguidos en Generar sin cambiar filtros producen dos `GET /api/reportes/inventario` (contados en el servidor), y el botón queda deshabilitado mientras la consulta está en vuelo; con el endpoint de lotes respondiendo 500 y `?lote=70`, aparece un único aviso ("No pude cargar los lotes"), no se abre ninguna ficha y el parámetro queda en la URL; con el endpoint sano, `?lote=70` abre la ficha "Lote 3-1", el mismo texto que muestra la fila del reporte. Las funciones de `etiquetas.js` se probaron además una por una en Node, incluidos los casos límite (precio 0, número 0, `NUEVO_ESTADO` → "Nuevo estado").
 
 No verificado:
 
 - El frontend no tiene infraestructura de tests: toda la verificación fue manual, con un Chrome headless dirigido por scripts que no se versionaron.
+- Las correcciones del 2026-11-24 no se probaron contra la base del equipo: el contenedor `grupo01_db` está vacío (sin migrar) y `grupo01_backend` apunta a Supabase, que la persona responsable pidió no consultar. Se usó un servidor local que devuelve el contrato de 38.2, así que lo verificado es el comportamiento del frontend ante ese contrato, no el contenido real de la base.
 - No se probó la pantalla con los roles INMOBILIARIA ni TECNICO, que no tienen acceso a Reportes.
 - Del camino de error de `/fracciones` se probaron el 401 (lo intercepta `http()` y manda a `/login`) y el fallo de red; no se probó un 403.
 
@@ -1590,8 +1597,8 @@ Riesgos y deuda:
 - `GET /fracciones` tiene `limit = 10` por defecto en el backend y el controller no lo cambia (`fraccion.service.ts`): hoy hay 8 fracciones, pero a partir de la 11 el filtro quedaría incompleto.
 - `location.state.openLoteId` en `Dashboard.jsx` quedó sin ningún emisor: es código muerto desde antes de esta tarea.
 - El toast de `?lote=` también aparecería para INMOBILIARIA con un lote `NO_DISPONIBLE`, porque el backend lo excluye de su listado. En ese caso es el comportamiento deseado.
-- Si falla la carga de lotes, un `?lote=` muestra dos toasts: el de la carga y el del lote no encontrado.
-- La moneda del precio del inventario es una constante del frontend hasta que el schema tenga moneda en `Lote`.
+- La moneda del precio del inventario la fija el frontend (`fmtPrecioUsd`, en USD) hasta que el schema tenga moneda en `Lote`.
+- El precio se ve distinto según la pantalla: el reporte muestra "USD 85.000,00" y la ficha del lote, "US$ 85.000", porque esa usa `fmtMonto` de `pagoUtils.js`, compartida con pagos y ventas. Unificarlas es un cambio transversal, fuera de esta tarea.
 - El mapa de variantes de color del subestado está replicado en `Insignias.jsx` porque `SubstatusBadge` no lo exporta: si cambian los colores allí, hay que actualizar ambos.
 - El botón "Generar" se ve con el azul de Bootstrap (`.btn-primary` pisa la regla propia) y no con `--color-action-primary`; queda para 39.5, junto con los estados de pantalla.
 

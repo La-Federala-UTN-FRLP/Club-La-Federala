@@ -188,6 +188,9 @@ export default function Dashboard() {
   // disparar el efecto, así que el ref recuerda qué id ya se resolvió.
   const loteParam = searchParams.get("lote");
   const loteParamResuelto = useRef(null);
+  // Si la carga de lotes falló, `allLotes` queda vacío y no se puede distinguir "no existe" de
+  // "no sé": el aviso de abajo diría que el lote no existe cuando en realidad falló la red.
+  const lotesFallaronRef = useRef(false);
   useEffect(() => {
     // Sin parámetro no hay nada que hacer; se libera el ref para un próximo ?lote=.
     if (loteParam == null) {
@@ -196,6 +199,10 @@ export default function Dashboard() {
     }
     // Hasta que no terminó la carga no se puede saber si el lote existe.
     if (loading) return;
+    // Carga fallida: el fetch ya avisó "No pude cargar los lotes". No se duplica el aviso ni se
+    // limpia el parámetro, así un refresco que sí cargue abre el modal. Va antes de marcar el
+    // id como resuelto, para que una recarga exitosa en este mismo montaje también lo abra.
+    if (lotesFallaronRef.current) return;
     if (loteParamResuelto.current === loteParam) return;
     loteParamResuelto.current = loteParam;
 
@@ -360,12 +367,16 @@ export default function Dashboard() {
           // getAllLotes siempre devuelve { data: Array } según lotes.js
           const data = res?.data ?? (Array.isArray(res) ? res : []);
           setAllLotes(Array.isArray(data) ? data : []); 
+          lotesFallaronRef.current = false;
         }
       } catch (err) {
         if (alive) {
           console.error('❌ Error al cargar lotes:', err);
           error("No pude cargar los lotes");
           setAllLotes([]);
+          // Se marca antes de que el finally baje `loading`: el efecto de ?lote= lo lee recién
+          // cuando la carga terminó, así que al leerlo ya está puesto.
+          lotesFallaronRef.current = true;
         }
       } finally {
         if (alive) {
@@ -566,6 +577,7 @@ export default function Dashboard() {
                 const res = await getAllLotes({});
                 const data = res?.data ?? (Array.isArray(res) ? res : []);
                 setAllLotes(Array.isArray(data) ? data : []);
+                lotesFallaronRef.current = false;
               } catch (refreshErr) {
                 console.error("Error refrescando lotes:", refreshErr);
               }
