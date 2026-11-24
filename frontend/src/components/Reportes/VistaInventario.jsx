@@ -10,16 +10,21 @@ import { Link } from "react-router-dom";
 import { Alert, Button, Form } from "react-bootstrap";
 import TablaReportes from "./TablaReportes";
 import { InsigniaEstado, InsigniaSubestado } from "./Insignias";
-import { BOTON_GENERAR, etiquetaEstado, etiquetaSubestado } from "./etiquetas";
+import {
+  BOTON_GENERAR,
+  etiquetaEstado,
+  etiquetaLote,
+  etiquetaSubestado,
+  fmtPrecioUsd,
+} from "./etiquetas";
 import { getInventario, getFraccionesReporte } from "../../lib/api/reportes";
 import { parseApiError } from "../../lib/http/errors";
 import { fmtFechaCalendario } from "../../lib/fechas";
-import { fmtMonto } from "../../utils/pagoUtils";
 
-// Enum EstadoLote del backend sin ELIMINADO: el inventario excluye esos lotes, así que
-// ofrecerlo como filtro solo daría resultados vacíos.
+// Enum EstadoLote del backend menos dos valores, porque filtrar por ellos solo daría listas
+// vacías: ELIMINADO lo excluye el inventario por contrato, y OPERATIVO quedó en el enum por
+// arrastre de la estandarización de estados, sin ningún lote ni código que lo asigne.
 const ESTADOS = [
-  "OPERATIVO",
   "ALQUILADO",
   "CON_PRIORIDAD",
   "DISPONIBLE",
@@ -33,15 +38,13 @@ const SUBESTADOS = ["CONSTRUIDO", "NO_CONSTRUIDO", "EN_CONSTRUCCION"];
 
 const SIN_FILTROS = { fraccion: "", estado: "", subestado: "" };
 
-// El precio del inventario no trae moneda (Lote.precio es un decimal suelto en el schema);
-// se muestra en USD, que es la moneda de las operaciones.
-const MONEDA_PRECIO = "USD";
-
-const etiquetaLote = (fila) =>
-  fila.numero == null ? `Lote #${fila.loteId}` : `Lote ${fila.fraccion}-${fila.numero}`;
-
 const columnas = [
-  { clave: "lote", titulo: "Lote", align: "left", render: etiquetaLote },
+  {
+    clave: "lote",
+    titulo: "Lote",
+    align: "left",
+    render: (f) => etiquetaLote(f.fraccion, f.numero),
+  },
   { clave: "fraccion", titulo: "Fracción", align: "center", render: (f) => `Fracción ${f.fraccion}` },
   { clave: "estado", titulo: "Estado", align: "center", render: (f) => <InsigniaEstado value={f.estado} /> },
   { clave: "subestado", titulo: "Subestado", align: "center", render: (f) => <InsigniaSubestado value={f.subestado} /> },
@@ -49,7 +52,7 @@ const columnas = [
     clave: "precio",
     titulo: "Precio",
     align: "right",
-    render: (f) => (f.precio == null ? "—" : fmtMonto(f.precio, MONEDA_PRECIO)),
+    render: (f) => fmtPrecioUsd(f.precio),
   },
   {
     clave: "accion",
@@ -164,9 +167,12 @@ export default function VistaInventario() {
   const cambiarFiltro = (campo) => (e) =>
     setBorrador((prev) => ({ ...prev, [campo]: e.target.value }));
 
+  // Objeto nuevo en cada clic a propósito: con la misma referencia React descarta el setState
+  // y el efecto no vuelve a correr, así que Generar no consultaba de nuevo con los mismos
+  // filtros. Cada clic es una consulta, que es lo que el botón promete.
   const aplicarFiltros = (e) => {
     e.preventDefault();
-    setAplicados(borrador);
+    setAplicados({ ...borrador });
   };
 
   return (
@@ -217,7 +223,12 @@ export default function VistaInventario() {
           </Form.Select>
         </Form.Group>
 
-        <Button type="submit" variant="primary" className="reportes-filtros__boton">
+        <Button
+          type="submit"
+          variant="primary"
+          className="reportes-filtros__boton"
+          disabled={cargando}
+        >
           {BOTON_GENERAR}
         </Button>
       </form>
