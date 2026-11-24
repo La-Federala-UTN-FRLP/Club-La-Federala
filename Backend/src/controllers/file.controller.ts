@@ -118,8 +118,9 @@ export class fileController {
         }
 
         const { originalname, buffer } = file;
+        let objectPath: string | undefined;
         try {
-            const { objectPath } = await FileService.uploadFileToSupabase(buffer, {
+            const uploaded = await FileService.uploadObject(buffer, {
                 idLoteAsociado,
                 tipo,
                 filename: originalname,
@@ -127,6 +128,7 @@ export class fileController {
                 uploadedBy: req.user?.email || null,
                 uploadedAt: new Date()
             });
+            objectPath = uploaded.objectPath;
 
             const newFile = await FileService.saveFileMetadata({
                 filename: originalname,
@@ -136,8 +138,12 @@ export class fileController {
                 ventaId: ventaId ?? null,
                 uploadedBy: req.user?.email || null
             });
+            objectPath = undefined;
             res.status(201).json({ message: 'Archivo subido', data: newFile });
         } catch (err) {
+            if (objectPath) {
+                await FileService.compensateUploadedObject(objectPath);
+            }
             sendFileError(res, err, "Error al subir archivo");
         }
     }

@@ -22,7 +22,7 @@ jest.mock('@supabase/supabase-js', () => ({
 
 jest.mock('../../../src/config/prisma', () => {
     const db: any = {
-        archivos: { findUnique: jest.fn(), findMany: jest.fn(), update: jest.fn(), create: jest.fn() },
+        archivos: { findUnique: jest.fn(), findMany: jest.fn(), update: jest.fn(), updateMany: jest.fn(), create: jest.fn() },
         venta: { findUnique: jest.fn(), findMany: jest.fn() },
         // listByLote consulta el estado del lote para INMOBILIARIA (undefined = no es NO_DISPONIBLE).
         lote: { findUnique: jest.fn() },
@@ -102,6 +102,7 @@ beforeEach(() => {
         [...FILAS.values()].filter((f) => where.ventaId === undefined || f.ventaId === where.ventaId),
     );
     db.archivos.update.mockImplementation(async ({ where: { id }, data }: any) => ({ ...FILAS.get(id), ...data }));
+    db.archivos.updateMany.mockResolvedValue({ count: 1 });
     db.archivos.create.mockImplementation(async ({ data }: any) => ({ id: 500, createdAt: new Date(), updatedAt: new Date(), estadoOperativo: 'OPERATIVO', ...data }));
 
     ventaInmobiliariaId = INMO_PROPIA;

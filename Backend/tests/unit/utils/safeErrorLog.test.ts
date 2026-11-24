@@ -75,6 +75,16 @@ describe('otros errores', () => {
     test('un JWT suelto también se redacta', () => {
         expect(redactSecrets('token=eyJa.eyJb.sig-123')).toBe('token=***jwt***');
     });
+
+    test('no deja la firma ni el token de una URL firmada', () => {
+        const firmada = 'https://storage.googleapis.com/b/o?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=sa%40proj.iam.gserviceaccount.com&X-Goog-Signature=abcdef123456&token=supabase-secreto';
+        const texto = redactSecrets(firmada);
+        expect(texto).not.toContain('abcdef123456');
+        expect(texto).not.toContain('sa%40proj.iam.gserviceaccount.com');
+        expect(texto).not.toContain('supabase-secreto');
+        expect(texto).toContain('X-Goog-Signature=***');
+        expect(texto).toContain('token=***');
+    });
 });
 
 describe('valores que no son Error', () => {

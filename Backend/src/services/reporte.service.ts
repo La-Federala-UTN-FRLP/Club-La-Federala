@@ -48,6 +48,23 @@ export function periodoAnterior({ desde, hasta }: Periodo): Periodo {
     return { desde: sumarDias(desde, -dias), hasta: sumarDias(desde, -1) };
 }
 
+/** Fracción usada como filtro: el id que llegó en la query y su número visible (null si no existe). */
+export interface FraccionFiltro {
+    id: number;
+    numero: number | null;
+}
+
+/**
+ * Número visible de la fracción filtrada, para rotular el filtro en la exportación (38.5).
+ * Sin filtro no consulta. Una fracción inexistente no es error: el reporte JSON tampoco lo es
+ * (responde sin filas), así que el filtro se informa con numero null.
+ */
+export async function fraccionDelFiltro(fraccionId: number | undefined): Promise<FraccionFiltro | undefined> {
+    if (fraccionId === undefined) return undefined;
+    const fraccion = await prisma.fraccion.findUnique({ where: { id: fraccionId }, select: { numero: true } });
+    return { id: fraccionId, numero: fraccion?.numero ?? null };
+}
+
 // ------------------------------------------------------------ Inventario (38.2)
 
 export interface InventarioPorEstado {

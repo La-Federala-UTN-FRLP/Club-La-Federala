@@ -40,6 +40,10 @@ const REDACTIONS: ReadonlyArray<[RegExp, string]> = [
     [/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer ***'],
     // JWT sueltos (header.payload.signature en base64url)
     [/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, '***jwt***'],
+    // Firmas de URL de GCS y tokens de Supabase en query string. No loguear el enlace completo.
+    [/([?&]X-Goog-Signature=)[^&\s]*/gi, '$1***'],
+    [/([?&]X-Goog-Credential=)[^&\s]*/gi, '$1***'],
+    [/([?&]token=)[^&\s]*/gi, '$1***'],
 ];
 
 export function redactSecrets(text: string): string {

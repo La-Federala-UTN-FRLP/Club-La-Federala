@@ -3,8 +3,9 @@
 // 1) P2003 en el handler global: `meta.field_name` trae el nombre interno de la constraint o del
 //    índice (p. ej. "Reserva_loteId_fkey (index)"). La respuesta 409 CONFLICT_FK ya no incluye `field`
 //    (ningún consumidor lo usaba); el detalle estructural va solo al log saneado.
-// 2) purgeFileById: un error de Supabase al borrar el objeto se loguea con safeErrorForLog (sin el
-//    objeto crudo; tokens y credenciales redactados) y no llega al cliente.
+// 2) purgeFileById: un error real de storage se loguea con safeErrorForLog (sin el objeto crudo;
+//    tokens y credenciales redactados) y no llega al cliente. La metadata se conserva para reintentar.
+//    Antes de CL-07 el borrado de la fila seguía aunque storage fallara.
 jest.mock('@supabase/supabase-js', () => ({
     createClient: jest.fn(),
 }));
@@ -23,6 +24,7 @@ import prismaReal from '../../../src/config/prisma';
 import { Prisma } from '../../../src/generated/prisma';
 import { handleError } from '../../../src/middlewares/error.middleware';
 import { purgeFileById } from '../../../src/services/file.service';
+import { resetObjectStorageForTests } from '../../../src/storage';
 import { useTestWebEnv } from '../../support/http';
 
 const prisma = prismaReal as unknown as { archivos: { findUnique: jest.Mock; delete: jest.Mock } };
@@ -32,6 +34,7 @@ useTestWebEnv();
 let consoleWarn: jest.SpyInstance;
 beforeEach(() => {
     jest.clearAllMocks();
+    resetObjectStorageForTests();
     consoleWarn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
 });
 afterEach(() => consoleWarn.mockRestore());
@@ -77,20 +80,34 @@ describe('purgeFileById — error de Supabase al borrar el objeto', () => {
         (createClient as jest.Mock).mockReturnValue({ storage: { from: jest.fn(() => ({ remove })) } });
     }
 
-    test('se loguea saneado, sin el objeto crudo ni el token, y el borrado de la DB sigue', async () => {
+    test('se loguea saneado, sin el objeto crudo ni el token, y la metadata se conserva', async () => {
         const storageError = Object.assign(new Error(`Unauthorized: invalid token ${JWT} for venta-1/boleto.pdf`), { name: 'StorageApiError' });
         stubSupabaseRemove(storageError);
         prisma.archivos.findUnique.mockResolvedValue({ id: 7, linkArchivo: 'venta-1/boleto.pdf' });
         prisma.archivos.delete.mockResolvedValue({ id: 7 });
 
-        await expect(purgeFileById(7)).resolves.toBeUndefined();
+        await expect(purgeFileById(7)).rejects.toMatchObject({
+            name: 'StorageOperationError',
+            message: expect.stringContaining('invalid token'),
+        });
 
-        expect(prisma.archivos.delete).toHaveBeenCalledWith({ where: { id: 7 } });
+        expect(prisma.archivos.delete).not.toHaveBeenCalled();
         expect(consoleWarn).toHaveBeenCalledTimes(1);
         const args = consoleWarn.mock.calls[0];
         expect(args).not.toContain(storageError);
         const logged = JSON.stringify(args);
         expect(logged).not.toContain(JWT);
         expect(logged).toContain('***jwt***');
+    });
+
+    test('un objeto que ya no existe permite borrar la metadata', async () => {
+        stubSupabaseRemove({ message: 'Object not found', statusCode: 404 });
+        prisma.archivos.findUnique.mockResolvedValue({ id: 7, linkArchivo: 'venta-1/boleto.pdf' });
+        prisma.archivos.delete.mockResolvedValue({ id: 7 });
+
+        await expect(purgeFileById(7)).resolves.toBeUndefined();
+
+        expect(prisma.archivos.delete).toHaveBeenCalledWith({ where: { id: 7 } });
+        expect(consoleWarn).not.toHaveBeenCalled();
     });
 });

@@ -103,26 +103,33 @@ Validado en `src/config/bootstrapWeb.ts` **antes** de abrir el puerto.
 | `NODE_ENV` | sí (`development` \| `test` \| `production`) | — |
 | `DATABASE_URL` | sí | — |
 | `JWT_SECRET` | sí | — |
-| `SUPABASE_URL` | sí | — |
-| `SUPABASE_SERVICE_KEY` | sí | — |
+| `STORAGE_PROVIDER` | no | `supabase` (`supabase` \| `gcs`) |
+| `SUPABASE_URL` | sí, si el proveedor es `supabase` | — |
+| `SUPABASE_SERVICE_KEY` | sí, si el proveedor es `supabase` | — |
+| `SUPABASE_BUCKET` | no, si el proveedor es `supabase` | `lotes-files` |
+| `GCS_BUCKET` | sí, si el proveedor es `gcs` | — |
 | `FRONTEND_URL` | sí si `NODE_ENV=production` | opcional en dev/test |
 | `PORT` | no | `3000` |
 | `JWT_EXPIRES_IN` | no | `2h` |
-| `SUPABASE_BUCKET` | no | `lotes-files` |
 
 Reglas de validación (el proceso no arranca si fallan):
 
+- `STORAGE_PROVIDER`: ausente o vacío equivale a `supabase`. Cualquier valor distinto de `supabase` o `gcs` es un error.
+- Con `supabase`, `SUPABASE_URL` tiene que ser una URL y `SUPABASE_SERVICE_KEY` no puede estar vacía. `GCS_BUCKET` se ignora.
+- Con `gcs`, `GCS_BUCKET` es el nombre del bucket (sin `gs://` ni barras). `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` y `SUPABASE_BUCKET` pueden omitirse.
 - `JWT_SECRET`: en `production`, al menos 32 caracteres. En development/test basta un valor no vacío.
 - `JWT_EXPIRES_IN`: duración con unidad (`2h`, `30m`, `1d`); un número sin unidad se rechaza.
 - `FRONTEND_URL`: un único origin (sin path ni CSV); requerido en `production`.
 
+La validación no abre un cliente de storage. Files elige el adaptador según `STORAGE_PROVIDER` y crea el cliente en la primera operación. Con `gcs` hacen falta Application Default Credentials y, para las URLs firmadas, `iam.serviceAccounts.signBlob`. Detalle en `docs/architecture/backend.md`.
+
 Rotar `JWT_SECRET` invalida todos los JWT emitidos.
 
-Cliente Supabase: inicialización **lazy** en `file.service.ts` (sin side effects al importar rutas).
+El cliente del proveedor activo se crea en la primera operación de storage, no al importar las rutas.
 
 ### JobEnv (`jobs:expirations*`)
 
-Solo `DATABASE_URL`. Carga `.env` local + validación al inicio del runner CLI.
+Solo `DATABASE_URL`. No lee `STORAGE_PROVIDER`, `GCS_BUCKET` ni `SUPABASE_*`. Carga `.env` local + validación al inicio del runner CLI.
 
 ### Tooling Prisma
 
