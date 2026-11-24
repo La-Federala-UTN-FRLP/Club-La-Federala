@@ -2,7 +2,7 @@
 
 ## Requisitos previos
 
-- Node.js y npm.
+- Node.js 24 LTS y npm (la misma versión mayor que usa la imagen Docker del backend).
 - Docker Desktop/Compose si se usa el entorno integrado.
 - PostgreSQL o el servicio `db` de `docker-compose.yml`.
 
@@ -62,7 +62,8 @@ cd Backend && npm run build && npm start
 ### Docker: desarrollo vs producción
 
 - `docker compose up --build` (desde la raíz) es el **entorno de desarrollo**: el backend usa el stage `deps` del Dockerfile (con devDependencies), monta el código por volumen, aplica migraciones y corre `npm run dev` (`ts-node-dev`). Compose interpola las variables `${…}` del servicio desde el `.env` de la raíz; las que no declara (por ejemplo Supabase) las carga la app desde `Backend/.env`, montado por el volumen.
-- La **imagen productiva** es el stage final `runtime` de `Backend/Dockerfile`: solo `dist` y dependencias de producción, `NODE_ENV=production`, usuario sin privilegios, `node dist/server.js`. El job usa la misma imagen con el comando `node dist/jobs/runExpirations.js`.
+- La **imagen productiva** es el stage final `runtime` de `Backend/Dockerfile`: solo `dist` y dependencias de producción (sin Prisma CLI), `NODE_ENV=production`, usuario sin privilegios, `node dist/server.js`. El job usa la misma imagen con el comando `node dist/jobs/runExpirations.js`.
+- Las **migraciones** se ejecutan con el target `migrate` (`docker build --target migrate …`): Prisma CLI, schema y migraciones; comando `prisma migrate deploy`. Requiere `DATABASE_URL` y `DIRECT_URL`.
 
 ```bash
 docker build -t federala-backend Backend

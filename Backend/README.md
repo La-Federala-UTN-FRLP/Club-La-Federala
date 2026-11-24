@@ -153,7 +153,9 @@ JavaScript compilado: `node dist/server.js`. El build genera Prisma Client, comp
 ### Docker
 
 - **Build sin `.env`:** el stage `build` corre `prisma generate` con `DATABASE_URL`/`DIRECT_URL` dummy solo en ese comando (no se conecta, no son secretos, no quedan en la imagen). El runtime recibe las URLs reales por entorno.
-- **Imagen productiva:** `Dockerfile` multi-stage; el stage final `runtime` contiene solo `dist` y dependencias de producción, corre como usuario sin privilegios y ejecuta `node dist/server.js`. El job usa la misma imagen con el comando `node dist/jobs/runExpirations.js`.
+- **Base:** `node:24-bookworm-slim` (Node.js 24 LTS sobre Debian 12, distribución explícita).
+- **Imagen productiva:** `Dockerfile` multi-stage; el stage final `runtime` contiene solo `dist` y dependencias de producción, corre como usuario sin privilegios y ejecuta `node dist/server.js`. El job usa la misma imagen con el comando `node dist/jobs/runExpirations.js`. No incluye Prisma CLI: el cliente generado en `dist/generated/prisma` trae su runtime y el query engine.
+- **Migraciones:** el target `migrate` (Cloud Run Job) contiene dependencias de producción, Prisma CLI, el schema y `prisma/migrations`, sin la toolchain de build/test; corre `prisma migrate deploy` como usuario sin privilegios.
 - **Desarrollo:** `docker-compose.yml` (raíz) usa el stage `deps` y `npm run dev` con el código montado por volumen. Es el entorno de desarrollo, no el runtime productivo.
 
 ## Health y shutdown
