@@ -1,5 +1,4 @@
 import { randomUUID } from "crypto";
-import { createClient } from "@supabase/supabase-js";
 import type { FileMetadata, TipoFile, NewFileMetadata, EstadoAprobacion, TargetAprobacion } from "../types/files.types";
 import {
   isInmobiliaria,
@@ -10,23 +9,10 @@ import {
 } from "../utils/file.auth.utils";
 import { ensureVentaPerteneceALote } from "../utils/file.validation.utils";
 import prisma from "../config/prisma";
-import { getWebEnv } from "../config/env";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { getObjectStorage } from "../storage";
 import { safeErrorForLog } from '../utils/safeErrorLog';
 
-let supabaseClient: SupabaseClient | null = null;
-
-function getSupabaseClient(): SupabaseClient {
-  if (!supabaseClient) {
-    const { supabaseUrl, supabaseServiceKey } = getWebEnv();
-    supabaseClient = createClient(supabaseUrl, supabaseServiceKey);
-  }
-  return supabaseClient;
-}
-
-function getSupabaseBucket(): string {
-  return getWebEnv().supabaseBucket;
-}
+const STORAGE_CONTENT_TYPE = "application/octet-stream";
 
 const TIPOS_DOC_VENTA: TipoFile[] = ["BOLETO", "ESCRITURA", "OTRO"];
 const TIPOS_DOC_LOTE: TipoFile[] = ["PLANO", "IMAGEN"];
@@ -42,7 +28,7 @@ function sanitizeFilename(original: string): string {
 }
 
 /**
- * Genera path único en Supabase Storage para evitar sobrescrituras (Etapa 5.3).
+ * Genera path único en el storage para evitar sobrescrituras (Etapa 5.3).
  * Incluye uuid + YYYY-MM. No reutiliza paths de archivos existentes.
  * PLANO/IMAGEN: lote-{loteId}/{tipo}/{YYYY-MM}/{uuid}-{sanitizedFilename}
  * BOLETO/ESCRITURA/OTRO: lote-{loteId}/{tipo}/venta-{ventaId}/{YYYY-MM}/{uuid}-{sanitizedFilename}
@@ -76,7 +62,7 @@ function buildStoragePath(params: {
   return `lote-${loteId}/${tipo}/${yyyyMm}/${uuid}-${sanitized}`;
 }
 
-export async function uploadFileToSupabase(
+export async function uploadObject(
   fileBuffer: Buffer,
   metadata: {
     idLoteAsociado: number;
@@ -94,33 +80,24 @@ export async function uploadFileToSupabase(
     ventaId: metadata.ventaId,
   });
 
-  const { error } = await getSupabaseClient().storage
-    .from(getSupabaseBucket())
-    .upload(objectPath, fileBuffer, {
-      contentType: "application/octet-stream",
-      upsert: false,
-    });
-
-  if (error) {
-    if (error.message?.toLowerCase().includes("already exists") || error.message?.toLowerCase().includes("duplicate")) {
-      throw Object.assign(new Error("El archivo ya existe en storage (path duplicado). Reintente."), { statusCode: 409 });
-    }
-    throw new Error(`Error uploading file: ${error.message}`);
-  }
-
+  await getObjectStorage().putObject(objectPath, fileBuffer, STORAGE_CONTENT_TYPE);
   return { objectPath };
 }
 
-export async function generateSignedUrl(objectPath: string, expiresIn: number = 3660): Promise<string> {
-  const { data, error } = await getSupabaseClient().storage
-    .from(getSupabaseBucket())
-    .createSignedUrl(objectPath, expiresIn, { download: false });
-
-  if (error || !data?.signedUrl) {
-    throw new Error(`Error generating signed URL: ${error?.message}`);
+/**
+ * Best-effort: borra un objeto recién subido si la metadata no llegó a commitearse.
+ * Un fallo de esta limpieza no reemplaza el error original.
+ */
+export async function compensateUploadedObject(objectPath: string): Promise<void> {
+  try {
+    await getObjectStorage().deleteObject(objectPath);
+  } catch (error) {
+    console.warn('No se pudo compensar el objeto subido:', safeErrorForLog(error));
   }
+}
 
-  return data.signedUrl;
+export async function generateSignedUrl(objectPath: string, expiresIn: number = 3600): Promise<string> {
+  return getObjectStorage().getSignedReadUrl(objectPath, expiresIn);
 }
 
 function toFileMetadata(row: any): FileMetadata {
@@ -297,15 +274,20 @@ export async function restoreFileById(id: number): Promise<FileMetadata> {
   return toFileMetadata(updated);
 }
 
-/** Purga definitiva: borra en Supabase Storage + registro en DB */
+/**
+ * Purga definitiva. El objeto se borra antes que la fila.
+ * Un error real de storage conserva la metadata para poder reintentar.
+ * Si el objeto ya no existe, el borrado de storage se considera hecho.
+ * Si storage responde bien y falla PostgreSQL, la fila queda para un reintento idempotente.
+ */
 export async function purgeFileById(id: number): Promise<void> {
   const file = await prisma.archivos.findUnique({ where: { id } });
   if (!file) throw errorHttp("Archivo no encontrado", 404);
-  const objectPath = file.linkArchivo;
-  const { error } = await getSupabaseClient().storage.from(getSupabaseBucket()).remove([objectPath]);
-  if (error) {
-    // El error de Supabase puede citar el path del objeto o detalles del storage: log saneado.
-    console.warn('Supabase remove falló (continuando con borrado DB):', safeErrorForLog(error));
+  try {
+    await getObjectStorage().deleteObject(file.linkArchivo);
+  } catch (error) {
+    console.warn('No se pudo eliminar el objeto; se conserva la metadata:', safeErrorForLog(error));
+    throw error;
   }
   await prisma.archivos.delete({ where: { id } });
 }
@@ -352,7 +334,7 @@ export async function sustituirArchivo(
     await ensureVentaPerteneceALote(oldFile.ventaId, oldFile.idLoteAsociado);
   }
 
-  const { objectPath } = await uploadFileToSupabase(fileBuffer, {
+  const { objectPath } = await uploadObject(fileBuffer, {
     idLoteAsociado: oldFile.idLoteAsociado,
     tipo,
     filename: originalname,
@@ -361,31 +343,40 @@ export async function sustituirArchivo(
     uploadedAt: new Date(),
   });
 
-  const newFile = await prisma.$transaction(async (tx) => {
-    await tx.archivos.update({
-      where: { id },
-      data: {
-        estadoOperativo: "ELIMINADO",
-        fechaBaja: new Date(),
-        deletedBy: deletedByEmail || null,
-      },
+  try {
+    const newFile = await prisma.$transaction(async (tx) => {
+      // Solo una sustitución concurrente puede pasar de OPERATIVO a ELIMINADO.
+      const claimed = await tx.archivos.updateMany({
+        where: { id, estadoOperativo: "OPERATIVO" },
+        data: {
+          estadoOperativo: "ELIMINADO",
+          fechaBaja: new Date(),
+          deletedBy: deletedByEmail || null,
+        },
+      });
+      if (claimed.count !== 1) {
+        throw errorHttp("No se puede sustituir un archivo eliminado", 400);
+      }
+      return tx.archivos.create({
+        data: {
+          nombreArchivo: originalname,
+          linkArchivo: objectPath,
+          tipo,
+          idLoteAsociado: oldFile.idLoteAsociado,
+          ventaId: oldFile.ventaId,
+          uploadedBy: uploadedBy || null,
+          ...(tipo === "PLANO" && {
+            estadoAprobacionComision: "PENDIENTE",
+            estadoAprobacionMunicipio: "PENDIENTE",
+          }),
+        },
+      });
     });
-    return tx.archivos.create({
-      data: {
-        nombreArchivo: originalname,
-        linkArchivo: objectPath,
-        tipo,
-        idLoteAsociado: oldFile.idLoteAsociado,
-        ventaId: oldFile.ventaId,
-        uploadedBy: uploadedBy || null,
-        ...(tipo === "PLANO" && {
-          estadoAprobacionComision: "PENDIENTE",
-          estadoAprobacionMunicipio: "PENDIENTE",
-        }),
-      },
-    });
-  });
-  return toFileMetadata(newFile);
+    return toFileMetadata(newFile);
+  } catch (error) {
+    await compensateUploadedObject(objectPath);
+    throw error;
+  }
 }
 
 /**

@@ -11,7 +11,7 @@ jest.mock('../../../src/services/pago.service', () => ({
 }));
 jest.mock('../../../src/services/inmobiliaria.service', () => ({ createInmobiliaria: jest.fn(), updateInmobiliaria: jest.fn() }));
 jest.mock('../../../src/services/venta.service', () => ({ createVenta: jest.fn(), updateVenta: jest.fn() }));
-jest.mock('../../../src/services/file.service', () => ({ uploadFileToSupabase: jest.fn(), saveFileMetadata: jest.fn() }));
+jest.mock('../../../src/services/file.service', () => ({ uploadObject: jest.fn(), saveFileMetadata: jest.fn(), compensateUploadedObject: jest.fn() }));
 jest.mock('../../../src/utils/file.validation.utils', () => ({ ensureVentaPerteneceALote: jest.fn() }));
 
 import request from 'supertest';
@@ -46,7 +46,7 @@ const MOCKS = [
     inmobiliariaService.createInmobiliaria,
     inmobiliariaService.updateInmobiliaria,
     ventaService.createVenta,
-    fileService.uploadFileToSupabase,
+    fileService.uploadObject,
     fileService.saveFileMetadata,
     ensureVentaPerteneceALote,
 ];
@@ -265,7 +265,7 @@ describe('POST /api/files — IDs multipart', () => {
         async (valor) => {
             const res = await upload({ tipo: 'IMAGEN', idLoteAsociado: valor });
             expect(res.status).toBe(400);
-            expect(m(fileService.uploadFileToSupabase)).not.toHaveBeenCalled();
+            expect(m(fileService.uploadObject)).not.toHaveBeenCalled();
             expect(m(fileService.saveFileMetadata)).not.toHaveBeenCalled();
         },
     );
@@ -276,7 +276,7 @@ describe('POST /api/files — IDs multipart', () => {
             const res = await upload({ tipo: 'BOLETO', idLoteAsociado: '5', ventaId: valor });
             expect(res.status).toBe(400);
             expect(m(ensureVentaPerteneceALote)).not.toHaveBeenCalled();
-            expect(m(fileService.uploadFileToSupabase)).not.toHaveBeenCalled();
+            expect(m(fileService.uploadObject)).not.toHaveBeenCalled();
         },
     );
 

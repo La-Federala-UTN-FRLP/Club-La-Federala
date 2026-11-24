@@ -257,7 +257,7 @@ Quedan solo los que representan una capacidad real del dominio (D2):
 | `DELETE /usuarios/:id` | Solo `ADMINISTRADOR`; es la única forma de revocar el acceso de un usuario. |
 | `DELETE /personas/:id` | Solo `ADMINISTRADOR`; `409` si la persona tiene lotes, alquileres, reservas o ventas, como comprador principal o como co-compradora, o si es titular de un grupo familiar con miembros. Corre en una transacción que bloquea la fila de la persona (`SELECT … FOR UPDATE`) antes de contar: una co-compra o un miembro agregados en paralelo se serializan con ese lock (el borrado los ve y responde `409`, o el alta falla por FK). Así la FK `CASCADE` de co-compras y la `SET NULL` de familia nunca se llevan una relación en silencio. |
 | `DELETE /personas/:id/grupo-familiar/miembros/:miembroId` | `ADMINISTRADOR` y `GESTOR`; mismo borrado transaccional y mismos guards que el anterior. |
-| `DELETE /files/:id/purge` | Solo `ADMINISTRADOR`; borra el registro y el objeto en storage. |
+| `DELETE /files/:id/purge` | Solo `ADMINISTRADOR`. Borra el objeto y, si eso termina bien o el objeto ya no existe, borra la fila. Un error real de storage conserva la metadata y la purga se puede reintentar. Si storage responde y falla PostgreSQL, la fila queda para un reintento idempotente. |
 | `DELETE /lotes/:id` | Solo `ADMINISTRADOR`; solo lotes sin historia ni asociaciones. Con ventas, reservas (y sus ofertas), prioridades, promociones, alquileres o archivos, en cualquier estado → `409` `CONFLICT` sin borrar nada. El chequeo y el borrado corren en una transacción y el lote es lo único que se borra; si aparece una asociación entre ambos, la FK (`RESTRICT`) rechaza el DELETE y se responde el mismo `409`. Storage no se toca. La ubicación no bloquea (FK `SET NULL`): queda sin lote y puede reasignarse con `ubicacionId`. No hay baja lógica de lotes. |
 
 ### Grupo familiar (modelo plano)
@@ -305,9 +305,14 @@ La configuración se valida con Zod en `src/config/env.ts`. Contratos separados:
 
 ### WebEnv (proceso HTTP)
 
-Requeridas: `NODE_ENV` (`development` | `test` | `production`), `DATABASE_URL`, `JWT_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`. En `production`, también `FRONTEND_URL`.
+Requeridas siempre: `NODE_ENV` (`development` | `test` | `production`), `DATABASE_URL`, `JWT_SECRET`. En `production`, también `FRONTEND_URL`.
 
-Defaults: `PORT=3000`, `JWT_EXPIRES_IN=2h`, `SUPABASE_BUCKET=lotes-files`.
+`STORAGE_PROVIDER` vale `supabase` o `gcs`. Ausente o vacío equivale a `supabase`, que es el modo de Render.
+
+- Proveedor `supabase`: `SUPABASE_URL` (URL válida) y `SUPABASE_SERVICE_KEY`. `SUPABASE_BUCKET` tiene default `lotes-files`.
+- Proveedor `gcs`: `GCS_BUCKET`, nombre de bucket sin `gs://` ni separadores de ruta. Las variables `SUPABASE_*` pueden omitirse.
+
+Defaults: `PORT=3000`, `JWT_EXPIRES_IN=2h`, `STORAGE_PROVIDER=supabase`, `SUPABASE_BUCKET=lotes-files` en el proveedor `supabase`.
 
 Reglas adicionales (el proceso no arranca si no se cumplen):
 
@@ -316,15 +321,46 @@ Reglas adicionales (el proceso no arranca si no se cumplen):
 - `FRONTEND_URL`: requerido en `production`; un único origin.
 - `PORT`: entero entre 1 y 65535.
 
+La validación no abre un cliente. Files elige el adaptador según `STORAGE_PROVIDER` y crea el cliente recién en la primera operación de storage.
+
 Rotar `JWT_SECRET` invalida todos los JWT emitidos: cada usuario tiene que volver a loguearse.
 
 Carga local: `src/config/loadEnv.ts` lee `Backend/.env` sin sobrescribir variables ya inyectadas (shell, Docker, Cloud). Validación fail-fast en `src/config/bootstrapWeb.ts` antes de `listen`.
 
-Secretos: `DATABASE_URL`, `JWT_SECRET`, `SUPABASE_SERVICE_KEY`. No loguear valores.
+Secretos: `DATABASE_URL`, `JWT_SECRET` y, con proveedor `supabase`, `SUPABASE_SERVICE_KEY`. `GCS_BUCKET` es configuración. No loguear valores.
 
 ### JobEnv (expiraciones)
 
-Solo `DATABASE_URL`. Validado al inicio de `runExpirationsCli`. Sin JWT, Supabase, `PORT` ni `FRONTEND_URL`.
+Solo `DATABASE_URL`. Validado al inicio de `runExpirationsCli`. Sin JWT, storage, `PORT` ni `FRONTEND_URL`.
+
+### Almacenamiento de archivos
+
+Files habla con un adaptador de tres operaciones (`putObject`, `getSignedReadUrl`, `deleteObject`). `STORAGE_PROVIDER` lo elige al arrancar:
+
+- `supabase` (default, Render y local): `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` y bucket `lotes-files` si no se define `SUPABASE_BUCKET`. Upload sin sobrescritura (`upsert: false`) y URL firmada de lectura.
+- `gcs` (staging): `GCS_BUCKET`. El cliente usa Application Default Credentials, sin clave JSON y sin `GOOGLE_APPLICATION_CREDENTIALS`. Subida no resumible, `ifGenerationMatch: 0`, sin ACL pública. URL firmada V4 de lectura, 3600 segundos. El `delete` no usa `ignoreNotFound`: un objeto ausente (`No such object`) sigue la purga; un bucket ausente o un 404 ambiguo la frenan y conservan la fila.
+
+`linkArchivo` sigue siendo la ruta interna del objeto. No hay migración de Prisma ni cambio del contrato HTTP. El contenido se guarda como `application/octet-stream`, igual que antes.
+
+Staging (`la-federala-staging-utn`, `southamerica-east1`):
+
+- `STORAGE_PROVIDER=gcs`
+- `GCS_BUCKET=federala-staging-files-28822223940`
+- Cloud Run con `federala-web-sa`, en la misma región.
+- `roles/storage.objectUser` sobre el bucket ya alcanza para crear, leer y borrar objetos. No ampliarlo.
+- Para firmar sin clave JSON hace falta la API `iamcredentials.googleapis.com` y el permiso `iam.serviceAccounts.signBlob` de esa service account sobre sí misma. Todavía no está concedido: hasta entonces `POST /api/files/:id/url` responde 500 aunque el upload funcione.
+- El bucket sigue privado. La vista previa de documentos hace `fetch` de la URL firmada, así que el bucket necesita CORS `GET`/`HEAD` para el origen real del frontend. Ese origen todavía no está configurado. Un `<img>` o un enlace no necesitan CORS.
+
+La purga ya no borra la fila si storage devuelve un error real. Ese era el comportamiento anterior y se corrigió en los dos proveedores. La respuesta exitosa sigue siendo `204`.
+
+Consistencia, best-effort, sin transacción distribuida:
+
+- Si el objeto se sube y falla la metadata, se intenta borrar solo ese objeto. Si la limpieza también falla, el error original se mantiene y el objeto puede quedar huérfano.
+- Si falla la transacción de una sustitución, se intenta borrar solo el objeto nuevo. El registro anterior no se reemplaza.
+- Dos sustituciones del mismo id se serializan con un `UPDATE` condicionado a `estadoOperativo = OPERATIVO`. La que pierde responde `400` y compensa su objeto.
+- Si la purga borra el objeto y después falla PostgreSQL, la fila queda. Un reintento trata el objeto ausente como éxito y vuelve a borrar la fila.
+
+Estas operaciones no se probaron contra el bucket real. El smoke en Cloud Run queda para después de conceder `signBlob`, configurar CORS y desplegar el servicio.
 
 ### Tooling Prisma
 

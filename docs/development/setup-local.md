@@ -17,7 +17,7 @@ cd ../frontend && npm install
 
 Copiar `Backend/.env.example` → `Backend/.env` (gitignored). No commitear secretos.
 
-**WebEnv** (dev / `npm start`): `NODE_ENV`, `DATABASE_URL`, `JWT_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`; en `production` también `FRONTEND_URL`. Opcionales con default: `PORT`, `JWT_EXPIRES_IN`, `SUPABASE_BUCKET`.
+**WebEnv** (dev / `npm start`): `NODE_ENV`, `DATABASE_URL`, `JWT_SECRET`; en `production` también `FRONTEND_URL`. El proveedor de storage es `STORAGE_PROVIDER` (`supabase` por defecto, o `gcs`). Con `supabase` hacen falta `SUPABASE_URL` y `SUPABASE_SERVICE_KEY`. Con `gcs` hace falta `GCS_BUCKET` y las variables `SUPABASE_*` pueden omitirse; el proceso usa Application Default Credentials, no una clave JSON. Opcionales con default: `PORT`, `JWT_EXPIRES_IN`, `SUPABASE_BUCKET` (solo proveedor `supabase`, default `lotes-files`). El entorno local sigue en `supabase`.
 
 Se validan al arrancar (fail-fast):
 
