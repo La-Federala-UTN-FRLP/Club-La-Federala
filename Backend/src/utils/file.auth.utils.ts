@@ -25,6 +25,8 @@ export type ArchivoForAuth = {
   tipo: TipoFile;
   ventaId?: number | null;
   estadoOperativo?: string;
+  /** Estado del lote asociado; solo se consulta para INMOBILIARIA. */
+  loteEstado?: string | null;
 };
 
 export type VentaForAuth = {
@@ -95,6 +97,8 @@ export function canUserAccessArchivo(
   if (!isInmobiliaria(user)) return true;
 
   if (archivo.estadoOperativo === "ELIMINADO") return false;
+  // Lote NO_DISPONIBLE: INMOBILIARIA no lo ve (AI-019), así que tampoco sus archivos (404 como inexistente).
+  if (archivo.loteEstado === "NO_DISPONIBLE") return false;
 
   if (archivo.tipo === "PLANO") return true;
   if (archivo.tipo === "IMAGEN") return true; // No cambiar en 5.4

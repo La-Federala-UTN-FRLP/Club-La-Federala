@@ -26,7 +26,7 @@ const TIPOS_PROHIBEN_VENTA: TipoFile[] = ["PLANO", "IMAGEN"];
  */
 async function verifyArchivoAccess(
   user: { role: string; inmobiliariaId?: number | null } | undefined,
-  archivo: { tipo: TipoFile | string; ventaId?: number | null; estadoOperativo?: string }
+  archivo: { tipo: TipoFile | string; ventaId?: number | null; estadoOperativo?: string; idLoteAsociado?: number }
 ): Promise<boolean> {
   let venta: { inmobiliariaId: number | null } | null = null;
   if (isInmobiliaria(user) && archivo.ventaId != null && TIPOS_REQUIEREN_VENTA.includes(archivo.tipo as TipoFile)) {
@@ -35,10 +35,19 @@ async function verifyArchivoAccess(
       select: { inmobiliariaId: true },
     });
   }
+  let loteEstado: string | null = null;
+  if (isInmobiliaria(user) && archivo.idLoteAsociado != null) {
+    const lote = await prisma.lote.findUnique({
+      where: { id: archivo.idLoteAsociado },
+      select: { estado: true },
+    });
+    loteEstado = lote?.estado ?? null;
+  }
   const archivoForAuth = {
     tipo: archivo.tipo as TipoFile,
     ventaId: archivo.ventaId,
     estadoOperativo: archivo.estadoOperativo,
+    loteEstado,
   };
   return canUserAccessArchivo(user, archivoForAuth, venta);
 }
