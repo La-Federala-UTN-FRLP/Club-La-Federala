@@ -85,10 +85,22 @@ export function getInventario({ fraccion, estado, subestado } = {}) {
 
 /**
  * Ventas por período. `desde` y `hasta` son obligatorios (desde <= hasta, máximo 366 días).
+ *
+ * Cada tarjeta cuenta la venta por su propia fecha, así que una venta puede sumar en hasta
+ * tres: `iniciadas` por la fecha de alta, en cualquier estado; `escrituradas` por la fecha de
+ * escritura real y solo si la venta está ESCRITURADO; `canceladas` por la fecha de cancelación
+ * y solo si está CANCELADA. `periodoAnterior` es el tramo de la misma cantidad de días que
+ * termina el día anterior a `desde`.
+ *
+ * `tarjetas` cuenta únicamente las ventas en USD; si no hay ninguna, vienen en cero, no
+ * ausentes. Cada moneda distinta de USD con movimiento en alguno de los dos períodos va en
+ * `otrasMonedas`, con sus propias tres tarjetas, sin convertir ni sumar a USD. `filas` trae
+ * las ventas de cualquier moneda que sumen en alguna tarjeta del período elegido.
+ *
  * @param {object} filtros
  * @param {string} filtros.desde - YYYY-MM-DD
  * @param {string} filtros.hasta - YYYY-MM-DD
- * @param {number|string} [filtros.fraccion] - Id de fracción
+ * @param {number|string} [filtros.fraccion] - Id de fracción (no el número visible)
  * @returns {Promise<{
  *   corte: string,
  *   periodo: {desde: string, hasta: string},
@@ -96,14 +108,22 @@ export function getInventario({ fraccion, estado, subestado } = {}) {
  *   tarjetas: {
  *     iniciadas: TarjetaVentas, escrituradas: TarjetaVentas, canceladas: TarjetaVentas
  *   },
- *   otrasMonedas: Array<object>,
+ *   otrasMonedas: Array<{
+ *     moneda: "ARS"|"USD",
+ *     iniciadas: TarjetaOtraMoneda,
+ *     escrituradas: TarjetaOtraMoneda,
+ *     canceladas: TarjetaOtraMoneda
+ *   }>,
  *   filas: Array<{
- *     ventaId: number, numero: string, loteId: number, loteNumero: number|null, fraccion: number,
- *     fechaAlta: string, fechaEscritura: string|null, fechaCancelacion: string|null,
- *     estado: string, montoUSD: string, enlace: string
+ *     ventaId: number, numero: string, loteId: number, loteNumero: number|null,
+ *     fraccionId: number, fraccion: number, estado: string, fechaAlta: string,
+ *     fechaEscritura: string|null, fechaCancelacion: string|null, moneda: "ARS"|"USD",
+ *     monto: string, enlace: string
  *   }>
- * }>}
+ * }>} `monto` está en `moneda`, la del plan de pagos de la venta (USD si no tiene plan): no
+ *   hay un total que mezcle monedas. `fraccionId` es el id; `fraccion`, el número visible.
  * @typedef {{cantidad: number, montoUSD: string, cantidadAnterior: number, montoUSDAnterior: string}} TarjetaVentas
+ * @typedef {{cantidad: number, monto: string, cantidadAnterior: number, montoAnterior: string}} TarjetaOtraMoneda
  */
 export function getVentas({ desde, hasta, fraccion } = {}) {
   return getReporte(
