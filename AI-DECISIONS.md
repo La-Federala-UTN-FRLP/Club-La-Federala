@@ -1344,6 +1344,59 @@ Por decisión del líder del proyecto (Nico) y en línea con la Guía QA (LOT-04
 - `frontend/src/components/Cards/Lotes/LoteEditarCard.jsx`
 - `frontend/src/lib/auth/rbac.ui.js`
 - Refs #297
+### AI-020 — Reporte de ventas por período
+
+**Fecha:** 2026-11-23  
+**Área:** Backend / Reportes / Prisma / OpenAPI / Tests  
+**Herramientas:** Claude Code (VS Code)
+
+#### Problema
+
+`GET /api/reportes/ventas` respondía la forma del contrato con tarjetas en cero desde 38.1 (AI-016). Faltaba contar las ventas iniciadas, escrituradas y canceladas, cada una por su propia fecha, contra un período anterior de igual duración, con montos en USD y las otras monedas aparte. CCLF-37 pide separar las monedas, pero `Venta` no tiene campo de moneda. Además, la revisión de 38.1 pidió tipar en la OpenAPI los elementos de los arrays, que usaban `items: { type: object }`.
+
+#### Prompt / intención
+
+Implementar la subtarea 38.3 (CCLF-54): iniciadas por fecha de alta, escrituradas por fecha real de escritura y canceladas por fecha de cancelación, cada una dentro de `[desde, hasta]` en días de Buenos Aires; período anterior con las mismas métricas; cantidad y monto en USD; otras monedas agrupadas aparte, sin convertir ni sumar; ventas eliminadas excluidas; sin cambiar rutas, roles ni validación. No inventar campos ni migraciones: si el schema no permite algo, registrarlo como limitación. Tests con un fake de Prisma que evalúe la query sobre un set fijo (como `loteInventario.fake.ts`), REP-A2, bordes del día, 366/367 días y permisos. Sin commits ni PR.
+
+#### Propuesta generada por IA
+
+- Tomar la moneda de una venta de su último plan de pagos (`PlanPago.moneda`, mayor `version`), y usar USD si no tiene plan. Se justifica porque el plan tiene que sumar `Venta.monto` (`pago.service.ts`) y el reemplazo de plan no permite cambiar la moneda. El alta de ventas muestra el monto en USD.
+- Contar escriturada solo con estado `ESCRITURADO` y cancelada solo con `CANCELADA`, además de la fecha en el rango. Esos estados no tienen transiciones de salida, así que una fecha cargada en otro estado no es un hecho ocurrido. Iniciada cuenta por `fechaVenta` en cualquier estado.
+- Hacer una sola consulta `findMany` que cubra los dos períodos (contiguos), con un `OR` por las 3 fechas y la moneda del último plan por relación (`orderBy version desc, take 1`), y clasificar en memoria. `groupBy` no admite agrupar por la moneda de una relación ni contar una venta en 3 tarjetas por fechas distintas. Montos sumados con `Prisma.Decimal`.
+- Días de negocio con UTC-3 fijo (Argentina no tiene horario de verano desde 2009): rango `[desde 03:00Z, hasta+1 03:00Z)` en la base y `Intl` con `America/Argentina/Buenos_Aires` para formatear las fechas de las filas.
+- `otrasMonedas`: una entrada por moneda distinta de USD con movimiento en alguno de los dos períodos, con la misma forma que una tarjeta pero `monto`/`montoAnterior`. Filas: las ventas que suman en alguna tarjeta del período elegido, por fecha de alta descendente, con `moneda` y `monto` en lugar de `montoUSD`.
+- OpenAPI: schemas `VentaReporteFila`, `VentasOtraMoneda`, `TarjetaVentasOtraMoneda` y los 4 de inventario. Agregar un test que valide respuestas reales contra el schema (validador mínimo en el test, sin dependencias nuevas) y que falle ante claves no documentadas o arrays sin `items` tipados.
+- Sumar un test de integración contra PostgreSQL, porque el fake no prueba que la base acepte la consulta.
+
+#### Validación humana
+
+- El alcance, las reglas y la consigna de no inventar campos los fijó la persona responsable de la tarea antes de la implementación.
+- Se revisaron la regla de moneda por plan y las diferencias con CCLF-37 antes de aceptarlas.
+- Se ejecutaron `npm run typecheck` (OK), `npx jest` (89 suites, 3314 tests en verde) y `npm run build` (OK), con `PRISMA_QUERY_ENGINE_LIBRARY` apuntando al engine de Windows, sin modificar archivos.
+- Se corrió `npm run test:integration` contra PostgreSQL 16 descartable en Docker: 3 suites y 20 tests en verde, 2 de ellos del reporte de ventas.
+- Se verificó que cada commit propuesto pase la suite por sí solo.
+- La revisión cruzada queda a cargo del PR.
+
+#### Decisión adoptada
+
+- Moneda de la venta = moneda de su último plan de pagos; USD si no tiene plan. Queda como limitación hasta que `Venta` tenga moneda propia.
+- Escrituradas y canceladas exigen fecha en el rango y estado coherente; iniciadas, solo la fecha de alta.
+- Una consulta por reporte, sin N+1 y sin transacción.
+- Contrato tipado (`TarjetaOtraMoneda`, `VentasOtraMoneda`, `VentaFila`, `ReporteVentas`) y arrays de ventas e inventario tipados en la OpenAPI. Los arrays de cuotas vencidas siguen genéricos hasta 38.4.
+- Quedan pendientes: que el frontend (39.3) adopte `moneda`/`monto` y `fraccionId` en las filas en lugar de `montoUSD`; que `cancelActivesOnNoDisponible` cargue `fechaCancelacion` (hoy esas ventas no entran en "canceladas"); los ejemplos completos de la OpenAPI (38.7, CCLF-58).
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/services/reporte.service.ts`
+- `Backend/src/controllers/reporte.controller.ts`
+- `Backend/tests/support/fakes/ventaReporte.fake.ts`
+- `Backend/tests/unit/services/reporte.ventas.service.test.ts`
+- `Backend/tests/unit/routes/reportes.ventas.routes.test.ts`
+- `Backend/tests/unit/routes/reportes.permisos.routes.test.ts`
+- `Backend/tests/unit/openapi/reportes.openapi.contract.test.ts`
+- `Backend/tests/integration/reportes.ventas.int.test.ts`
+- `Backend/documents/documentacionApi.yaml`
+- Jira CCLF-54 · Issue #321
 - `AI-DECISIONS.md`
 
 
