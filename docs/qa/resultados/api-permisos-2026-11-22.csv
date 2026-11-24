@@ -1,0 +1,39 @@
+﻿ID;Estado;Ambiente;Hallazgo;Evidencia
+ACC-01;PASS;Local;;POST /api/auth/login → 200
+ACC-02;PASS;Local;;POST /api/auth/login → 401 | POST /api/auth/login → 401
+ACC-03;PASS;Local;;POST /api/auth/login → 400
+ACC-09;PASS;Local;;GET /api/lotes → 401 | GET /api/lotes → 401
+ACC-12;PASS;Local;;GET /api/lotes → 401
+GEN-10;PASS;Local;;GET /api/reservas → 401 | GET /api/usuarios → 403 | GET /api/reservas → 200 | GET /api/ventas → 403 | GET /api/lotes → 200
+GEN-11;PASS;Local;;GET /api/lotes/2147480000 → 404 | GET /api/ruta-inexistente-qa → 404 | GET /api/reservas/2147480000 → 404 | POST /api/fracciones → 409 | DELETE /api/lotes/43 → 409 | POST /api/personas → 400 | PUT /api/lotes/19 → 400
+GEN-14;PASS;Local;;OPTIONS /api/lotes → 200 | GET /health → 200 | GET /health → 200 (control)
+GEN-15;PASS;Local;;PUT /api/lotes/19 → 413
+LOT-41;PASS;Local;;DELETE /api/lotes/47 → 403 | DELETE /api/lotes/47 → 403 | DELETE /api/lotes/47 → 403
+PER-12;PASS;Local;;PUT /api/personas/23 → 403 | PUT /api/personas/23 → 403
+RES-14;PASS;Local;;PUT /api/reservas/10 → 403
+VEN-17;PASS;Local;;PATCH /api/ventas/7/eliminar → 403 | PATCH /api/ventas/7/reactivar → 403 | PATCH /api/ventas/7/eliminar → 403 | PATCH /api/ventas/7/reactivar → 403
+INM-14;PASS;Local;;GET /api/inmobiliarias → 403 | GET /api/inmobiliarias/5 → 403 | POST /api/inmobiliarias → 403 | PUT /api/inmobiliarias/5 → 403 | PATCH /api/inmobiliarias/6/eliminar → 403 | PATCH /api/inmobiliarias/6/reactivar → 403 | GET /api/inmobiliarias → 403 | GET /api/inmobiliarias/5 → 403 | POST /api/inmobiliarias → 403 | PUT /api/inmobiliarias/5 → 403 | PATCH /api/inmobiliarias/6/eliminar → 403 | PATCH /api/inmobiliarias/6/reactivar → 403
+ADM-04;PASS;Local;;POST /api/usuarios → 403
+ADM-05;PASS;Local;;PUT /api/usuarios/22 → 403 | PUT /api/usuarios/17 → 403 | PUT /api/usuarios/16 → 403
+ADM-07;PASS;Local;;DELETE /api/usuarios/26 → 403
+ADM-16;PASS;Local;;GET /api/usuarios → 403 | GET /api/usuarios/22 → 403 | POST /api/usuarios → 403 | PUT /api/usuarios/22 → 403 | DELETE /api/usuarios/26 → 403 | POST /api/fracciones → 403 | PUT /api/fracciones/2 → 403 | DELETE /api/fracciones/3 → 403 | GET /api/usuarios → 403 | GET /api/usuarios/22 → 403 | POST /api/usuarios → 403 | PUT /api/usuarios/22 → 403 | DELETE /api/usuarios/26 → 403 | POST /api/fracciones → 403 | PUT /api/fracciones/2 → 403 | DELETE /api/fracciones/3 → 403
+DOC-18;PASS;Local;;DELETE /api/files/2/purge → 403 | DELETE /api/files/2/purge → 403 | DELETE /api/files/2/purge → 403
+DOC-24;PASS;Local;;PATCH /api/files/2/aprobaciones → 403
+LOT-04;PASS;Local;;GET /api/lotes?deudor=true → 400 | GET /api/lotes → 200 | GET /api/lotes/20 → 200
+LOT-03;PASS;Local;;GET /api/lotes → 200 | GET /api/lotes/21 → 404
+PER-02;PASS;Local;;GET /api/personas → 200 | GET /api/personas?view=ALL → 200 | GET /api/personas?view=CLIENTES → 200 | GET /api/personas?view=PROPIETARIOS → 200 | GET /api/personas?includeInactive=true → 200 | GET /api/personas?inmobiliariaId=6 → 200 | GET /api/personas?q=ClienteB → 200
+PER-10;PASS;Local;;POST /api/personas → 201
+RES-01;PASS;Local;;GET /api/reservas → 200
+RES-11;PASS;Local;;POST /api/reservas → 201
+RES-27;PASS;Local;;PATCH /api/reservas/17/eliminar → 403 | PATCH /api/reservas/19/reactivar → 403
+PRI-07;PASS;Local;;POST /api/prioridades → 201
+PRI-11;PASS;Local;;PATCH /api/prioridades/7 → 403 | PATCH /api/prioridades/7/cancelar → 403
+DOC-11;PASS;Local;;GET /api/files/lote/42 → 200 | GET /api/files/6 → 404 | POST /api/files/6/url → 404 | GET /api/files/venta/10 → 404 | GET /api/files/venta/9 → 200
+GEN-12;PASS;Local;;GET /api/reservas/15 → 403 | GET /api/reservas/15/ofertas → 403 | GET /api/reservas/inmob/6 → 403 | GET /api/prioridades/7 → 403 | GET /api/ventas/inmobiliaria/6 → 403 | GET /api/ventas/10 → 403 | GET /api/personas/24 → 403 | GET /api/prioridades → 200 | GET /api/prioridades?inmobiliariaId=6 → 200
+ACC-15;PASS;Local;;GET /api/usuarios → 200 | PUT /api/usuarios/22 → 200 | GET /api/usuarios → 403 | PUT (restaurar) → 200 | GET /api/usuarios → 200
+ACC-14;PASS;Local;;GET /api/usuarios → 200 | DELETE /api/usuarios/26 → 200 | GET /api/usuarios → 401 | POST /api/auth/login → 401
+ADM-08;PASS;Local;;GET /api/usuarios → 200 | DELETE /api/usuarios/26 → 200 | GET /api/usuarios → 401 | POST /api/auth/login → 401
+ACC-13;PASS;Local;;PATCH /api/inmobiliarias/6/eliminar → 200 | GET /api/reservas → 401 | POST /api/auth/login → 401 | PATCH …/reactivar → 200 | POST /api/auth/login → 200
+INM-09;PASS;Local;;PATCH /api/inmobiliarias/6/eliminar → 200 | GET /api/reservas → 401 | POST /api/auth/login → 401 | PATCH …/reactivar → 200 | POST /api/auth/login → 200
+ACC-05;PASS;Local;;6 × POST /api/auth/login → 401,401,401,401,401,429
+ACC-06;PASS;Local;;POST /api/auth/login → 429
