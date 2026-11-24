@@ -1338,6 +1338,100 @@ Implementar la subtarea 38.3 (CCLF-54): iniciadas por fecha de alta, escriturada
 - `AI-DECISIONS.md`
 
 
+### AI-023 — Vista de inventario de lotes (frontend) y apertura de un lote desde la URL
+
+**Fecha:** 2026-11-23  
+**Área:** Frontend / Reportes / Lotes / Cliente HTTP  
+**Herramientas:** Claude (claude.ai) para planificar las etapas y redactar los prompts; Claude Code para ejecutar el código.
+
+#### Problema
+
+La pestaña Inventario de Reportes (39.1, AI-018) solo mostraba la cantidad de filas que devolvía el cliente. La subtarea 39.2 (CCLF-60) pedía la pantalla completa: filtros de fracción, estado y subestado, tarjetas de ofrecibles y totales, y la tabla de lotes con un enlace a cada lote.
+
+La fila y los totales ya estaban definidos por el backend de 38.2 (AI-017): `InventarioFila` trae `fraccionId` además del número visible de la fracción, `numero` entero o null, y `precio` decimal o null; `porFraccion` trae `fraccionId`, `fraccion`, `cantidad` y `ofrecibles`. El filtro `fraccion` de la API es el id, no el número visible, y el `enlace` de cada fila es `/?lote=<id>`, una URL que el frontend no sabía leer.
+
+#### Prompt / intención
+
+Trabajo en cinco etapas, cada una con aprobación humana y sin commits de la IA:
+
+1. Exploración de solo lectura (LoteVerCard y cómo se monta, formateo de dinero y fechas, estilos de KPI, clases `tl-*`, normalización de estados, catálogo de fracciones) con un informe de riesgos.
+2. Construir la vista de inventario sin tocar nada fuera de Reportes y del cliente.
+3. Reemplazar la obtención de fracciones por el patrón de errores del resto de reportes, y agregar la lectura de `?lote=<id>` en el Dashboard.
+4. Mover los ids del mock a un rango que no choque con la base real y verificar si el Dashboard pagina.
+5. Verificación final y esta entrada.
+
+#### Propuesta generada por IA
+
+- `VistaInventario` como componente propio, montado desde `Reportes.jsx` con una propiedad opcional `Vista` en el mapa `REPORTES`: los reportes que todavía no la tienen (39.3 y 39.4) siguen mostrando el conteo de filas sin cambios.
+- `TablaReportes`, tabla genérica y reutilizable para los tres reportes, con las clases `tl-*` de la tabla de lotes pero sin `TablaBase`, que impone columna de checkbox, columna de acciones, paginación del lado cliente y selector de columnas, y no tiene estados de carga ni de error. Como `.tl-tr` es un grid sin columnas propias, recibe `gridTemplateColumns` inline, igual que hace `TablaBase`.
+- Formulario de filtros propio en lugar de `FilterBar`: la barra existente está pensada para filtros opcionales y limpiables, y su control de fechas trabaja con epoch-ms.
+- `getFraccionesReporte()` para el catálogo del filtro, normalizado a `{ id, numero }`: se envía el id y se muestra el número.
+- Soporte de `?lote=<id>` en `Dashboard.jsx`, por el mismo camino que ya usaba el flujo de `location.state` (`onVer`), con un ref para procesar cada valor una sola vez (`fetchAndMergeLote` modifica `allLotes` y volvería a disparar el efecto) y limpieza del parámetro con `replace` para que cerrar el modal o refrescar no lo reabra.
+- `fmtFechaCalendario` en `lib/fechas.js`, que parte el string en lugar de usar `new Date`.
+- Estilos de tarjeta propios en `Reportes.css`, inspirados en `.vp-summary-*` pero sin importar `venta-pagos.css` (que además redefine `.cclf-card`) y sin colores nuevos.
+
+#### Validación humana
+
+- El alcance y las decisiones de diseño las fijó la persona responsable antes de cada etapa: una vista por reporte enchufada con `Vista`, tabla propia en vez de `TablaBase`, filtros aplicados con botón y no en vivo, y qué archivos se podían tocar en cada paso.
+- **Fracciones con el patrón de errores equivocado:** la IA resolvió el catálogo con `getAllFracciones()` de `lib/api/fracciones.js`, que atrapa todo y devuelve `{ success: true }` con lista vacía, de modo que un 403 o un 500 se habría visto como "no hay fracciones". La persona lo detectó y pidió reemplazarlo por una llamada directa con `http()` y el mismo patrón que el resto de `reportes.js` (lanzar un `Error` con `statusCode` y `response` si `!res.ok`).
+- **Enlace "Ver lote" sin destino:** el informe de la etapa 1 señaló que el `/?lote=<id>` del contrato no lo leía nadie (el Dashboard solo abría un lote por `location.state`, y `/?editLotId=` estaba sin emisor). La persona decidió dejarlo sin funcionar en la etapa 2 y resolverlo en una etapa aparte, con un toast cuando el lote no existe.
+- **Ids del mock que chocaban con la base real:** al verificar el enlace contra el backend local se vio que los `loteId` del mock (101-157) caían dentro del rango real (70-116), así que "Ver lote" abría un lote verdadero sin relación con el reporte simulado. La persona pidió moverlos a 9001 en adelante; se hizo con un desplazamiento constante que conserva el orden y la unicidad, y se verificó que ventas y cuotas sigan apuntando a los mismos lotes.
+- **Fechas de calendario:** el informe de la etapa 1 comprobó que `new Date("2026-11-23").toLocaleDateString("es-AR")` muestra el 22 en Buenos Aires, porque el string se interpreta como medianoche UTC. La persona fijó que la fecha de corte se formatee partiendo el string.
+- Decisiones menores de la IA que la persona aceptó: la moneda del precio queda fijada en USD con una constante, porque `Lote.precio` no tiene moneda en el schema; y el ancho de las columnas pasó a ser proporcional, porque con columnas fijas el sobrante se iba entero a la primera.
+- Revisión visual de la pantalla con Claude (claude.ai) contra la V2 de CCLF-37 y el boceto: se corrigieron las tildes de los estados, el rótulo del botón ("Generar" en lugar de "Aplicar filtros") y se agregó la leyenda de la tarjeta de ofrecibles. La persona responsable aprobó los cambios.
+- La revisión cruzada queda a cargo del PR.
+
+#### Decisión adoptada
+
+- `Reportes.jsx` elige entre la vista propia del reporte y el conteo de filas según la propiedad `Vista`; las pestañas de ventas y cuotas quedaron sin cambios.
+- `TablaReportes` queda como la tabla de los reportes, lista para 39.3 y 39.4; `TablaBase` sigue siendo la de las pantallas de gestión.
+- El filtro de fracción envía `fraccionId` y muestra el número visible. En la base local son distintos (ids 7-14 para las fracciones 3, 4, 6, 7, 8, 11, 14 y 15), así que confundirlos no es hipotético.
+- Un fallo al pedir las fracciones se muestra como aviso y deja el resto del reporte usable, en lugar de pasar por "no hay fracciones".
+- `Dashboard.jsx` abre el lote de `?lote=<id>` y, si el id no es un entero positivo o no está entre los lotes cargados, avisa con el toast "El lote no existe o ya no está disponible". El flujo anterior por `location.state` quedó intacto.
+- Los `loteId` del mock viven en 9001+, fuera del rango de la base. El mock completo se borra en 39.6.
+
+#### Evidencia / archivos relacionados
+
+Verificado:
+
+- Con el mock: 24 filas, tarjetas y resúmenes que cuadran con las filas, filtro por cada fracción (ids 11, 12 y 13) con 8 filas cada una, filtros de estado y subestado combinados, estado vacío de la tabla, el lote sin número como "Lote #9040" y su precio como "—", y la fecha de corte en el día correcto.
+- Contra el backend real en Docker: el reporte trae 46 filas y 16 ofrecibles; el filtro lista las 8 fracciones reales con sus ids; y el clic en "Ver lote" (`/?lote=70`) abre el modal "Lote 3-1", que es el mismo lote que muestra la fila.
+- `?lote=`: un id real abre el modal; cerrar el modal y refrescar no lo reabren; la URL queda sin el parámetro y conserva los demás; un id inexistente y uno no numérico muestran el toast sin abrir nada.
+- Con el endpoint de fracciones inalcanzable, la pantalla muestra el error y deshabilita ese filtro, en vez de una lista vacía silenciosa.
+- Con el mock activo, "Ver lote" muestra el toast y no abre ningún lote.
+- `npm run build` pasa y `npm run lint` queda en el mismo total de siempre (114 errores y 50 warnings por deuda previa), sin problemas en los archivos de la tarea.
+
+No verificado:
+
+- El frontend no tiene infraestructura de tests: toda la verificación fue manual, con un Chrome headless dirigido por scripts que no se versionaron.
+- No se probó la pantalla con los roles INMOBILIARIA ni TECNICO, que no tienen acceso a Reportes.
+- Del camino de error de `/fracciones` se probaron el 401 (lo intercepta `http()` y manda a `/login`) y el fallo de red; no se probó un 403.
+
+Riesgos y deuda:
+
+- `GET /fracciones` tiene `limit = 10` por defecto en el backend y el controller no lo cambia (`fraccion.service.ts`): hoy hay 8 fracciones, pero a partir de la 11 el filtro quedaría incompleto.
+- `location.state.openLoteId` en `Dashboard.jsx` quedó sin ningún emisor: es código muerto desde antes de esta tarea.
+- El toast de `?lote=` también aparecería para INMOBILIARIA con un lote `NO_DISPONIBLE`, porque el backend lo excluye de su listado. En ese caso es el comportamiento deseado.
+- Si falla la carga de lotes, un `?lote=` muestra dos toasts: el de la carga y el del lote no encontrado.
+- La moneda del precio del inventario es una constante del frontend hasta que el schema tenga moneda en `Lote`.
+- El mapa de variantes de color del subestado está replicado en `Insignias.jsx` porque `SubstatusBadge` no lo exporta: si cambian los colores allí, hay que actualizar ambos.
+- El botón "Generar" se ve con el azul de Bootstrap (`.btn-primary` pisa la regla propia) y no con `--color-action-primary`; queda para 39.5, junto con los estados de pantalla.
+
+Archivos:
+
+- `frontend/src/components/Reportes/VistaInventario.jsx`
+- `frontend/src/components/Reportes/TablaReportes.jsx`
+- `frontend/src/lib/fechas.js`
+- `frontend/src/lib/api/reportes.js`
+- `frontend/src/lib/api/reportes.mock.js`
+- `frontend/src/pages/Reportes.jsx`
+- `frontend/src/pages/Reportes.css`
+- `frontend/src/pages/Dashboard.jsx`
+- Jira CCLF-60 (39.2), CCLF-53 (backend, AI-017) y CCLF-59 (pantalla base, AI-018)
+- `AI-DECISIONS.md`
+- `frontend/src/components/Reportes/etiquetas.js`
+- `frontend/src/components/Reportes/Insignias.jsx`
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.
