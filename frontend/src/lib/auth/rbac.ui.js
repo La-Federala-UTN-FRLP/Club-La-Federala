@@ -111,3 +111,10 @@ export function canUseDeudorFilter(user) {
 export function canSeeDeuda(user) {
   return hasRole(user, "ADMINISTRADOR") || hasRole(user, "GESTOR");
 }
+
+// Editor de lote: los campos no técnicos (todos menos subestado y superficie) los edita solo
+// ADMINISTRADOR y GESTOR. TECNICO edita únicamente subestado y superficie: el backend descarta el resto.
+// Falla cerrada: sin usuario o con otro rol, false.
+export function canEditLoteComercial(user) {
+  return hasRole(user, "ADMINISTRADOR") || hasRole(user, "GESTOR");
+}
