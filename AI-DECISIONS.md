@@ -1802,6 +1802,94 @@ Archivos:
 - Jira CCLF-56 (38.5), CCLF-37 (especificación) y CCLF-53, CCLF-54 y CCLF-55 (reportes JSON, AI-017, AI-020 y AI-025)
 - `AI-DECISIONS.md`
 
+### AI-027 — Adaptación de Files a Google Cloud Storage
+
+**Fecha:** 2026-11-24
+**Área:** Backend / Files / Storage / Cloud
+**Herramientas:** ChatGPT y Claude Code en el análisis, el diseño, la implementación y la revisión.
+
+#### Problema
+
+Files estaba acoplado a Supabase Storage. `file.service.ts` subía, firmaba y borraba con `@supabase/supabase-js`, y el proceso web no arrancaba sin `SUPABASE_URL` y `SUPABASE_SERVICE_KEY`. Staging en Google Cloud (`la-federala-staging-utn`, bucket `federala-staging-files-28822223940`) no debía quedar atado a Supabase de forma provisional. Render sí debe seguir usando Supabase. GitHub #288 / CCLF-21 / CL-07.
+
+#### Prompt / intención
+
+Auditar el módulo en solo lectura y, con el diseño aprobado, implementarlo sin migraciones Prisma, sin cambiar OpenAPI, JWT ni RBAC, sin claves JSON y sin operar recursos de GCP. Conservar Render cuando `STORAGE_PROVIDER` no está. Después de la revisión de seguridad, corregir la clasificación de 404 en la purga, impedir que un `statusCode` del SDK salga como error HTTP de dominio y limitar la compensación del upload al fallo de metadata.
+
+#### Propuesta generada por IA
+
+Se compararon estas alternativas:
+
+- Un `if` dentro de `file.service.ts`. Menos archivos, pero el dominio queda atado a dos SDK.
+- Un adaptador de tres operaciones, elegido al arrancar. Es la opción adoptada.
+- Dejar solo GCS. Rompe Render y el entorno local.
+- Una columna Prisma `storageProvider`. No hace falta: cada despliegue tiene un solo bucket y `linkArchivo` ya es la ruta interna.
+- URLs firmadas de escritura para que el navegador suba directo. Cambia el modelo de autorización.
+- Un puerto hexagonal con contenedor de inyección. Desproporcionado para tres llamadas.
+
+La propuesta adoptada:
+
+- Interfaz `putObject`, `getSignedReadUrl` y `deleteObject`. Rutas, UUID, metadata y RBAC siguen en `file.service.ts`.
+- `STORAGE_PROVIDER`: ausente o vacío equivale a `supabase`. `gcs` exige `GCS_BUCKET` y no exige credenciales de Supabase. El job de vencimientos no lee storage.
+- GCS con Application Default Credentials, sin clave JSON y sin `GOOGLE_APPLICATION_CREDENTIALS`. Subida no resumible, `ifGenerationMatch: 0`, sin ACL, contenido `application/octet-stream`. URL firmada V4 de lectura, 3600 segundos.
+- Sin migración Prisma.
+- Compensación best-effort: si el objeto se sube y falla la metadata, o si falla la transacción de una sustitución, se intenta borrar solo el objeto nuevo. No hay transacción distribuida.
+- Dos sustituciones del mismo id: `updateMany` condicionado a `id` y `estadoOperativo = OPERATIVO`. Una sola crea la fila nueva. La otra responde el 400 ya existente y compensa su objeto.
+- Purga: si el objeto se borra o se confirma que no existe, se borra la fila (204). Un error real de storage conserva la metadata. Esto corrige el comportamiento anterior, que borraba la fila aunque Supabase fallara.
+- Correcciones posteriores a la revisión de seguridad: no usar `ignoreNotFound` de GCS, porque un 404 también es "el bucket no existe"; distinguir objeto ausente y bucket ausente por el mensaje estable de cada SDK; un 404 ambiguo falla y conserva la fila; `asStorageError` no copia `statusCode` del SDK; el 409 de path duplicado sigue siendo el de `StorageConflictError`; la compensación no corre si la metadata ya se guardó y después falla el envío de la respuesta.
+
+#### Validación humana
+
+- La auditoría de solo lectura se revisó antes de implementar. El equipo aprobó la arquitectura de adaptadores, el default `supabase`, la ausencia de migración y el alcance de las compensaciones.
+- La implementación completa se revisó en una revisión cruzada. El cambio de arquitectura fue aprobado, con la observación de que faltaba esta entrada.
+- La persona responsable fijó las restricciones: no desplegar, no tocar IAM desde el código, no cambiar contratos HTTP de negocio y no presentar CL-07 como probado contra el bucket real.
+
+#### Decisión adoptada
+
+Quedó implementado en `feat/CCLF-21-gcs-files-adapter`, pendiente de integrar por PR:
+
+- Adaptadores `SupabaseStorageProvider` y `GcsStorageProvider`, elegidos por `STORAGE_PROVIDER`.
+- Render sin la variable sigue en Supabase. Staging puede arrancar con `gcs` y `GCS_BUCKET`.
+- Compensación best-effort, sustitución condicionada y purga que conserva la fila ante un error real, un bucket inexistente o un 404 ambiguo.
+- Errores inesperados del SDK normalizados como `StorageOperationError`, sin convertir su status en respuesta pública. El 409 de negocio se mantiene.
+
+No está desplegado. No se ejecutó ninguna operación contra el bucket de GCS.
+
+#### Evidencia / archivos relacionados
+
+Verificado en la implementación, con los resultados informados al cierre:
+
+- `npm test`: 96 suites, 3449 tests aprobados.
+- `npm run typecheck` y `npm run build` correctos.
+- `git diff --check` correcto.
+- Tests de ambos adaptadores, de compensación, de sustitución concurrente, de purga (objeto ausente, bucket ausente, 404 ambiguo, permisos y metadata conservada) y HTTP (403 y 404 técnico del proveedor en 500 sin el mensaje interno; 409 de negocio intacto).
+- Revisión cruzada favorable, con la observación documental que cubre esta entrada.
+
+No verificado:
+
+- Habilitar `iamcredentials.googleapis.com` y conceder `iam.serviceAccounts.signBlob` a `federala-web-sa` sobre sí misma. Sin eso, la URL firmada en Cloud Run no puede emitirse.
+- Despliegue del servicio en Cloud Run con `STORAGE_PROVIDER=gcs`.
+- Pruebas reales de subida, firma, sustitución y purga contra `federala-staging-files-28822223940`.
+- CORS `GET`/`HEAD` del bucket para el origen real del frontend. La vista previa hace `fetch` de la URL firmada.
+- El caso en que la compensación también falla: el objeto nuevo puede quedar huérfano. No hay job de reconciliación.
+
+Archivos:
+
+- `Backend/src/storage/object-storage.ts`
+- `Backend/src/storage/supabase-storage.provider.ts`
+- `Backend/src/storage/gcs-storage.provider.ts`
+- `Backend/src/storage/index.ts`
+- `Backend/src/services/file.service.ts`
+- `Backend/src/controllers/file.controller.ts`
+- `Backend/src/config/env.ts`
+- `Backend/src/utils/safeErrorLog.ts`
+- `Backend/tests/unit/storage/storage.providers.test.ts`
+- `Backend/tests/unit/services/file.storage.test.ts`
+- `Backend/tests/unit/security/files.storage-errors.routes.test.ts`
+- `docs/architecture/backend.md`
+- GitHub #288, CCLF-21 / CL-07
+- `AI-DECISIONS.md`
+
 
 ## Plantilla para entradas nuevas
 

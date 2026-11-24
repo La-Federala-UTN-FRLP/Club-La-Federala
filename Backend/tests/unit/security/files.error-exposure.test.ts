@@ -19,7 +19,8 @@ jest.mock('../../../src/services/file.service', () => ({
     restoreFileById: jest.fn(),
     updateAprobacionPlano: jest.fn(),
     purgeFileById: jest.fn(),
-    uploadFileToSupabase: jest.fn(),
+    uploadObject: jest.fn(),
+    compensateUploadedObject: jest.fn(),
     saveFileMetadata: jest.fn(),
 }));
 
@@ -32,6 +33,7 @@ jest.mock('../../../src/config/prisma', () => ({
 }));
 
 import request from 'supertest';
+import express from 'express';
 import app from '../../../src/app';
 import * as FileService from '../../../src/services/file.service';
 import prisma from '../../../src/config/prisma';
@@ -105,7 +107,7 @@ const CASOS: Caso[] = [
     ['POST /:id/url (firma en storage)', () => service.generateSignedUrl.mockRejectedValue(errorSensible()), () => request(app).post('/api/files/7/url').set(ADMIN)],
     [
         'POST / (storage)',
-        () => service.uploadFileToSupabase.mockRejectedValue(errorSensible()),
+        () => service.uploadObject.mockRejectedValue(errorSensible()),
         () => adjuntarPdf(request(app).post('/api/files').set(ADMIN).field('idLoteAsociado', '3').field('tipo', 'PLANO')),
     ],
     [
@@ -155,7 +157,7 @@ describe('errores de dominio conocidos conservan status y mensaje', () => {
         ['DELETE /:id/purge', 'purgeFileById', 404, 'Archivo no encontrado', () => request(app).delete('/api/files/7/purge').set(ADMIN)],
         [
             'POST / (storage: path duplicado)',
-            'uploadFileToSupabase',
+            'uploadObject',
             409,
             'El archivo ya existe en storage (path duplicado). Reintente.',
             () => adjuntarPdf(request(app).post('/api/files').set(ADMIN).field('idLoteAsociado', '3').field('tipo', 'PLANO')),
@@ -166,6 +168,34 @@ describe('errores de dominio conocidos conservan status y mensaje', () => {
         expect(res.status).toBe(status);
         // Contrato de error (D4): status y mensaje de dominio intactos, más success y code.
         expect(res.body).toEqual({ success: false, code: CODE_POR_STATUS[status], message });
+    });
+
+    test('POST / compensa el objeto si la metadata no se persiste, y el 500 no filtra el error', async () => {
+        const objectPath = 'lote-3/PLANO/nuevo.pdf';
+        service.uploadObject.mockResolvedValue({ objectPath });
+        service.saveFileMetadata.mockRejectedValue(errorSensible());
+        const res = await adjuntarPdf(request(app).post('/api/files').set(ADMIN).field('idLoteAsociado', '3').field('tipo', 'PLANO'));
+        expect(service.compensateUploadedObject).toHaveBeenCalledWith(objectPath);
+        expectRespuestaSegura(res, errorSensible());
+    });
+
+    test('no compensa el objeto si la metadata ya se guardó y falla el envío de la respuesta', async () => {
+        const objectPath = 'lote-3/PLANO/nuevo.pdf';
+        service.uploadObject.mockResolvedValue({ objectPath });
+        service.saveFileMetadata.mockResolvedValue({ id: 9, filename: 'doc.pdf' });
+        const json = jest.spyOn(express.response, 'json').mockImplementationOnce(() => {
+            throw new Error('socket hang up');
+        });
+        try {
+            const res = await adjuntarPdf(
+                request(app).post('/api/files').set(ADMIN).field('idLoteAsociado', '3').field('tipo', 'PLANO'),
+            );
+            expect(service.compensateUploadedObject).not.toHaveBeenCalled();
+            expect(res.status).toBe(500);
+            expect(res.body.message).toBe('Error al subir archivo');
+        } finally {
+            json.mockRestore();
+        }
     });
 
     test('POST / con venta de otro lote conserva el 400 de dominio', async () => {

@@ -59,7 +59,9 @@ No es deuda del software freeze: es trabajo de la migración a Cloud. No se impl
 
 - Despliegue en Cloud Run (servicio web) con la imagen `runtime` del Dockerfile.
 - Cloud SQL, `prisma migrate deploy` en el pipeline y `DIRECT_URL` para migraciones.
-- Secret Manager para `DATABASE_URL`, `JWT_SECRET` y `SUPABASE_SERVICE_KEY`.
+- Secret Manager para `DATABASE_URL`, `JWT_SECRET` y, con el proveedor `supabase`, `SUPABASE_SERVICE_KEY`. `GCS_BUCKET` es configuración del proveedor `gcs`.
+- Firma de URLs en GCS, todavía pendiente: habilitar `iamcredentials.googleapis.com` y conceder `iam.serviceAccounts.signBlob` a `federala-web-sa` sobre sí misma. Sin eso el código no puede firmar desde Cloud Run.
+- CORS del bucket de archivos para el origen real del frontend, todavía pendiente. El bucket sigue privado.
 - Cloud Scheduler + Cloud Run Job para `node dist/jobs/runExpirations.js` (cadencia esperada: horaria).
 - IP real del cliente detrás de Cloud Run y decisión de `trust proxy` (el contrato actual, `CF-Connecting-IP`, es específico de Render).
 - Store compartido de rate limit y comportamiento con varias instancias; `max-instances`.
@@ -119,7 +121,7 @@ El código no toca Render ni Vercel: estos valores hay que verificarlos a mano e
 - `JWT_SECRET` de al menos 32 caracteres (si no, el proceso no arranca).
 - `JWT_EXPIRES_IN` con unidad, por ejemplo `2h` (un número sin unidad no arranca).
 - `FRONTEND_URL` = el origin exacto del frontend desplegado (sin path ni barra final).
-- `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` presentes.
+- `DATABASE_URL`, `SUPABASE_URL` y `SUPABASE_SERVICE_KEY` presentes. `STORAGE_PROVIDER` puede omitirse: el default es `supabase`.
 - Comando de arranque: `node dist/server.js` (o `npm start`) después de `npm ci && npm run build`; nunca `npm run dev`.
 - **Antes de aplicar la migración `20261113120000_prioridad_una_activa_por_lote`**, correr contra la base de producción (solo lectura) y confirmar que devuelve 0 filas:
 
