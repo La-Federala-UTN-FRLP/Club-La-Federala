@@ -8,6 +8,8 @@ import { getVentaAsociadaByLoteId } from "../../../lib/api/ventas.js";
 import { getAllPersonas } from "../../../lib/api/personas.js";
 import { uploadArchivo, getArchivosByLote, deleteArchivo, getFileSignedUrl } from "../../../lib/api/archivos.js";
 import { useToast } from "../../../app/providers/ToastProvider.jsx";
+import { useAuth } from "../../../app/providers/AuthProvider.jsx";
+import { canSeeDeuda } from "../../../lib/auth/rbac.ui.js";
 import { getLoteIdFormatted } from "../../Table/TablaLotes/utils/getters.js";
 import PersonaSearchSelect from "./PersonaSearchSelect.jsx";
 import LoteImageUploader from "./LoteImageUploader.jsx";
@@ -163,6 +165,8 @@ export default function LoteEditarCard({
   lotes,
 }) {
   const { success, error: showError } = useToast();
+  const { user } = useAuth();
+  const puedeVerDeuda = canSeeDeuda(user);
   const [detalle, setDetalle] = useState(lote || null);
   const [loadingDetalle, setLoadingDetalle] = useState(false);
   const [form, setForm] = useState(buildInitialForm(lote));
@@ -378,7 +382,7 @@ export default function LoteEditarCard({
       if (precio != null) payload.precio = precio;
 
       if (form.descripcion != null) payload.descripcion = form.descripcion;
-      payload.deuda = Boolean(form.deuda);
+      if (puedeVerDeuda) payload.deuda = Boolean(form.deuda);
 
       const propietarioId = toNumberOrNull(form.propietarioId);
       if (propietarioId) payload.propietarioId = propietarioId;
@@ -720,7 +724,9 @@ export default function LoteEditarCard({
                   )}
                 </div>
               )}
-              <div className="field-row"><div className="field-label">Deuda</div><div className="field-value boolean-value"><input type="checkbox" checked={form.deuda} onChange={(e) => updateForm({ deuda: e.target.checked })} /><span>{form.deuda ? "Sí" : "No"}</span></div></div>
+              {puedeVerDeuda && (
+                <div className="field-row"><div className="field-label">Deuda</div><div className="field-value boolean-value"><input type="checkbox" checked={form.deuda} onChange={(e) => updateForm({ deuda: e.target.checked })} /><span>{form.deuda ? "Sí" : "No"}</span></div></div>
+              )}
             </div>
 
             <div className="lote-media-col">

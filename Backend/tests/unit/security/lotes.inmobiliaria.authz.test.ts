@@ -107,6 +107,17 @@ describe('INMOBILIARIA · lotes NO_DISPONIBLE', () => {
         expect(res.status).toBe(200);
         expect(res.body).toEqual({ success: true, data: null });
     });
+
+    test('promociones/activa: un NO_DISPONIBLE responde igual que un lote sin promoción o inexistente', async () => {
+        prismaMock.promocion.findFirst.mockResolvedValueOnce({ id: 1, loteId: 9, activa: true, lote: { id: 9, estado: 'NO_DISPONIBLE', precio: '30000' } });
+        const noDisponible = await request(app).get('/api/lotes/9/promociones/activa').set(headerDe('INMOBILIARIA'));
+        // Sin promoción activa (o lote inexistente) la consulta no encuentra nada.
+        prismaMock.promocion.findFirst.mockResolvedValueOnce(null);
+        const sinPromocion = await request(app).get('/api/lotes/999/promociones/activa').set(headerDe('INMOBILIARIA'));
+
+        expect(noDisponible.status).toBe(sinPromocion.status);
+        expect(noDisponible.body).toEqual(sinPromocion.body);
+    });
 });
 
 describe('INMOBILIARIA · campos sensibles', () => {
@@ -159,6 +170,23 @@ describe('INMOBILIARIA · prioridades', () => {
     test('prioridad PROPIA: se devuelve completa', async () => {
         const l = (await getLotes('INMOBILIARIA')).body.data.lotes.find((x: any) => x.id === 3);
         expect(l.prioridad).toEqual([prioridadDe(71, TENANT)]);
+    });
+
+    test('INMOBILIARIA sin inmobiliariaId: todas las prioridades salen solo con id (falla cerrada)', async () => {
+        const sinTitular = { id: 73, ownerType: 'INMOBILIARIA', inmobiliaria: null }; // inmobiliariaId undefined
+        prismaMock.lote.findMany.mockImplementationOnce(async () => [...filasListado(), lote(5, 'CON_PRIORIDAD', { prioridad: [sinTitular] })]);
+        const res = await request(app).get('/api/lotes').set(authHeader('INMOBILIARIA'));
+
+        expect(res.status).toBe(200);
+        const prioridades = res.body.data.lotes.flatMap((l: any) => l.prioridad);
+        expect(prioridades).toEqual([{ id: 70 }, { id: 71 }, { id: 72 }, { id: 73 }]);
+    });
+
+    test('con el inmobiliariaId del tenant pero ownerType CCLF no se trata como propia', async () => {
+        const inconsistente = { ...prioridadDe(74, TENANT), ownerType: 'CCLF' };
+        prismaMock.lote.findMany.mockImplementationOnce(async () => [lote(6, 'CON_PRIORIDAD', { prioridad: [inconsistente] })]);
+        const [l] = (await getLotes('INMOBILIARIA')).body.data.lotes;
+        expect(l.prioridad).toEqual([{ id: 74 }]);
     });
 });
 

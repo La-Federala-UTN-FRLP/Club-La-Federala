@@ -7,7 +7,7 @@ export const lotesTablePreset = {
 
   COLUMN_TEMPLATES_BY_ROLE: {
     admin:        ['id','estado','subestado','propietario','precio','deuda'],
-    gestor:       ['id','estado','subestado','propietario','precio'],
+    gestor:       ['id','estado','subestado','propietario','precio','deuda'],
     tecnico:      ['id','estado','subestado','superficie'],
     inmobiliaria: ['id','estado','propietario','ubicacion','precio'],
   },

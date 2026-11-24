@@ -1280,7 +1280,6 @@ Se corrige LOT-03 en el backend: para INMOBILIARIA se excluyen los lotes NO_DISP
 - `Backend/documents/documentacionApi.yaml`
 - `docs/qa/resultados/api-permisos-2026-11-21.md`
 - Jira CCLF-30 · bug LOT-03
-- `AI-DECISIONS.md`
 
 ### AI-020 — Reporte de ventas por período
 
@@ -1337,6 +1336,131 @@ Implementar la subtarea 38.3 (CCLF-54): iniciadas por fecha de alta, escriturada
 - Jira CCLF-54 · Issue #321
 - `AI-DECISIONS.md`
 
+### AI-021 — Oráculos de existencia de lotes NO_DISPONIBLE
+
+**Fecha:** 2026-11-23
+**Área:** Seguridad / Backend
+**Herramientas:** Claude Code
+
+#### Problema
+
+Después de AI-019 (#340), INMOBILIARIA ya no ve los lotes NO_DISPONIBLE en `/api/lotes`, pero la revisión de #340 encontró caminos que permitían deducir qué IDs existen y son NO_DISPONIBLE:
+
+- `POST /api/reservas` y `POST /api/prioridades`: un lote inexistente respondía 404 "Lote no encontrado" y uno NO_DISPONIBLE, 400 por `assertLoteOperableFor` (`loteState.rules.ts`);
+- `GET /api/files/lote/:idLoteAsociado`: un lote inexistente devolvía `[]` y uno NO_DISPONIBLE, sus PLANO e IMAGEN;
+- `GET /api/files/:id` y `POST /api/files/:id/url`: un archivo inexistente respondía 404, pero un PLANO o IMAGEN de un lote NO_DISPONIBLE respondía 200 (la metadata incluye `idLoteAsociado`) o generaba la URL firmada.
+
+#### Prompt / intención
+
+Que esos caminos respondan a INMOBILIARIA exactamente lo mismo (status y body) para un lote NO_DISPONIBLE que para uno inexistente, sin cambiar ADMINISTRADOR, GESTOR ni TECNICO, sin tocar storage (Supabase/GCS; la migración #288 todavía no empezó) y sumando los tests no bloqueantes de la revisión de #340. En Files por ID, la regla va en la autorización de archivos y se revisan los demás endpoints con `:id` accesibles para INMOBILIARIA.
+
+#### Propuesta generada por IA
+
+- `createReserva` y `createPrioridad`: `if (!lote || (INMOBILIARIA && NO_DISPONIBLE))` con el mismo error de "lote no encontrado" que ya usa cada service (404 y mismo mensaje), antes de la regla de estado.
+- `listByLote`: en la rama de INMOBILIARIA, si el lote es NO_DISPONIBLE devuelve `[]`, igual que un lote inexistente. Sin cambios de storage.
+- Files por ID: `canUserAccessArchivo` (`file.auth.utils.ts`) recibe el estado del lote (`loteEstado`, opcional) y deniega a INMOBILIARIA los archivos de un lote NO_DISPONIBLE; `verifyArchivoAccess` (`file.controller.ts`) lo consulta solo para INMOBILIARIA. Al denegar, los dos endpoints ya responden el mismo 404 que un archivo inexistente (convención de AI-012), antes de tocar storage.
+- Revisión de `files.routes.ts`: los demás endpoints con `:id` (restore, purge, aprobaciones, sustituir, delete) no admiten INMOBILIARIA en la ruta; no se tocaron.
+- `stripFieldsForInmobiliaria` (AI-019): la prioridad propia exige también `ownerType === 'INMOBILIARIA'`, como `prioridad.service`.
+- Sin cambios de rutas ni de OpenAPI: los controllers de reservas y prioridades ya transportan `req.user` y el 404 ya está documentado.
+
+### Validación humana
+
+- Tests RED→GREEN: 4 fallaban antes del fix y pasan 18/18 después, con casos de control.
+- Suite completa: 87 suites / 3292 tests OK; `npm run typecheck` y `npm run build` OK.
+- `npm run qa:api`: 38 PASS / 0 FAIL.
+- Verificación manual en navegador como INMO A: `GET /lotes/21` (NO_DISPONIBLE) y `GET /lotes/999999` (inexistente) devuelven el mismo 404 "Lote no encontrado"; `GET /files/lote/21` devuelve `[]`.
+- Se incorporaron los tests sugeridos en la review del PR #340 (falla cerrada sin tenant, promoción activa, `ownerType`).
+- Se decidió cerrar también el oráculo de Files por ID en este PR, después de verificar que la migración a GCS (#288) todavía no empezó.
+
+### Decisión adoptada
+
+Para el rol INMOBILIARIA, un lote NO_DISPONIBLE se comporta como inexistente en todos los puntos de acceso: creación de reservas y prioridades (404), listado de archivos del lote (`[]`) y archivo por ID o URL firmada (404). La prioridad propia se reconoce solo si coinciden `inmobiliariaId` y `ownerType === 'INMOBILIARIA'`. Los roles ADMINISTRADOR, GESTOR y TECNICO no cambian.
+
+#### Resultado
+
+- RED (reservas, prioridades y listado): `tests/unit/security/lotes.no-disponible.oraculos.test.ts`, 10 tests; los 3 de INMOBILIARIA fallaban por el motivo esperado (reservas y prioridades respondían 400 donde un inexistente da 404; Files listaba 2 archivos donde un inexistente da `[]`) y los 7 controles de ADMINISTRADOR/GESTOR pasaban.
+- RED (Files por ID): el mismo archivo pasó a 18 tests; 4 fallaban (`GET /api/files/:id` respondía 200 y `POST /api/files/:id/url` pasaba la autorización e intentaba firmar, para PLANO e IMAGEN de un lote NO_DISPONIBLE) y pasaban el control de un lote DISPONIBLE y los controles de ADMINISTRADOR/GESTOR/TECNICO.
+- GREEN: 18/18.
+- Revisión de #340 en `lotes.inmobiliaria.authz.test.ts`: 3 tests nuevos; falla cerrada sin tenant y promoción activa ya pasaban con el código de AI-019; el de `ownerType` fallaba (1 de 24) y pasó con el cambio (24/24).
+- `files.tipo.authz.test.ts`: se agregó `lote.findUnique` al mock de Prisma, sin cambiar lo que prueba.
+- Backend: typecheck PASS; 87 suites, 3292 tests PASS; paridad OpenAPI 84 operaciones `/api` + `GET /health`; build PASS; `git diff --check` limpio.
+- `npm run qa:api` no se corrió: el entorno QA no estaba levantado.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/services/reserva.service.ts`
+- `Backend/src/services/prioridad.service.ts`
+- `Backend/src/services/file.service.ts`
+- `Backend/src/utils/file.auth.utils.ts`
+- `Backend/src/controllers/file.controller.ts`
+- `Backend/src/services/lote.service.ts`
+- `Backend/tests/unit/security/lotes.no-disponible.oraculos.test.ts`
+- `Backend/tests/unit/security/lotes.inmobiliaria.authz.test.ts`
+- `Backend/tests/unit/security/files.tipo.authz.test.ts`
+- Revisión de #340 · Refs #297
+
+### AI-022 — Campos "Actualizado" y "Deuda" de lotes según el rol
+
+**Fecha:** 2026-11-23
+**Área:** Frontend / Lotes
+**Herramientas:** Claude Code
+
+#### Problema
+
+QA (#297) encontró dos problemas en el detalle de lote (`LoteVerCard.jsx`):
+
+- "Actualizado" se mostraba vacío o incorrecto para todos los roles: `lote.service.ts` nunca setea `updateAt`, y ningún requerimiento documentado pide el campo.
+- "Deuda" aparecía como "Sin información" para INMOBILIARIA y TECNICO, porque desde AI-019 el backend ya no les envía `deuda`.
+
+El líder del proyecto (Nico) decidió eliminar "Actualizado" del detalle para todos los roles y que la deuda la vean y editen solo ADMINISTRADOR y GESTOR, en toda la UI. Al aplicar esa regla aparecieron dos lugares más:
+
+- Tabla de lotes: la columna "deuda" solo estaba en el preset de ADMINISTRADOR (faltaba GESTOR), y el selector de columnas se la ofrecía a INMOBILIARIA y TECNICO, que la veían vacía porque el backend no les envía `deuda`; una selección guardada en el navegador también podía mostrarla.
+- Editor de lote (`LoteEditarCard.jsx`): mostraba el checkbox "Deuda" a TECNICO y mandaba `deuda` en el payload para todos los roles. Para TECNICO, el backend filtra el payload a `subestado`, `superficie` y `archivos`: con otros campos válidos el cambio de deuda se ignoraba en silencio, y con `deuda` como único campo respondía 403.
+
+#### Prompt / intención
+
+Aplicar la regla con cambios mínimos y solo de frontend, reutilizando el usuario que ya existe (`useAuth()`) y un único criterio de rol en `rbac.ui.js`, sin tocar backend, OpenAPI ni Prisma; contemplar las columnas guardadas en el navegador; no cambiar qué campos manda el editor más allá de no incluir `deuda`; y listar, sin modificarlos, otros lugares con `updateAt`/`updatedAt` o `deuda` de lotes y los campos no técnicos que el editor le muestra a TECNICO.
+
+#### Propuesta generada por IA
+
+- `lib/auth/rbac.ui.js`: nuevo helper `canSeeDeuda(user)` (ADMINISTRADOR o GESTOR con `hasRole`; sin usuario u otro rol, `false`), junto a `canUseDeudorFilter`, para no repetir la lista de roles en cada componente. No se reutilizó `canUseDeudorFilter` porque deduce INMOBILIARIA por permisos y devuelve `true` para un usuario sin rol (no falla cerrado); se dejó sin cambios.
+- `LoteVerCard.jsx`: quitar la fila `["ACTUALIZADO", …]` y agregar la fila `["DEUDA", …]` solo si `canSeeDeuda(user)`.
+- `Table/TablaLotes/presets/lotes.table.jsx`: agregar `'deuda'` al final del preset de `gestor`, en la misma posición relativa que en `admin` (después de `precio`). La definición de la columna es compartida, así que no cambia; los presets de `tecnico` e `inmobiliaria` quedan igual.
+- `Table/TablaLotes/TablaLotes.jsx`: excluir la columna `deuda` del catálogo `ALL_SAFE` salvo que `canSeeDeuda(auth.user)` (el usuario que la tabla ya obtiene de `useAuth()`). El selector recibe `all={ALL_SAFE}` y las columnas guardadas en `localStorage` y las visibles se filtran contra `ALL_SAFE`, así que un solo cambio cubre el selector, la tabla y una selección guardada. Sin usuario, la columna no se ofrece.
+- `Cards/Lotes/LoteEditarCard.jsx`: obtener `user` con `useAuth()`; el checkbox "Deuda" y `payload.deuda` quedan solo si `canSeeDeuda(user)`. El resto del payload no cambia.
+- Un commit por cambio: dos sobre `LoteVerCard.jsx` (primero "Actualizado", después "Deuda"), uno para el preset, uno para el helper (antes de los que lo usan), uno para `TablaLotes.jsx` y uno para `LoteEditarCard.jsx`.
+- Sin tests: el frontend no tiene infraestructura de tests (no hay script `test` ni archivos `*.test.*`) y no se creó.
+- Otros usos relevados, sin cambios: `LoteSidePanel.jsx` (mapa) muestra "Deuda" solo si `deuda` es true, así que no aparece para INMOBILIARIA ni TECNICO, porque el backend no la envía; `LABELS` de `LoteEditarCard.jsx` conserva `"DEUDA"` porque solo calcula el ancho de las etiquetas. `updateAt`/`updatedAt` no se muestra en otros componentes de lotes (los demás usos son de inmobiliarias, reservas, ventas y prioridades).
+- Campos no técnicos que el editor le muestra a TECNICO y que el backend descarta en silencio (para TECNICO solo acepta `subestado` y `superficie`), sin cambios, para decidir aparte: Número Partida, Tipo (y Nombre del Espacio Común y Capacidad), Estado, Precio, Propietario, Calle, Número, Ocupación e Inquilino.
+- La tabla guarda en `localStorage` las columnas elegidas por cada usuario: un GESTOR con una selección guardada ve la nueva columna después de restablecer las columnas en el selector (o de limpiar el almacenamiento).
+
+### Validación humana
+
+- Revisión del diff: cambios solo de frontend; la regla de visibilidad se centralizó en el helper `canSeeDeuda(user)` de `rbac.ui.js` (true solo para ADMINISTRADOR y GESTOR). Se descartó reutilizar `canUseDeudorFilter` porque devuelve true para cualquier rol que no sea INMOBILIARIA o TECNICO, incluso un usuario sin rol.
+- `npm run build` OK. Lint de los archivos tocados: mismos hallazgos que en `main` (preexistentes), ninguno nuevo. El frontend no tiene tests automatizados.
+- Verificación por API (base QA local): el backend no envía `deuda` a INMOBILIARIA (0/45 lotes) ni a TECNICO (0/47); `PUT /api/lotes/:id` con `deuda` como TECNICO → 403; desde el editor, el backend respondía 200 descartando la deuda en silencio.
+- Prueba manual en navegador con las cuatro cuentas QA sobre `Lote2-4`: ADMINISTRADOR y GESTOR ven y editan la deuda en el detalle, la tabla, el selector de columnas y el editor; INMOBILIARIA y TECNICO no la ven en ningún lugar; "Actualizado" no aparece para ningún rol; el filtro "Deudor" ya estaba oculto para INMOBILIARIA y TECNICO.
+- Se descartó corregir `updateAt` en el backend: no hay requerimiento que pida el campo y el freeze pre-Cloud solo admite bugs reales.
+- Queda fuera del alcance, para otro PR: el editor le muestra a TECNICO campos no técnicos (precio, propietario, estado, etc.) que el backend descarta en silencio.
+
+### Decisión adoptada
+
+Por decisión del líder del proyecto (Nico) y en línea con la Guía QA (LOT-04, LOT-10, LOT-27, LOT-33): la deuda la ven y la editan solo ADMINISTRADOR y GESTOR en toda la interfaz (detalle, tabla, selector de columnas y editor), y "Actualizado" se elimina del detalle de lote para todos los roles. La regla vive en un único helper (`canSeeDeuda`) para que la UI quede alineada con el backend.
+
+#### Resultado
+
+- `npm run build` PASS con cada uno de los cambios (detalle sin "Actualizado", "Deuda" condicionada, preset de GESTOR, selector de columnas y editor).
+- `npx eslint` sobre los cinco archivos tocados: mismos hallazgos que en `main`, comparados regla por regla (`LoteVerCard.jsx` 1 error y 4 warnings; `lotes.table.jsx` 1; `TablaLotes.jsx` 4 errores y 3 warnings; `LoteEditarCard.jsx` 6 errores y 1 warning; `rbac.ui.js` sin cambios en sus hallazgos; todos preexistentes); los cambios no agregan ninguno. `npm run lint` global sigue con los errores preexistentes del baseline (lint masivo pendiente post-Cloud).
+- Prueba manual por rol (qa.admin, qa.gestor, qa.inmo.a, qa.tecnico) en el detalle, la tabla, el selector de columnas y el editor: PENDIENTE.
+
+#### Evidencia / archivos relacionados
+
+- `frontend/src/components/Cards/Lotes/LoteVerCard.jsx`
+- `frontend/src/components/Table/TablaLotes/presets/lotes.table.jsx`
+- `frontend/src/components/Table/TablaLotes/TablaLotes.jsx`
+- `frontend/src/components/Cards/Lotes/LoteEditarCard.jsx`
+- `frontend/src/lib/auth/rbac.ui.js`
+- Refs #297
 
 ### AI-023 — Vista de inventario de lotes (frontend) y apertura de un lote desde la URL
 
@@ -1431,6 +1555,7 @@ Archivos:
 - `AI-DECISIONS.md`
 - `frontend/src/components/Reportes/etiquetas.js`
 - `frontend/src/components/Reportes/Insignias.jsx`
+
 
 ## Plantilla para entradas nuevas
 
