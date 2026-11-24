@@ -43,6 +43,8 @@ const corsOptions = {
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  // El frontend lee el nombre del .xlsx de los reportes (CCLF-56) desde Content-Disposition.
+  exposedHeaders: ['Content-Disposition'],
   optionsSuccessStatus: 204,
 }
 
