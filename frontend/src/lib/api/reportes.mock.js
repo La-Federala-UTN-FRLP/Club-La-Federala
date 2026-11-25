@@ -206,9 +206,13 @@ export async function getInventario({ fraccion, estado, subestado } = {}) {
 }
 
 /* --------------------------------- ventas -------------------------------- */
-// [ventaId, numero, loteId, altaHaceDias, escrituraHaceDias, cancelacionHaceDias, estado, montoUSD]
+// [ventaId, numero, loteId, altaHaceDias, escrituraHaceDias, cancelacionHaceDias, estado, monto]
 // Los desplazamientos son días antes del corte (null = sin esa fecha).
 // Las ventas 291-294 son antiguas: solo entran en períodos largos y alimentan las cuotas en ARS.
+//
+// El monto va en la moneda de la venta, que es la de su plan (PLANES, en la sección de
+// cuotas). Las ventas en USD repiten el precio del lote; las de ARS están en pesos, así que
+// no coinciden con `Lote.precio`, que el schema guarda sin moneda y el club lleva en USD.
 const VENTAS = [
   [291, "CCLF-2025-04", 9021, 300, 290, null, "ESCRITURADO", "87000.00"],
   [292, "CCLF-2025-09", 9008, 280, 270, null, "ESCRITURADO", "72000.00"],
@@ -227,15 +231,47 @@ const VENTAS = [
   [311, "CCLF-2026-11", 9005, 9, null, null, "INICIADA", "61000.00"],
   [312, "CCLF-2026-12", 9003, 22, null, 3, "CANCELADA", "54000.00"],
   [313, "CCLF-2026-13", 9057, 70, null, 55, "CANCELADA", "71000.00"],
+  // Ventas con plan en ARS, para que `otrasMonedas` tenga movimiento en el período de 30 días
+  // (la 314, por su alta) y en el anterior (la 315, por su alta y su cancelación).
+  [314, "CCLF-2026-14", 9022, 12, null, null, "CON_BOLETO", "38500000.00"],
+  [315, "CCLF-2026-15", 9028, 40, null, 35, "CANCELADA", "26400000.00"],
+  // Sin plan de pagos: se informa en USD, como hace el backend con una venta sin plan.
+  [316, "CCLF-2026-16", 9006, 5, null, null, "INICIADA", "49500.00"],
 ].map(([ventaId, numero, loteId, altaOff, escOff, cancOff, estado, monto]) => ({
   ventaId, numero, loteId, altaOff, escOff, cancOff, estado, montoCents: toCents(monto),
 }));
 
 const VENTA_POR_ID = new Map(VENTAS.map((v) => [v.ventaId, v]));
 
-/** Ventas con sus fechas absolutas, calculadas contra el día de corte. */
+/** Moneda de una venta que no tiene plan de pagos, igual que el backend. */
+const MONEDA_VENTA_SIN_PLAN = "USD";
+
+/**
+ * Moneda de cada venta, tomada de su plan. `Venta` no tiene moneda propia en el schema: la
+ * única moneda del modelo es `PlanPago.moneda`, y acá vive en PLANES (sección de cuotas, más
+ * abajo: se lee recién al atender una consulta). Sin plan, la venta se informa en USD.
+ */
+function monedaPorVenta() {
+  return new Map(PLANES.map(([ventaId, moneda]) => [ventaId, moneda]));
+}
+
+// Qué fecha cuenta cada tarjeta y en qué estado tiene que estar la venta. Escriturada y
+// cancelada exigen el estado además de la fecha: ESCRITURADO y CANCELADA no tienen
+// transiciones de salida, así que una fecha cargada en otro estado no es un hecho ocurrido.
+const METRICAS = [
+  { tarjeta: "iniciadas", campoFecha: "fechaAlta", estado: null },
+  { tarjeta: "escrituradas", campoFecha: "fechaEscritura", estado: "ESCRITURADO" },
+  { tarjeta: "canceladas", campoFecha: "fechaCancelacion", estado: "CANCELADA" },
+];
+
+/** Día en que la venta cuenta para la métrica, o null si no cuenta. */
+const diaDeMetrica = (venta, { campoFecha, estado }) =>
+  estado !== null && venta.estado !== estado ? null : venta[campoFecha];
+
+/** Ventas con sus fechas absolutas y su moneda, calculadas contra el día de corte. */
 function ventasHidratadas(corte, fraccionId) {
   const dia = (off) => (off == null ? null : addDays(corte, -off));
+  const monedas = monedaPorVenta();
   return VENTAS
     .map((v) => {
       const lote = LOTE_POR_ID.get(v.loteId);
@@ -244,12 +280,13 @@ function ventasHidratadas(corte, fraccionId) {
         numero: v.numero,
         loteId: v.loteId,
         loteNumero: lote.numero,
-        fraccionId: lote.fraccionId, // solo para filtrar: no va en la fila
+        fraccionId: lote.fraccionId,
         fraccion: lote.fraccion,
+        estado: v.estado,
         fechaAlta: dia(v.altaOff),
         fechaEscritura: dia(v.escOff),
         fechaCancelacion: dia(v.cancOff),
-        estado: v.estado,
+        moneda: monedas.get(v.ventaId) ?? MONEDA_VENTA_SIN_PLAN,
         montoCents: v.montoCents,
       };
     })
@@ -286,35 +323,81 @@ export async function getVentas({ desde, hasta, fraccion } = {}) {
   const ventas = ventasHidratadas(corte, fraccionId);
   const enPeriodo = (fecha, p) => fecha != null && fecha >= p.desde && fecha <= p.hasta;
 
-  // Cada tarjeta cuenta la venta por su propia fecha: iniciadas por alta, escrituradas por
-  // escritura real y canceladas por cancelación. Una venta puede sumar en más de una tarjeta.
-  const tarjeta = (campoFecha) => {
-    const actuales = ventas.filter((v) => enPeriodo(v[campoFecha], periodo));
-    const anteriores = ventas.filter((v) => enPeriodo(v[campoFecha], periodoAnterior));
-    const suma = (lista) => lista.reduce((acc, v) => acc + v.montoCents, 0);
-    return {
-      cantidad: actuales.length,
-      montoUSD: fromCents(suma(actuales)),
-      cantidadAnterior: anteriores.length,
-      montoUSDAnterior: fromCents(suma(anteriores)),
-    };
-  };
+  // Un acumulado por moneda con las tres tarjetas: las monedas no se convierten ni se suman
+  // entre sí. Cada tarjeta cuenta la venta por su propia fecha, así que una sola venta puede
+  // sumar en hasta tres; en cada una entra en el período o en el anterior, nunca en los dos.
+  const metricaVacia = () => ({ cantidad: 0, cents: 0, cantidadAnterior: 0, centsAnterior: 0 });
+  const acumuladoVacio = () => ({
+    iniciadas: metricaVacia(),
+    escrituradas: metricaVacia(),
+    canceladas: metricaVacia(),
+  });
 
+  const porMoneda = new Map();
+  ventas.forEach((v) => {
+    const acumulado = porMoneda.get(v.moneda) ?? acumuladoVacio();
+    METRICAS.forEach((metrica) => {
+      const dia = diaDeMetrica(v, metrica);
+      const m = acumulado[metrica.tarjeta];
+      if (enPeriodo(dia, periodo)) {
+        m.cantidad += 1;
+        m.cents += v.montoCents;
+      } else if (enPeriodo(dia, periodoAnterior)) {
+        m.cantidadAnterior += 1;
+        m.centsAnterior += v.montoCents;
+      }
+    });
+    porMoneda.set(v.moneda, acumulado);
+  });
+
+  // Las tarjetas de USD nombran la moneda en la clave; las de las otras monedas, no.
+  const tarjetaUsd = (m) => ({
+    cantidad: m.cantidad,
+    montoUSD: fromCents(m.cents),
+    cantidadAnterior: m.cantidadAnterior,
+    montoUSDAnterior: fromCents(m.centsAnterior),
+  });
+  const tarjetaOtraMoneda = (m) => ({
+    cantidad: m.cantidad,
+    monto: fromCents(m.cents),
+    cantidadAnterior: m.cantidadAnterior,
+    montoAnterior: fromCents(m.centsAnterior),
+  });
+
+  // Sin ventas en USD las tres tarjetas van en cero, no ausentes.
+  const usd = porMoneda.get("USD") ?? acumuladoVacio();
+  const conMovimiento = (a) =>
+    Object.values(a).some((m) => m.cantidad > 0 || m.cantidadAnterior > 0);
+
+  // Una entrada por cada moneda distinta de USD con movimiento en alguno de los dos períodos.
+  const otrasMonedas = MONEDAS
+    .filter((moneda) => moneda !== "USD")
+    .map((moneda) => [moneda, porMoneda.get(moneda)])
+    .filter(([, acumulado]) => acumulado != null && conMovimiento(acumulado))
+    .map(([moneda, acumulado]) => ({
+      moneda,
+      iniciadas: tarjetaOtraMoneda(acumulado.iniciadas),
+      escrituradas: tarjetaOtraMoneda(acumulado.escrituradas),
+      canceladas: tarjetaOtraMoneda(acumulado.canceladas),
+    }));
+
+  // Filas: las ventas que suman en alguna tarjeta del período elegido, de cualquier moneda.
   const filas = ventas
-    .filter((v) =>
-      enPeriodo(v.fechaAlta, periodo) || enPeriodo(v.fechaEscritura, periodo) || enPeriodo(v.fechaCancelacion, periodo))
+    .filter((v) => METRICAS.some((metrica) => enPeriodo(diaDeMetrica(v, metrica), periodo)))
     .sort((a, b) => (a.fechaAlta < b.fechaAlta ? 1 : a.fechaAlta > b.fechaAlta ? -1 : b.ventaId - a.ventaId))
     .map((v) => ({
       ventaId: v.ventaId,
       numero: v.numero,
       loteId: v.loteId,
       loteNumero: v.loteNumero,
+      fraccionId: v.fraccionId,
       fraccion: v.fraccion,
+      estado: v.estado,
       fechaAlta: v.fechaAlta,
       fechaEscritura: v.fechaEscritura,
       fechaCancelacion: v.fechaCancelacion,
-      estado: v.estado,
-      montoUSD: fromCents(v.montoCents),
+      moneda: v.moneda,
+      monto: fromCents(v.montoCents),
       enlace: `/ventas?openId=${v.ventaId}`,
     }));
 
@@ -323,11 +406,11 @@ export async function getVentas({ desde, hasta, fraccion } = {}) {
     periodo,
     periodoAnterior,
     tarjetas: {
-      iniciadas: tarjeta("fechaAlta"),
-      escrituradas: tarjeta("fechaEscritura"),
-      canceladas: tarjeta("fechaCancelacion"),
+      iniciadas: tarjetaUsd(usd.iniciadas),
+      escrituradas: tarjetaUsd(usd.escrituradas),
+      canceladas: tarjetaUsd(usd.canceladas),
     },
-    otrasMonedas: [], // la entidad Venta no tiene moneda: siempre vacío
+    otrasMonedas,
     filas,
   };
 }
@@ -348,6 +431,10 @@ const PLANES = [
   [291, "ARS", 60, "450000.00", [6, 7, 8, 9]],
   [292, "ARS", 60, "380000.00", [6, 7, 8, 9]],
   [293, "ARS", 48, "210000.00", [5, 6, 7, 8]],
+  // Planes de las ventas en ARS nuevas. La lista de impagas va vacía a propósito: le dan la
+  // moneda al reporte de ventas sin agregar ninguna cuota al de cuotas vencidas.
+  [314, "ARS", 24, "1604166.67", []],
+  [315, "ARS", 36, "733333.33", []],
 ];
 
 const TRAMOS = ["1-30", "31-60", "+60"];

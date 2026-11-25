@@ -3,7 +3,13 @@
 // de la tabla de lotes (clases `tl-badge`), pero con el texto acentuado de etiquetas.js.
 
 import { getEstadoVariant } from "../Table/TablaLotes/cells/StatusBadge";
-import { VARIANTE_SUBESTADO, etiquetaEstado, etiquetaSubestado } from "./etiquetas";
+import {
+  VARIANTE_ESTADO_VENTA,
+  VARIANTE_SUBESTADO,
+  etiquetaEstado,
+  etiquetaEstadoVenta,
+  etiquetaSubestado,
+} from "./etiquetas";
 
 function Insignia({ texto, variante }) {
   return <span className={`tl-badge tl-badge--${variante}`}>{texto}</span>;
@@ -20,6 +26,16 @@ export function InsigniaSubestado({ value }) {
     <Insignia
       texto={etiquetaSubestado(value).toUpperCase()}
       variante={VARIANTE_SUBESTADO[value] ?? "muted"}
+    />
+  );
+}
+
+/** Insignia de estado de una venta (enum EstadoVenta). Un valor desconocido queda en gris. */
+export function InsigniaVenta({ estado }) {
+  return (
+    <Insignia
+      texto={etiquetaEstadoVenta(estado).toUpperCase()}
+      variante={VARIANTE_ESTADO_VENTA[estado] ?? "muted"}
     />
   );
 }
