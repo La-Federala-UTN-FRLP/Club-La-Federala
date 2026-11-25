@@ -62,6 +62,14 @@
   --reporte-aviso-texto: #5c4510;
   --reporte-aviso-icono: #8a6212;
 
+  /* Tramos de atraso de las cuotas vencidas: del amarillo al rojo según la antigüedad.
+     El rojo es el mismo que ya usa la barra de cancelaciones. Un tramo que el frontend no
+     conozca queda gris, con el fondo neutro que ya existe. */
+  --reporte-tramo-corto: #ebb648;
+  --reporte-tramo-medio: #d9822b;
+  --reporte-tramo-largo: #a8321e;
+  --reporte-tramo-desconocido: var(--reporte-delta-igual-bg);
+
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -800,4 +808,239 @@
 .reporte-tabla-card .tl-table {
   border: 0;
   border-radius: 0;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Vista de cuotas vencidas (39.4): selector de moneda, tarjeta de          */
+/* antigüedad de la deuda e insignia de atraso.                             */
+/*                                                                          */
+/* Mismo criterio que los bloques anteriores: prefijo `reporte-`, y las      */
+/* variables --reportes-* vienen de `.reportes-panel`.                       */
+/* ------------------------------------------------------------------------ */
+
+/* Selector de moneda: un segmented control con el mismo criterio visual que los chips de
+   reporte (activo con el verde del encabezado sobre verde claro), pero del alto de los campos
+   para que la fila de filtros quede alineada. */
+.reporte-moneda {
+  display: inline-flex;
+  gap: var(--space-1);
+  height: var(--reporte-alto-control);
+  padding: 4px;
+  background: var(--reportes-superficie);
+  border: 1px solid var(--reporte-borde-control);
+  border-radius: var(--reporte-radio-control);
+}
+
+/* El de la moneda es más angosto que un select: no necesita los 190px de `.reporte-filtro` */
+.reporte-filtro--moneda {
+  min-width: 0;
+}
+
+.reporte-moneda__opcion {
+  min-width: 64px;
+  padding: 0 14px;
+  color: var(--reporte-texto-medio);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+.reporte-moneda__opcion:hover {
+  color: var(--color-header-bg);
+}
+
+.reporte-moneda__opcion--activa,
+.reporte-moneda__opcion--activa:hover {
+  color: var(--color-header-bg);
+  background: var(--reporte-chip-activo-bg);
+  border-color: var(--color-header-bg);
+  font-weight: 600;
+}
+
+/* Con roving tabindex solo una opción es alcanzable con Tab, así que el foco tiene que verse:
+   es la única pista de que las flechas mueven la selección. */
+.reporte-moneda__opcion:focus-visible {
+  outline: 2px solid var(--color-header-bg);
+  outline-offset: 2px;
+}
+
+/* Saldo vencido y antigüedad en la misma fila: la de antigüedad ocupa el doble, como en el
+   boceto. Grid y no flex porque las dos tienen que medir lo mismo de alto y la proporción
+   tiene que ser estable en lugar de depender del contenido. */
+.reporte-cuotas-resumen {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(0, 2fr);
+  gap: var(--reporte-gap-kpis);
+  margin-bottom: var(--reporte-gap-seccion);
+}
+
+/* `.reporte-kpi` se corta en 280px, que es la medida de la fila de tarjetas chicas. Acá es una
+   celda del grid y tiene que llenarla: un saldo en pesos no entra en 280px. */
+.reporte-cuotas-resumen .reporte-kpi {
+  height: 100%;
+  max-width: none;
+}
+
+/* Tarjeta de antigüedad de la deuda */
+.reporte-antiguedad {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: 18px 20px;
+  background: var(--reportes-superficie);
+  border: 1px solid var(--reportes-borde);
+  border-radius: var(--reporte-radio-tarjeta);
+}
+
+.reporte-antiguedad__encabezado {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.reporte-antiguedad__titulo {
+  margin: 0;
+  color: var(--reporte-texto-suave);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.reporte-antiguedad__nota {
+  color: var(--reporte-texto-suave);
+  font-size: 12px;
+}
+
+/* La barra: un segmento por tramo con saldo. El ancho lo pone el componente con un `flex-grow`
+   igual al saldo del tramo, así que la proporción la reparte el navegador y la pantalla no suma
+   ni divide nada. `min-width` para que un tramo chico igual se vea: si tiene saldo, dibuja. */
+.reporte-antiguedad__barra {
+  display: flex;
+  gap: 3px;
+  height: 16px;
+  overflow: hidden;
+  border-radius: 999px;
+}
+
+.reporte-antiguedad__segmento {
+  flex-basis: 0;
+  min-width: 3px;
+  border-radius: 999px;
+}
+
+/* Leyenda: una columna por tramo, incluidos los que están en cero */
+.reporte-antiguedad__leyenda {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reporte-antiguedad__item {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.reporte-antiguedad__etiqueta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--reporte-texto-suave);
+  font-size: 12px;
+}
+
+.reporte-antiguedad__punto {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.reporte-antiguedad__saldo {
+  margin-top: var(--space-1);
+  color: var(--reporte-texto-fuerte);
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.reporte-antiguedad__cuotas {
+  color: var(--reporte-texto-suave);
+  font-size: 12px;
+}
+
+/* Color de un tramo: lo comparten el segmento de la barra y el punto de la leyenda, que son el
+   mismo dato dibujado dos veces. El sufijo lo da `sufijoTramo` (etiquetas.js). */
+.reporte-tramo--corto {
+  background: var(--reporte-tramo-corto);
+}
+
+.reporte-tramo--medio {
+  background: var(--reporte-tramo-medio);
+}
+
+.reporte-tramo--largo {
+  background: var(--reporte-tramo-largo);
+}
+
+.reporte-tramo--desconocido {
+  background: var(--reporte-tramo-desconocido);
+}
+
+/* Insignia de atraso de la tabla. No es `tl-badge`: esa fuerza mayúsculas y su variante warn es
+   amarillo sobre crema. Acá el texto va tal como lo escribe `etiquetaDiasAtraso`. */
+.reporte-insignia {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Sobre el amarillo y el naranja el blanco no llega al contraste mínimo, así que esos dos van
+   con el texto oscuro de la pantalla; el rojo del tramo largo sí admite el claro. */
+.reporte-insignia--tramo-corto {
+  color: var(--reporte-texto-fuerte);
+  background: var(--reporte-tramo-corto);
+}
+
+.reporte-insignia--tramo-medio {
+  color: var(--reporte-texto-fuerte);
+  background: var(--reporte-tramo-medio);
+}
+
+.reporte-insignia--tramo-largo {
+  color: var(--color-text-light);
+  background: var(--reporte-tramo-largo);
+}
+
+.reporte-insignia--tramo-desconocido {
+  color: var(--reporte-texto-medio);
+  background: var(--reporte-tramo-desconocido);
+}
+
+/* Siete columnas no entran en un teléfono: el ancho mínimo de las celdas hace la fila más ancha
+   que la tarjeta, y `.tl-table` recorta con overflow:hidden, así que las últimas columnas
+   quedarían invisibles. Con scroll propio se alcanzan sin que scrollee la página entera.
+   Acotado a `.reporte-cuotas`: la tabla de ventas queda como está. */
+.reporte-cuotas .tabla-reportes {
+  overflow-x: auto;
+}
+
+/* Abajo de ~900px las dos tarjetas del resumen no caben una al lado de la otra: el saldo en
+   pesos se iría del ancho de su celda. Se apilan y cada una usa el renglón entero. */
+@media (max-width: 900px) {
+  .reporte-cuotas-resumen {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

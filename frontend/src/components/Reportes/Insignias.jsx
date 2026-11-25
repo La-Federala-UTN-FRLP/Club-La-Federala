@@ -1,14 +1,23 @@
 // src/components/Reportes/Insignias.jsx
-// Insignias de estado y subestado para los reportes. Mismo aspecto y mismos colores que las
-// de la tabla de lotes (clases `tl-badge`), pero con el texto acentuado de etiquetas.js.
+// Insignias de los reportes.
+//
+// Las de estado y subestado tienen el mismo aspecto y los mismos colores que las de la tabla
+// de lotes (clases `tl-badge`), pero con el texto acentuado de etiquetas.js.
+//
+// La de tramo de atraso NO usa `tl-badge`: esa clase fuerza mayúsculas, y "MÁS DE 60 DÍAS"
+// grita en una celda; además su variante `warn` es amarillo sobre crema, ilegible. Va con
+// clases propias del reporte (`reporte-insignia`), definidas en Reportes.css.
 
 import { getEstadoVariant } from "../Table/TablaLotes/cells/StatusBadge";
 import {
   VARIANTE_ESTADO_VENTA,
   VARIANTE_SUBESTADO,
+  etiquetaDiasAtraso,
   etiquetaEstado,
   etiquetaEstadoVenta,
   etiquetaSubestado,
+  etiquetaTramo,
+  sufijoTramo,
 } from "./etiquetas";
 
 function Insignia({ texto, variante }) {
@@ -37,5 +46,28 @@ export function InsigniaVenta({ estado }) {
       texto={etiquetaEstadoVenta(estado).toUpperCase()}
       variante={VARIANTE_ESTADO_VENTA[estado] ?? "muted"}
     />
+  );
+}
+
+/**
+ * Insignia del atraso de una cuota vencida: dice los días y el color dice el tramo.
+ *
+ * Los dos datos vienen de la misma fila y el backend ya los hace coincidir (`tramo` es el tramo
+ * de `diasAtraso`), así que acá no se deriva uno del otro. El nombre del tramo va en `title`
+ * porque en la insignia solo entran los días: un color por sí solo no se puede leer, y la
+ * leyenda de la tarjeta de antigüedad es el otro lugar donde se explica.
+ *
+ * @param {object} props
+ * @param {string} props.tramo - "1-30", "31-60" o "+60"
+ * @param {number} props.diasAtraso - Entero >= 1
+ */
+export function InsigniaTramo({ tramo, diasAtraso }) {
+  return (
+    <span
+      className={`reporte-insignia reporte-insignia--tramo-${sufijoTramo(tramo)}`}
+      title={etiquetaTramo(tramo)}
+    >
+      {etiquetaDiasAtraso(diasAtraso)}
+    </span>
   );
 }
