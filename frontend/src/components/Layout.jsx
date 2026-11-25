@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { Outlet, useSearchParams, useLocation } from "react-router-dom";
 import { useToast } from "../app/providers/ToastProvider";
-import { mockUser } from "../lib/data";
+import { useAuth } from "../app/providers/AuthProvider";
 import { getAllLotes, updateLote, deleteLote, createLote } from "../lib/api/lotes";
 
 import Header from "./Header";
@@ -17,6 +17,7 @@ import "./Layout.css";
 
 export default function Layout() {
   const { success, error, info } = useToast();
+  const { user } = useAuth();
   const [lotsData, setLotsData] = useState([]);
   const [loadingLots, setLoadingLots] = useState(true);
   const [lotsError, setLotsError] = useState(null);
@@ -214,7 +215,7 @@ export default function Layout() {
         }}
       />
 
-      <User show={showUserModal} onHide={() => setShowUserModal(false)} user={mockUser} />
+      <User show={showUserModal} onHide={() => setShowUserModal(false)} user={user} />
 
       <LotInfo
         show={showLotInfo}

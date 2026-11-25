@@ -111,7 +111,9 @@ async function apiCreate(payload) {
   const res = await http(PRIMARY, { method: "POST", body: toApi(payload) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.message || "Error al crear inmobiliaria");
-  return ok(fromApi(data?.data ?? data));
+  // El backend responde { data: { inmobiliaria, message } }: desenvolver igual que getById y update
+  const raw = data?.data?.inmobiliaria ?? data?.data ?? data;
+  return ok(fromApi(raw));
 }
 
 async function apiUpdate(id, payload) {
