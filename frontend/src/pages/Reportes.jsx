@@ -3,36 +3,23 @@
 // El reporte activo vive en la URL (?reporte=inventario|ventas|cuotas-vencidas) y la pestaña
 // se deriva de él. El selector son chips, en la misma fila que las pestañas.
 //
-// Un reporte con `Vista` renderiza ese componente, que maneja sus propios filtros y su carga.
-// Los que todavía no la tienen muestran el conteo de filas de la pantalla base (39.4).
+// Cada reporte tiene su vista propia, que maneja sus filtros y su carga; esta pantalla solo
+// decide cuál se monta.
 
-import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Tabs, Tab, Alert } from "react-bootstrap";
-import { getInventario, getCuotasVencidas } from "../lib/api/reportes";
+import { Tabs, Tab } from "react-bootstrap";
 import VistaInventario from "../components/Reportes/VistaInventario";
 import VistaVentas from "../components/Reportes/VistaVentas";
-import { parseApiError } from "../lib/http/errors";
+import VistaCuotasVencidas from "../components/Reportes/VistaCuotasVencidas";
 import "./Reportes.css";
 
 const REPORTE_DEFAULT = "inventario";
 
-// Cada reporte: etiqueta, su vista propia si ya existe, y cómo se carga para el conteo
-// provisorio de los que todavía no la tienen (los parámetros obligatorios llevan un default).
+// Cada reporte: su etiqueta en el selector y la vista que lo dibuja.
 const REPORTES = {
-  inventario: {
-    label: "Inventario de lotes",
-    Vista: VistaInventario,
-    cargar: () => getInventario(),
-  },
-  ventas: {
-    label: "Ventas por período",
-    Vista: VistaVentas,
-  },
-  "cuotas-vencidas": {
-    label: "Cuotas vencidas",
-    cargar: () => getCuotasVencidas({ moneda: "USD" }),
-  },
+  inventario: { label: "Inventario de lotes", Vista: VistaInventario },
+  ventas: { label: "Ventas por período", Vista: VistaVentas },
+  "cuotas-vencidas": { label: "Cuotas vencidas", Vista: VistaCuotasVencidas },
 };
 
 // Pestañas y los reportes que contiene cada una (el primero es el que se abre al cambiar de pestaña).
@@ -43,45 +30,14 @@ const TABS = [
 
 const tabDeReporte = (reporte) => TABS.find((t) => t.reportes.includes(reporte));
 
-/** Conteo de filas provisorio para los reportes que todavía no tienen vista propia. */
-function ConteoFilas({ reporte }) {
-  const [estado, setEstado] = useState({ status: "loading", filas: 0, error: null });
-
-  // Al montar o cambiar de reporte, carga sin filtros. `cancelado` descarta respuestas viejas
-  // si el usuario cambia de reporte antes de que lleguen.
-  useEffect(() => {
-    let cancelado = false;
-    setEstado({ status: "loading", filas: 0, error: null });
-    REPORTES[reporte]
-      .cargar()
-      .then((data) => {
-        if (!cancelado) setEstado({ status: "ok", filas: data?.filas?.length ?? 0, error: null });
-      })
-      .catch((err) => {
-        if (!cancelado) {
-          setEstado({ status: "error", filas: 0, error: parseApiError(err, "No se pudo cargar el reporte") });
-        }
-      });
-    return () => {
-      cancelado = true;
-    };
-  }, [reporte]);
-
-  return (
-    <>
-      {estado.status === "loading" && <p className="text-muted">Cargando…</p>}
-      {estado.status === "error" && <Alert variant="danger">{estado.error}</Alert>}
-      {estado.status === "ok" && <p>{estado.filas} filas</p>}
-    </>
-  );
-}
-
 /** Contenido del reporte activo. El selector vive arriba, en la fila de las pestañas. */
 function PanelReporte({ reporte }) {
   const { Vista } = REPORTES[reporte];
 
   return (
-    <div className="reportes-panel">{Vista ? <Vista /> : <ConteoFilas reporte={reporte} />}</div>
+    <div className="reportes-panel">
+      <Vista />
+    </div>
   );
 }
 
