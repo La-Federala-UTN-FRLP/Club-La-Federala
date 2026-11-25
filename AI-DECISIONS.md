@@ -2224,8 +2224,7 @@ Recibe `moneda` (obligatoria, ARS o USD) y `fraccion` (opcional, el id) y respon
 `diasAtraso` descendente y, a igual atraso, por `cuotaId`.
 
 La moneda de una cuota es la de su plan de pago (`PlanPago.moneda`). El backend filtra por esa
-moneda y no convierte: ARS y USD nunca se suman. Es un eje distinto de la moneda de la venta, que
-la interfaz muestra en USD por convención.
+moneda y no convierte: ARS y USD nunca se suman. La moneda de la venta es la de su plan de pago: `Venta.monto` está en esa moneda, y el alta del plan exige que su total sea el monto menos la seña, sin conversión. El "US$" fijo que muestran `VentaVerCard` y otras tarjetas de venta es un defecto de la interfaz, ya señalado en la revisión de #353.
 
 El mockup (`Main.dc.html`) muestra "Mostrando 6 de 11", como si la lista estuviera recortada, pero
 el backend devuelve todas las filas. De ahí salen, en cambio, los textos y los colores de la
