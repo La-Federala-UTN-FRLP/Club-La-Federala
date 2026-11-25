@@ -69,10 +69,8 @@ export default function Sidebar() {
   const visibleModuleKeys = new Set(visibleModules.map(([key]) => key));
 
   // Ordenar módulos según el orden definido, respetando permisos
-  // Prioridades siempre se muestra (aunque esté deshabilitado)
-  const orderedModuleKeys = MODULES_ORDER.filter(
-    key => key === 'prioridades' || visibleModuleKeys.has(key)
-  );
+  // Solo los módulos a los que el rol puede entrar (mismo permiso que la ruta en App.jsx)
+  const orderedModuleKeys = MODULES_ORDER.filter(key => visibleModuleKeys.has(key));
 
   // Generar menús exactamente igual que ModulePills
   // Personas: diferentes opciones según rol
