@@ -1363,7 +1363,7 @@ Que esos caminos respondan a INMOBILIARIA exactamente lo mismo (status y body) p
 - `stripFieldsForInmobiliaria` (AI-019): la prioridad propia exige también `ownerType === 'INMOBILIARIA'`, como `prioridad.service`.
 - Sin cambios de rutas ni de OpenAPI: los controllers de reservas y prioridades ya transportan `req.user` y el 404 ya está documentado.
 
-### Validación humana
+#### Validación humana
 
 - Tests RED→GREEN: 4 fallaban antes del fix y pasan 18/18 después, con casos de control.
 - Suite completa: 87 suites / 3292 tests OK; `npm run typecheck` y `npm run build` OK.
@@ -1372,7 +1372,7 @@ Que esos caminos respondan a INMOBILIARIA exactamente lo mismo (status y body) p
 - Se incorporaron los tests sugeridos en la review del PR #340 (falla cerrada sin tenant, promoción activa, `ownerType`).
 - Se decidió cerrar también el oráculo de Files por ID en este PR, después de verificar que la migración a GCS (#288) todavía no empezó.
 
-### Decisión adoptada
+#### Decisión adoptada
 
 Para el rol INMOBILIARIA, un lote NO_DISPONIBLE se comporta como inexistente en todos los puntos de acceso: creación de reservas y prioridades (404), listado de archivos del lote (`[]`) y archivo por ID o URL firmada (404). La prioridad propia se reconoce solo si coinciden `inmobiliariaId` y `ownerType === 'INMOBILIARIA'`. Los roles ADMINISTRADOR, GESTOR y TECNICO no cambian.
 
@@ -1434,7 +1434,7 @@ Aplicar la regla con cambios mínimos y solo de frontend, reutilizando el usuari
 - Campos no técnicos que el editor le muestra a TECNICO y que el backend descarta en silencio (para TECNICO solo acepta `subestado` y `superficie`), sin cambios, para decidir aparte: Número Partida, Tipo (y Nombre del Espacio Común y Capacidad), Estado, Precio, Propietario, Calle, Número, Ocupación e Inquilino.
 - La tabla guarda en `localStorage` las columnas elegidas por cada usuario: un GESTOR con una selección guardada ve la nueva columna después de restablecer las columnas en el selector (o de limpiar el almacenamiento).
 
-### Validación humana
+#### Validación humana
 
 - Revisión del diff: cambios solo de frontend; la regla de visibilidad se centralizó en el helper `canSeeDeuda(user)` de `rbac.ui.js` (true solo para ADMINISTRADOR y GESTOR). Se descartó reutilizar `canUseDeudorFilter` porque devuelve true para cualquier rol que no sea INMOBILIARIA o TECNICO, incluso un usuario sin rol.
 - `npm run build` OK. Lint de los archivos tocados: mismos hallazgos que en `main` (preexistentes), ninguno nuevo. El frontend no tiene tests automatizados.
@@ -1443,7 +1443,7 @@ Aplicar la regla con cambios mínimos y solo de frontend, reutilizando el usuari
 - Se descartó corregir `updateAt` en el backend: no hay requerimiento que pida el campo y el freeze pre-Cloud solo admite bugs reales.
 - Queda fuera del alcance, para otro PR: el editor le muestra a TECNICO campos no técnicos (precio, propietario, estado, etc.) que el backend descarta en silencio.
 
-### Decisión adoptada
+#### Decisión adoptada
 
 Por decisión del líder del proyecto (Nico) y en línea con la Guía QA (LOT-04, LOT-10, LOT-27, LOT-33): la deuda la ven y la editan solo ADMINISTRADOR y GESTOR en toda la interfaz (detalle, tabla, selector de columnas y editor), y "Actualizado" se elimina del detalle de lote para todos los roles. La regla vive en un único helper (`canSeeDeuda`) para que la UI quede alineada con el backend.
 
@@ -2100,7 +2100,7 @@ Para las imágenes: el TECNICO puede subirlas pero no borrarlas. Ocultarle la ac
   - `LoteEditarCard.jsx`: pasa `canDelete={canDeleteArchivo(user)}` y revisa el resultado de `Promise.allSettled`. Si algún borrado falla, lo registra en consola y muestra "Se actualizaron datos del lote, pero no se pudieron borrar algunas imágenes", con el mismo formato que el aviso que ya existía para los errores de subida. Se quitó el `try/catch` que lo envolvía, que nunca se ejecutaba porque `allSettled` no rechaza.
 - No se modificó el botón "Planos".
 
-### Validación humana
+#### Validación humana
 
 - Revisión del diff: cambios solo de frontend; la regla se centralizó en el helper `canEditLoteComercial(user)` de `rbac.ui.js` (true solo para ADMINISTRADOR y GESTOR, false por defecto). Admin y Gestor sin cambios.
 - `npm run build` OK; lint de los archivos tocados igual que en `main`; `git diff --check` limpio. El frontend no tiene tests automatizados.
@@ -2110,7 +2110,7 @@ Para las imágenes: el TECNICO puede subirlas pero no borrarlas. Ocultarle la ac
 - Se verificó en `file.auth.utils.ts` que el TECNICO puede gestionar archivos PLANO e IMAGEN (no BOLETO, ESCRITURA ni OTRO), por lo que la carga de imágenes se mantiene. Los botones Escritura, Boleto y Planos del editor están deshabilitados para todos los roles desde antes (LOT-42, decisión abierta) y no se tocaron.
 - Se sumó al mismo cambio el borrado de imágenes: el técnico ya no ve la acción de borrar en las imágenes guardadas, y para Admin y Gestor un error de borrado se informa. Se eligió un helper explícito (`canDeleteArchivo`, false por defecto) en lugar de reutilizar `canEditLoteComercial`, para que cada regla del backend tenga su propio punto de control. El borrado de imágenes no se pudo probar en el entorno QA local: el storage está desactivado a propósito (`.env.qa` con valores de Supabase ficticios), así que subir imágenes responde 500 y las imágenes del seed no tienen URL firmada y el editor no las muestra. En QA solo se comprobó que una imagen nueva se puede quitar antes de guardar. El resto se validó por revisión de código, build y lint, y queda por probar en un entorno con storage.
 
-### Decisión adoptada
+#### Decisión adoptada
 
 En el editor de lote, el TECNICO solo modifica Subestado y Superficie; el resto de los campos se muestran en solo lectura con un estilo visual atenuado y uniforme, y el payload envía únicamente esos dos campos. Así la UI queda alineada con la regla vigente del backend, la Guía QA (LOT-27), el Manual Maestro (§10.2 y §16.4) y el requisito original ("modificar el estado del plano interno del lote"). ADMINISTRADOR y GESTOR no cambian. El TECNICO puede subir imágenes al lote, pero no borrar las ya guardadas, igual que en el backend. Para Admin y Gestor, un error al borrar una imagen ahora se informa.
 
@@ -2132,6 +2132,77 @@ En el editor de lote, el TECNICO solo modifica Subestado y Superficie; el resto 
 - `Backend/src/routes/files.routes.ts` (`DELETE /api/files/:id`, solo ADMINISTRADOR y GESTOR; sin cambios)
 - `Backend/src/utils/file.auth.utils.ts` (TECNICO gestiona PLANO e IMAGEN; sin cambios)
 - Refs #297 (LOT-27)
+- `AI-DECISIONS.md`
+
+### AI-030 — Menú lateral por rol, lista de inmobiliarias tras crear y datos reales en "Mi Cuenta"
+
+**Fecha:** 2026-11-25
+**Área:** Frontend / Navegación, Inmobiliarias y Cuenta
+**Herramientas:** Claude Code
+
+#### Problema
+
+QA manual (#296, 25/11, base QA local) encontró tres errores de pantalla:
+
+- **Menú lateral:** el TECNICO veía "Prioridades", pero al entrar la ruta lo mandaba a /403. `Sidebar.jsx` mostraba ese módulo siempre (`key === 'prioridades' || …`), aunque el rol no tuviera `PRIORITY_ACCESS`. El TECNICO no tiene ese permiso en `rbac.js`, y el Manual Maestro (§10.2) no le asigna prioridades.
+- **Inmobiliarias:** al crear una inmobiliaria como ADMINISTRADOR, el alta se hacía bien en la API, pero la lista no se actualizaba hasta recargar la página. Al editar sí se actualizaba.
+- **Mi Cuenta:** el modal del ícono de perfil mostraba para cualquier usuario los datos ficticios de `mockUser` (`lib/data.js`): "María González", un email y un teléfono de ejemplo, "Miembro desde 2023-01-15" y una "Actividad reciente" de 2024. Las pestañas "Mis Reservas" (dos reservas inventadas) y "Configuraciones" (tres tarjetas de texto fijo, sin ninguna acción) también eran de ejemplo. El avatar apuntaba a `/placeholder.svg`, que no existe en el frontend, así que se veía como imagen rota.
+
+#### Prompt / intención
+
+Corregir los tres errores con cambios mínimos y solo de frontend, sin tocar backend, OpenAPI ni Prisma y sin rediseñar las pantallas:
+
+- Que el menú muestre solo las secciones a las que el rol puede entrar, alineado con las rutas protegidas de `App.jsx`, y verificar que ningún otro rol vea una sección que le dé 403.
+- Que una inmobiliaria recién creada aparezca en la lista sin recargar.
+- Que "Mi Cuenta" muestre los datos reales de la sesión (`useAuth` / `lf_user`) y oculte lo que no tenga fuente real, sin inventar datos.
+
+#### Propuesta generada por IA
+
+- **Menú lateral** (`components/sidebar/Sidebar.jsx`): se quita la excepción de "Prioridades" y el menú muestra solo los módulos que devuelve `visibleModulesForUser(user)`. Ese mapa (`MODULES` de `rbac.ui.js`) usa el mismo permiso que la ruta de cada módulo en `App.jsx` (Prioridades, Reservas, Ventas, Inmobiliarias, Personas y Reportes). Las pastillas del header (`ModulePills.jsx`) ya filtraban por permiso. Con el cambio, el TECNICO ve solo Personas; INMOBILIARIA, GESTOR y ADMINISTRADOR ven lo mismo que antes.
+- **Inmobiliarias:**
+  - `pages/Inmobiliarias.jsx`: `handleCreated` agrega a la lista la inmobiliaria que devuelve `InmobiliariaCrearCard` (sin duplicarla si ya está), igual que `handleSave` al editar.
+  - `lib/api/inmobiliarias.js`: `apiCreate` no desenvolvía la respuesta. El backend responde `{ data: { inmobiliaria, message } }` y la función le pasaba a `fromApi` el envoltorio, así que el objeto creado llegaba sin `id` y `handleCreated` no lo agregaba. Se desenvuelve con `data?.data?.inmobiliaria ?? data?.data ?? data`, igual que `apiGetById` y `apiUpdate`. Se prefirió esta corrección a volver a pedir la lista a la API: corrige la causa en una línea, sigue el patrón de las funciones vecinas y no agrega una llamada. `createInmobiliaria` solo se usa en `InmobiliariaCrearCard`.
+- **Mi Cuenta:**
+  - `components/Layout.jsx` le pasa al modal el usuario de `useAuth()` en lugar de `mockUser`.
+  - `components/User.jsx`, en la pestaña "Mi Perfil", muestra el nombre de usuario, el rol en texto legible, el nombre de la inmobiliaria (solo para INMOBILIARIA), el email y "Miembro desde" con la fecha de alta en formato es-AR (si no hay fecha, la línea se oculta). Son los campos que ya trae el login del backend (`username`, `role`, `email`, `createdAt`, `inmobiliariaNombre`).
+  - Se ocultan el teléfono, la "Actividad reciente" y las pestañas "Mis Reservas" y "Configuraciones". Un estado vacío en "Mis Reservas" habría sido engañoso para una inmobiliaria que sí tiene reservas, que ya se ven en el módulo Reservas.
+  - El avatar roto se reemplaza por el ícono `bi-person-circle` de bootstrap-icons, que ya está cargado.
+  - Se elimina `mockUser` de `lib/data.js`: `Layout.jsx` era su único uso.
+
+#### Validación humana
+
+- Hallazgos detectados en QA manual el 25/11 sobre la base QA local, con las cuentas qa.admin, qa.gestor, qa.inmo.a y qa.tecnico.
+- Revisión del diff: cambios solo de frontend, sin backend, OpenAPI ni Prisma.
+- `npm run build` OK; lint de los archivos tocados igual que en `main`; `git diff --check` limpio. El frontend no tiene tests automatizados.
+- Menú lateral: el técnico ya no ve "Prioridades" (antes lo veía y la ruta lo mandaba a /403); la inmobiliaria, el gestor y el administrador ven los mismos módulos que antes.
+- Inmobiliarias: la primera corrección propuesta por la IA no funcionó en la prueba manual (la lista seguía sin actualizarse). Con la pista de que la API devuelve `idInmobiliaria` y envuelve la respuesta, se encontró la causa real en `apiCreate`, que no desenvolvía `data.inmobiliaria` como sí lo hacen `apiGetById` y `apiUpdate`. Tras la corrección, una inmobiliaria creada como administrador aparece en la lista sin recargar.
+- Mi Cuenta: se verificó con las cuatro cuentas que muestra el usuario, rol, email y fecha de alta reales, y para INMOBILIARIA también el nombre de su inmobiliaria. Ya no aparecen los datos ficticios (María González, teléfono y actividad reciente de ejemplo) ni la imagen de avatar rota.
+- Se descartó implementar una "Actividad reciente" real: requiere registrar las acciones de cada usuario en el backend (tabla, servicios y endpoint nuevos), lo que no corresponde durante el freeze pre-Cloud. Queda como mejora para después de la entrega.
+- Se corrigió además el nivel de los encabezados de AI-021, AI-022 y AI-029, observado en la review del PR anterior.
+
+#### Decisión adoptada
+
+El menú lateral muestra solo los módulos a los que el rol puede entrar, con el mismo permiso que su ruta. Al crear una inmobiliaria, la lista se actualiza sin recargar. "Mi Cuenta" muestra únicamente los datos reales de la sesión del usuario (usuario, rol, inmobiliaria, email y fecha de alta) y se ocultan las secciones sin fuente real (teléfono, actividad reciente, "Mis Reservas" y "Configuraciones").
+
+#### Resultado
+
+- `npm run build` PASS.
+- `npx eslint` sobre `Sidebar.jsx` (1 warning), `Inmobiliarias.jsx` (4 errores y 1 warning), `Layout.jsx` (3 errores), `User.jsx`, `data.js` e `inmobiliarias.js` (sin hallazgos): mismos hallazgos que en `main`, comparados regla por regla, todos preexistentes; los cambios no agregan ninguno. `git diff --check` limpio.
+- El frontend no tiene tests automatizados; la verificación por rol es manual (ver Validación humana).
+
+#### Evidencia / archivos relacionados
+
+- `frontend/src/components/sidebar/Sidebar.jsx`
+- `frontend/src/pages/Inmobiliarias.jsx`
+- `frontend/src/lib/api/inmobiliarias.js`
+- `frontend/src/components/Layout.jsx`
+- `frontend/src/components/User.jsx`
+- `frontend/src/lib/data.js`
+- `frontend/src/lib/auth/rbac.js` y `frontend/src/lib/auth/rbac.ui.js` (permisos por rol y `MODULES`; sin cambios)
+- `frontend/src/App.jsx` (rutas protegidas con `RequireRole`; sin cambios)
+- `Backend/src/services/inmobiliaria.service.ts` (`createInmobiliaria` responde `{ inmobiliaria, message }`; sin cambios)
+- `Backend/src/services/auth.service.ts` (datos del usuario que devuelve el login; sin cambios)
+- Refs #296
 - `AI-DECISIONS.md`
 
 
