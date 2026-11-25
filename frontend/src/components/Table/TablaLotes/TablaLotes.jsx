@@ -418,7 +418,8 @@ export default function TablaLotes({
   const can = (key) => {
     switch (key) {
       case 'ver':           return canDashboardAction(auth?.user, 'visualizarLote');
-      case 'editar':        return canDashboardAction(auth?.user, 'editarLote');
+      case 'crear':         return canDashboardAction(auth?.user, 'crearLote');
+      case 'editar':       return canDashboardAction(auth?.user, 'editarLote');
       case 'venta':         return canDashboardAction(auth?.user, 'registrarVenta');
       case 'eliminar':      return canDashboardAction(auth?.user, 'eliminarLote');
       case 'aplicarPromo':  return canDashboardAction(auth?.user, 'aplicarPromocion');
@@ -549,7 +550,7 @@ export default function TablaLotes({
           >
             Limpiar selección
           </button>
-          {role.includes('admin') && (
+          {can('crear') && (
             <button type="button" className="tl-btn tl-btn--soft" onClick={() => onAgregarLote?.()}>
               + Agregar Lote
             </button>
