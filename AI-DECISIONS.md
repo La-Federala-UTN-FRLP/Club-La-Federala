@@ -2205,6 +2205,81 @@ El menú lateral muestra solo los módulos a los que el rol puede entrar, con el
 - Refs #296
 - `AI-DECISIONS.md`
 
+### AI-032 — Permisos del frontend alineados con el backend (matriz RBAC)
+
+**Fecha:** 2026-11-25
+**Área:** Frontend / Permisos por rol (Reservas, Lotes y Prioridades)
+**Herramientas:** Claude Code
+
+#### Problema
+
+La matriz RBAC (`docs/architecture/matriz-rbac.md`, en un PR de documentación aparte) comparó lo que acepta el backend con lo que muestra el frontend a cada rol y encontró diferencias. El equipo decidió corregir cuatro en el frontend:
+
+- **D1:** INMOBILIARIA veía "Editar Reserva", pero `PUT /reservas/:id` acepta solo ADMINISTRADOR y GESTOR: al guardar, la API respondía 403.
+- **D3:** GESTOR veía "Eliminar Lote", pero `DELETE /lotes/:id` acepta solo ADMINISTRADOR.
+- **D4:** `POST /lotes` acepta ADMINISTRADOR y GESTOR, pero "+ Agregar Lote" aparecía solo si el rol contenía "admin" (`TablaLotes.jsx`): GESTOR no lo veía.
+- **D5:** eliminar y reactivar prioridad los acepta el backend para ADMINISTRADOR, GESTOR e INMOBILIARIA, pero el frontend solo los mostraba a ADMINISTRADOR (`PRIORITY_DELETE`). Decisión del equipo: los ven ADMINISTRADOR y GESTOR; INMOBILIARIA no.
+
+#### Prompt / intención
+
+Implementar las cuatro decisiones con cambios mínimos y solo de frontend, sin tocar backend, OpenAPI ni Prisma. Revisar dónde se usa cada permiso de `rbac.js` antes de quitarlo o agregarlo, para no cambiar otra pantalla sin querer.
+
+#### Propuesta generada por IA
+
+- **Permisos por rol** (`lib/auth/rbac.js`):
+  - INMOBILIARIA pierde `RES_EDIT` (D1).
+  - GESTOR pierde `LOT_DELETE` (D3) y gana `PRIORITY_DELETE` (D5).
+  - Se actualizan los comentarios de esos roles.
+- **Acciones del tablero** (`lib/auth/rbac.ui.js`): nueva acción `crearLote` con `LOT_CREATE` (D4). Se corrige el comentario de `eliminarLote` a "Solo Admin".
+- **"+ Agregar Lote"** (`components/Table/TablaLotes/TablaLotes.jsx`): el botón usa `can('crear')`, que llama a `canDashboardAction(user, 'crearLote')`, en lugar de `role.includes('admin')` (D4). `LoteCrearCard` no tiene condiciones por rol y el backend acepta a GESTOR en lo que llama (`GET /fracciones` y la subida de imágenes).
+- **"Editar Reserva" en el detalle** (D1): la IA encontró que el botón aparecía también en el detalle de la reserva (`ReservaVerCard.jsx`), sin depender de ningún permiso. Si solo se quitaba `RES_EDIT`, INMOBILIARIA lo seguía viendo:
+  - En Reservas, donde abría el editor y al guardar la API respondía 403.
+  - En el tablero, desde un lote reservado, donde redirigía a `/reservas`.
+
+  Se propuso:
+  - Que el botón del detalle se muestre solo si se le pasa `onEdit`.
+  - Que `pages/Reservas.jsx` y `pages/Dashboard.jsx` le pasen `onEdit` solo con `RES_EDIT`.
+
+  `PersonaVerCard` y `LoteSidePanel` ya lo ocultaban con `fromSidePanel`.
+- **Usos de cada permiso** (revisados antes del cambio):
+  - `RES_EDIT`: solo Editar Reserva (`TablaReservas.jsx`, `Reservas.jsx`).
+  - `LOT_DELETE`: solo Eliminar Lote (`TablaLotes.jsx`).
+  - `LOT_CREATE`: no se usaba en ningún lado.
+  - `PRIORITY_DELETE`: solo Eliminar y Reactivar Prioridad (`TablaPrioridades.jsx`).
+- Las ramas de INMOBILIARIA en `ReservaEditarCard.jsx` quedan sin uso, pero no se tocan para que el cambio sea mínimo.
+
+#### Validación humana
+
+- Las decisiones D1, D3, D4 y D5 las tomó el equipo a partir de la matriz RBAC (`docs/architecture/matriz-rbac.md`), mediante una encuesta en el grupo.
+- Revisión del diff: cambios solo de frontend, sin backend, OpenAPI ni Prisma. Antes de aplicar se revisó dónde se usa cada permiso, para no cambiar otras pantallas sin querer.
+- Se aceptó el ajuste propuesto por la IA para D1: el botón "Editar Reserva" también aparecía dentro del detalle de la reserva y en el tablero, sin depender de ningún permiso; ahora solo se muestra con `RES_EDIT`.
+- `npm run build` OK; lint de los archivos tocados igual que en `main`; `git diff --check` limpio.
+- Prueba manual en la base QA con qa.admin, qa.gestor y qa.inmo.a: la inmobiliaria ya no ve "Editar Reserva" (ni en la tabla ni en el detalle) ni eliminar prioridad; el gestor ve "+ Agregar Lote" y eliminar prioridad, y ya no ve "Eliminar Lote"; el administrador no cambia. La inmobiliaria sigue creando reservas, viendo ofertas y editando sus prioridades.
+
+#### Decisión adoptada
+
+El frontend muestra cada acción solo a los roles que el backend acepta: INMOBILIARIA no edita reservas, GESTOR crea lotes pero no los elimina, y ADMINISTRADOR y GESTOR eliminan y reactivan prioridades. Las demás diferencias de la matriz se mantienen como están y quedan registradas en el backlog.
+
+#### Resultado
+
+- `npm run build` PASS.
+- `npx eslint` sobre `rbac.js`, `rbac.ui.js`, `ReservaVerCard.jsx`, `Reservas.jsx`, `Dashboard.jsx` y `TablaLotes.jsx`: mismos hallazgos que en `main`, comparados regla por regla, todos preexistentes. Los cambios no agregan ninguno. `git diff --check` limpio.
+- El frontend no tiene tests automatizados. La verificación por rol es manual, con qa.admin, qa.gestor y qa.inmo.a.
+
+#### Evidencia / archivos relacionados
+
+- `frontend/src/lib/auth/rbac.js`
+- `frontend/src/lib/auth/rbac.ui.js`
+- `frontend/src/components/Table/TablaLotes/TablaLotes.jsx`
+- `frontend/src/components/Cards/Reservas/ReservaVerCard.jsx`
+- `frontend/src/pages/Reservas.jsx`
+- `frontend/src/pages/Dashboard.jsx`
+- `frontend/src/components/Table/TablaReservas/TablaReservas.jsx` y `frontend/src/components/Table/TablaPrioridades/TablaPrioridades.jsx` (usan los permisos; sin cambios)
+- `Backend/src/routes/reserva.routes.ts`, `lote.routes.ts` y `prioridad.routes.ts` (roles que acepta el backend; sin cambios)
+- `docs/architecture/matriz-rbac.md` (casos D1, D3, D4 y D5)
+- Closes #360
+- `AI-DECISIONS.md`
+
 
 ## Plantilla para entradas nuevas
 
