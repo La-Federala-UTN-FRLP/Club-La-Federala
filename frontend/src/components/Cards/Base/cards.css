@@ -1243,6 +1243,40 @@ select.field-input {
   color: #374151;
 }
 
+/* Control deshabilitado dentro de un campo de solo lectura: toma el gris del contenedor (el trigger de
+   NiceSelect trae fondo blanco propio) y el cursor indica que no se puede editar. */
+.cclf-card .field-value.is-readonly .ns-trigger {
+  background: transparent;
+}
+
+.cclf-card .field-value.is-readonly .ns-wrap,
+.cclf-card .field-value.is-readonly .field-input:disabled {
+  cursor: not-allowed;
+}
+
+/* Campo bloqueado (is-locked): se ve "apagado", como los botones deshabilitados de documentos
+   (.lote-doc-button:disabled): valor en gris claro, etiqueta atenuada y cursor not-allowed. El fondo gris
+   viene de is-readonly; la opacidad va solo en la etiqueta para no desvanecer ese fondo. */
+.cclf-card .field-value.is-locked,
+.cclf-card .field-value.is-locked .field-input,
+.cclf-card .field-value.is-locked .ns-trigger {
+  color: #9ca3af;
+}
+
+.cclf-card .field-value.is-locked .field-input:disabled {
+  -webkit-text-fill-color: #9ca3af; /* Safari fuerza su propio gris en inputs deshabilitados */
+}
+
+.cclf-card .field-value.is-locked svg {
+  opacity: 0.55;
+}
+
+.cclf-card .field-row:has(> .field-value.is-locked) > .field-label {
+  opacity: 0.55;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
 /* ==== NiceSelect ==== */
 .ns-wrap {
   position: relative;

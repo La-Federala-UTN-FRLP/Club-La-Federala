@@ -11,7 +11,7 @@ import { Trash2, Upload, GripVertical } from "lucide-react";
 import { useToast } from "../../../app/providers/ToastProvider.jsx";
 
 // Componente para cada miniatura ordenable
-function SortableImageItem({ image, index, onRemove, getImageUrl }) {
+function SortableImageItem({ image, index, onRemove, getImageUrl, canRemove = true }) {
   const {
     attributes,
     listeners,
@@ -47,14 +47,16 @@ function SortableImageItem({ image, index, onRemove, getImageUrl }) {
           >
             <GripVertical size={18} strokeWidth={2} />
           </button>
-          <button
-            type="button"
-            className="lote-image-thumbnail__delete"
-            onClick={() => onRemove(index)}
-            aria-label="Eliminar imagen"
-          >
-            <Trash2 size={16} strokeWidth={2} />
-          </button>
+          {canRemove && (
+            <button
+              type="button"
+              className="lote-image-thumbnail__delete"
+              onClick={() => onRemove(index)}
+              aria-label="Eliminar imagen"
+            >
+              <Trash2 size={16} strokeWidth={2} />
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -66,6 +68,9 @@ export default function LoteImageUploader({
   onChange,
   onDeletedIdsChange, // Callback para notificar IDs de imágenes eliminadas (solo para editar)
   inputId = "file-input-lote",
+  // false: oculta el borrado de imágenes ya guardadas (DELETE /api/files/:id es solo Admin/Gestor).
+  // Las imágenes nuevas sin subir se pueden quitar igual: no llaman al backend.
+  canDelete = true,
 }) {
   const { error: showError } = useToast();
   const fileInputRef = useRef(null);
@@ -193,6 +198,7 @@ export default function LoteImageUploader({
                       index={images.indexOf(img)}
                       onRemove={handleRemoveImage}
                       getImageUrl={getImageUrl}
+                      canRemove={canDelete || img instanceof File}
                     />
                   );
                 }).filter(Boolean)}
