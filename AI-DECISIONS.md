@@ -2205,6 +2205,136 @@ El menú lateral muestra solo los módulos a los que el rol puede entrar, con el
 - Refs #296
 - `AI-DECISIONS.md`
 
+### AI-031 — Vista de cuotas vencidas (frontend) con saldo, antigüedad de la deuda y tabla
+
+**Fecha:** 2026-11-25  
+**Área:** Frontend / Reportes / Cobranzas  
+**Herramientas:** Claude Code
+
+#### Problema
+
+La subtarea 39.4 (CCLF-62) pedía la vista "Cuotas vencidas" de la pestaña Cobranzas. Hasta ahora
+era un marcador de posición: la pantalla de Reportes (39.1) la resolvía con `ConteoFilas`, que
+pedía el reporte con la moneda fija en USD y mostraba solo la cantidad de filas.
+
+El endpoint `GET /api/reportes/cuotas-vencidas` ya estaba en main con el contrato de CCLF-37 V4.
+Recibe `moneda` (obligatoria, ARS o USD) y `fraccion` (opcional, el id) y responde `corte`,
+`moneda`, `saldoVencido`, `cuotas`, `ventas`, `tramos` (siempre los tres, en el orden "1-30",
+"31-60" y "+60") y `filas`, que no trae `fraccionId`, no está paginada y viene ordenada por
+`diasAtraso` descendente y, a igual atraso, por `cuotaId`.
+
+La moneda de una cuota es la de su plan de pago (`PlanPago.moneda`). El backend filtra por esa
+moneda y no convierte: ARS y USD nunca se suman. Es un eje distinto de la moneda de la venta, que
+la interfaz muestra en USD por convención.
+
+El mockup (`Main.dc.html`) muestra "Mostrando 6 de 11", como si la lista estuviera recortada, pero
+el backend devuelve todas las filas. De ahí salen, en cambio, los textos y los colores de la
+antigüedad de la deuda: "1 a 30 días" (#ebb648), "31 a 60 días" (#d9822b) y "Más de 60 días"
+(#a8321e).
+
+#### Prompt / intención
+
+Construir la vista en tres etapas chicas, con revisión humana entre una y otra:
+
+1. Lectura del repositorio y del contrato, sin escribir nada.
+2. Solo `etiquetas.js`, con los helpers de formato.
+3. La vista, la insignia, el cableado en `Reportes.jsx` y el CSS.
+
+Una cuarta etapa para esta entrada.
+
+Reglas fijas de las cuatro: la interfaz no recalcula las cifras del backend; las fechas se
+formatean solo con `fmtFechaCalendario`; el `enlace` de cada fila se usa tal cual viene; todo se
+formatea con la moneda de la respuesta y no con la del borrador de filtros; no se tocan backend,
+OpenAPI ni Prisma; y Claude Code no hace `git add`, `commit` ni `push`.
+
+#### Propuesta generada por IA
+
+- **`etiquetas.js`:** `ETIQUETA_TRAMO`, `etiquetaTramo`, `plural`, `etiquetaDiasAtraso`,
+  `etiquetaCuotaDePlan`, `CLASE_TRAMO` y `sufijoTramo`, más el helper privado `sinDato`. Los dos
+  mapas se consultan con `Object.hasOwn`, para que una clave del prototipo como "toString" no se
+  cuele como etiqueta ni como sufijo de clase. Solo inserciones.
+- **`VistaCuotasVencidas.jsx` (nuevo):** `SelectorMoneda`, local al archivo, como `radiogroup` con
+  roving tabindex y navegación por flechas; `TarjetaAntiguedad` con una barra de tres segmentos
+  cuyo ancho es un `flex-grow` proporcional al saldo del tramo, que es escala de dibujo y no una
+  cifra informada, y donde un tramo en cero no dibuja segmento pero sí figura en la leyenda;
+  tarjeta oscura "Saldo vencido" con la leyenda "N cuotas en M ventas"; y la tabla, con la columna
+  "Saldo (incluye recargos)" y la acción "Ver pagos".
+- **`Insignias.jsx`:** `InsigniaTramo`, con clases propias `reporte-insignia--tramo-*`, porque
+  `.tl-badge` fuerza mayúsculas y su variante `warn` es ilegible.
+- **`Reportes.jsx`:** monta la vista y elimina `ConteoFilas` y los imports que quedan sin uso.
+  **`Reportes.css`:** clases nuevas con prefijo `reporte-`.
+
+#### Validación humana
+
+- La etapa de lectura verificó el contrato contra el servicio ya mergeado. El mockup
+  (`Main.dc.html`) no está en el repositorio y Claude Code no pudo leerlo; los textos de los
+  tramos se confrontaron contra el mockup desde el chat de planificación y coincidieron
+  exactamente.
+- **Contradicción en el prompt.** Pedía a la vez mostrar "—" para un lote sin número y reutilizar
+  el helper de lote. Claude Code avisó de que son incompatibles, porque `etiquetaLote` devuelve
+  "Sin número" a propósito, y eligió el helper, de modo que las tres vistas de Reportes digan lo
+  mismo. Se aceptó.
+- Se descartó replicar el "Mostrando 6 de 11" del mockup. El encabezado de la tabla dice "N
+  cuotas, de mayor a menor atraso", porque el backend no pagina.
+- **Contraste de la insignia del tramo medio.** El color del texto no estaba fijado. Con blanco
+  sobre #d9822b el contraste es 2,93:1 y no pasa, así que se ajustó el color del texto, no el del
+  fondo, a #1f2a24, que da 5,07:1. Los cuatro estados de la insignia superan 4,5:1.
+- Claude Code limpió en `Reportes.jsx` más de lo que listaba el prompt: `useEffect`, `useState`,
+  `Alert`, el import de `getInventario` y la propiedad `cargar`. Se revisó el diff completo y se
+  aceptó, porque inventario y ventas ya tienen su vista propia y nadie llamaba a `cargar`.
+- Se revisaron los informes de cada etapa antes de habilitar la siguiente. Los commits los hace la
+  persona.
+
+#### Decisión adoptada
+
+La vista de cuotas vencidas queda como tercera vista de Reportes, para ADMINISTRADOR y GESTOR, con
+la moneda como filtro obligatorio que no convierte, la antigüedad de la deuda por tramos y la tabla
+completa. El saldo incluye los recargos sin desglosar y así se rotula.
+
+#### Resultado
+
+Contra el mock (`VITE_REPORTES_MOCK=true`):
+
+- 0 requests al abrir la pestaña y 1 por cada "Generar".
+- USD 17.026,65 en 15 cuotas y 7 ventas; ARS 4.557.200,00 en 12 cuotas y 3 ventas. La pantalla
+  coincide con la salida del mock celda por celda.
+- `fraccion` viaja como id; un tramo en cero no dibuja segmento pero conserva su línea en la
+  leyenda; con `loteNumero` en null la fila dice "Sin número"; "Ver pagos" navega al `enlace` de la
+  fila; el radiogroup se opera con el teclado; la consola queda sin errores.
+
+Contra el backend real el 25/11/2026, con corte del 25/11/2026 y ventas de QA:
+
+- USD 213.833,34 en 6 cuotas y 2 ventas, todas en "Más de 60 días".
+- ARS 130.842,66 en 11 cuotas y 3 ventas: 1 en "1 a 30 días", 1 en "31 a 60 días" y 9 en "Más de 60
+  días".
+- En los dos casos la suma de las filas coincide con el saldo vencido, y la de los tramos con el
+  total. La request fue `GET /api/reportes/cuotas-vencidas?moneda=ARS`, con 200.
+
+`npm run build` pasa y `npx eslint src` queda en 163 problemas (113 errores y 50 warnings), igual
+que la base, sin hallazgos nuevos en los archivos tocados. El frontend no tiene tests
+automatizados: la verificación es manual.
+
+Pendientes conocidos, que esta tarea no resuelve:
+
+- A 768 px la pantalla de Reportes completa desborda en horizontal, y ya lo hacía antes de esta
+  tarea. Viene del `.container` de Bootstrap de `Reportes.jsx` y afecta a las tres pestañas; cuotas
+  vencidas es la que menos se pasa.
+- El estado vacío (`cuotas: 0`) no se pudo verificar: ningún dato del mock ni de QA lo produce.
+- El filtro por fracción no se probó contra la API real en esta corrida.
+
+#### Evidencia / archivos relacionados
+
+- `frontend/src/components/Reportes/VistaCuotasVencidas.jsx`
+- `frontend/src/components/Reportes/Insignias.jsx`
+- `frontend/src/components/Reportes/etiquetas.js`
+- `frontend/src/pages/Reportes.jsx`
+- `frontend/src/pages/Reportes.css`
+- `Backend/src/services/reporte.service.ts` (`whereCuotasVencidas`; sin cambios)
+- Tarea 39.4 del refinamiento de Reportes + IA (CCLF-38/39/40) y especificación CCLF-37 V4;
+  AI-025 (reporte de cuotas vencidas) y AI-026 (exportación a Excel).
+- Mockup interactivo `Main.dc.html` (boceto de Agos; solo disposición)
+- `AI-DECISIONS.md`
+
 
 ## Plantilla para entradas nuevas
 
