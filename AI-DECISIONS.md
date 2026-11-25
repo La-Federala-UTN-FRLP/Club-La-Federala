@@ -1703,7 +1703,6 @@ Archivos:
 - Jira CCLF-55 (38.4), CCLF-37 (especificación) y CCLF-59 (cliente del frontend, AI-018)
 - `AI-DECISIONS.md`
 
-
 ### AI-026 — Exportación a Excel de los reportes
 
 **Fecha:** 2026-11-24  
@@ -1766,59 +1765,6 @@ Implementar 38.5 en la rama ya creada, sin commits, migraciones ni cambios al sc
 #### Evidencia / archivos relacionados
 
 Verificado:
-
-
-- Mock: `getCuotasVencidas` y `getInventario` devuelven exactamente lo mismo que antes del cambio
-  (comparación del JSON completo); los conteos de las tarjetas coinciden con los que el script
-  recalcula sobre las filas, por moneda; la regla del estado se probó sobre copias parcheadas del
-  mock, fuera del repositorio.
-- Funciones puras en Node: `fmtMontoMoneda`, `fmtPrecioUsd` (los mismos resultados que la
-  implementación anterior en 15 casos), `validarPeriodo`, `etiquetaEstadoVenta` y las fechas.
-- En Chrome headless: 0 requests al abrir la vista, 1 al pulsar Generar y 2 en el segundo clic;
-  tarjetas 6 / 2 / 2 con sus montos; aviso de ARS; 9 filas; `fraccion=12` en el request; período
-  inválido sin consultar; el error del endpoint se muestra y no queda el spinner.
-- Estilo: valores del boceto medidos con `getComputedStyle`, y el fondo medido en `/`, `/ventas` y
-  `/map` para confirmar que no se filtra.
-- El inventario sigue filtrando igual y mandando el id de la fracción y el valor del enum.
-- `npm run lint` queda en el baseline (113 errores y 50 warnings) y `npm run build` pasa.
-
-No verificado:
-
-- Nada se probó contra el backend real: toda la verificación usó el mock, directamente o servido
-  por HTTP desde un servidor local.
-- El frontend no tiene infraestructura de tests: los scripts de verificación no se versionaron.
-
-Riesgos y deuda:
-
-- Las tarjetas principales informan solo USD y la tabla trae todas las monedas. Si una vista no
-  mostrara `otrasMonedas`, la diferencia se leería como un error.
-- El reporte muestra "Escriturada" donde la tabla de Ventas muestra FINALIZADA, que no está en el
-  enum y no se puede derivar de la fila.
-- El formato "USD 18.000,00" difiere del "US$" de la ficha de la venta, que usa `fmtMonto` de
-  `pagoUtils.js`.
-- Las cancelaciones pueden estar subcontadas, porque `cancelActivesOnNoDisponible` no setea
-  `fechaCancelacion` (ya señalado en AI-020).
-- El inventario no usa `FiltrosReporte` —solo comparte sus clases— y su tabla no está dentro de
-  `TarjetaTabla`.
-- Del boceto quedaron sin hacer la barra apilada por fracción, las cinco tarjetas con puntos, la
-  hora del corte y la columna Superficie: el contrato no trae esos datos.
-
-Archivos:
-
-- `frontend/src/components/Reportes/VistaVentas.jsx`
-- `frontend/src/components/Reportes/FiltrosReporte.jsx`
-- `frontend/src/components/Reportes/TarjetaKpi.jsx`
-- `frontend/src/components/Reportes/TarjetaTabla.jsx`
-- `frontend/src/components/Reportes/periodo.js`
-- `frontend/src/components/Reportes/etiquetas.js`
-- `frontend/src/components/Reportes/Insignias.jsx`
-- `frontend/src/components/Reportes/VistaInventario.jsx`
-- `frontend/src/lib/api/reportes.mock.js`
-- `frontend/src/lib/api/reportes.js`
-- `frontend/src/lib/fechas.js`
-- `frontend/src/pages/Reportes.jsx`
-- `frontend/src/pages/Reportes.css`
-- Jira CCLF-61 (39.3), CCLF-37 (especificación) y CCLF-54 (38.3, AI-020)
 
 - REP-A5: para cada reporte, el `.xlsx` leído con ExcelJS trae las mismas filas, en el mismo orden, que el JSON con los mismos filtros (varios juegos de filtros por reporte).
 - Formatos: montos numéricos con formato USD o ARS, fechas en el día correcto sin corrimiento, nulos vacíos y etiquetas de estado.
@@ -2055,6 +2001,64 @@ warnings) y reportar en lugar de aproximar lo que no se pudiera cumplir.
 - Estilo de la pantalla: chips en lugar del `<select>`, breadcrumb y título, variables locales con
   los valores del boceto y fondo condicionado por `:has()`.
 - El inventario comparte las clases de la tarjeta de filtros, pero sigue con su propio formulario.
+
+#### Evidencia / archivos relacionados
+
+Verificado:
+
+- Mock: `getCuotasVencidas` y `getInventario` devuelven exactamente lo mismo que antes del cambio
+  (comparación del JSON completo); los conteos de las tarjetas coinciden con los que el script
+  recalcula sobre las filas, por moneda; la regla del estado se probó sobre copias parcheadas del
+  mock, fuera del repositorio.
+- Funciones puras en Node: `fmtMontoMoneda`, `fmtPrecioUsd` (los mismos resultados que la
+  implementación anterior en 15 casos), `validarPeriodo`, `etiquetaEstadoVenta` y las fechas.
+- En Chrome headless: 0 requests al abrir la vista, 1 al pulsar Generar y 2 en el segundo clic;
+  tarjetas 6 / 2 / 2 con sus montos; aviso de ARS; 9 filas; `fraccion=12` en el request; período
+  inválido sin consultar; el error del endpoint se muestra y no queda el spinner.
+- Estilo: valores del boceto medidos con `getComputedStyle`, y el fondo medido en `/`, `/ventas` y
+  `/map` para confirmar que no se filtra.
+- El inventario sigue filtrando igual y mandando el id de la fracción y el valor del enum.
+- `npm run lint` queda en el baseline (113 errores y 50 warnings) y `npm run build` pasa.
+
+No verificado:
+
+- Nada se probó contra el backend real: toda la verificación usó el mock, directamente o servido
+  por HTTP desde un servidor local.
+- El frontend no tiene infraestructura de tests: los scripts de verificación no se versionaron.
+
+Riesgos y deuda:
+
+- Las tarjetas principales informan solo USD y la tabla trae todas las monedas. Si una vista no
+  mostrara `otrasMonedas`, la diferencia se leería como un error.
+- El reporte muestra "Escriturada" donde la tabla de Ventas muestra FINALIZADA, que no está en el
+  enum y no se puede derivar de la fila.
+- El formato "USD 18.000,00" difiere del "US$" de la ficha de la venta, que usa `fmtMonto` de
+  `pagoUtils.js`.
+- Las cancelaciones pueden estar subcontadas, porque `cancelActivesOnNoDisponible` no setea
+  `fechaCancelacion` (ya señalado en AI-020).
+- El inventario no usa `FiltrosReporte` —solo comparte sus clases— y su tabla no está dentro de
+  `TarjetaTabla`.
+- Del boceto quedaron sin hacer la barra apilada por fracción, las cinco tarjetas con puntos, la
+  hora del corte y la columna Superficie: el contrato no trae esos datos.
+
+Archivos:
+
+- `frontend/src/components/Reportes/VistaVentas.jsx`
+- `frontend/src/components/Reportes/FiltrosReporte.jsx`
+- `frontend/src/components/Reportes/TarjetaKpi.jsx`
+- `frontend/src/components/Reportes/TarjetaTabla.jsx`
+- `frontend/src/components/Reportes/periodo.js`
+- `frontend/src/components/Reportes/etiquetas.js`
+- `frontend/src/components/Reportes/Insignias.jsx`
+- `frontend/src/components/Reportes/VistaInventario.jsx`
+- `frontend/src/lib/api/reportes.mock.js`
+- `frontend/src/lib/api/reportes.js`
+- `frontend/src/lib/fechas.js`
+- `frontend/src/pages/Reportes.jsx`
+- `frontend/src/pages/Reportes.css`
+- Jira CCLF-61 (39.3), CCLF-37 (especificación) y CCLF-54 (38.3, AI-020)
+- `AI-DECISIONS.md`
+
 
 ## Plantilla para entradas nuevas
 
