@@ -198,6 +198,13 @@ export default function Inmobiliarias() {
     []
   );
 
+  // CREATE: agregar la inmobiliaria creada a la lista sin recargar (igual que handleSave al editar)
+  const handleCreated = useCallback((created) => {
+    setOpenCrear(false);
+    if (!created?.id) return;
+    setAllInmobiliarias((prev) => (prev.some((i) => i.id === created.id) ? prev : [...prev, created]));
+  }, []);
+
   // DELETE (Eliminar - ahora hace baja lógica)
   const [showDeleteSuccess, setShowDeleteSuccess] = useState(false);
   const handleDelete = useCallback(async () => {
@@ -358,7 +365,7 @@ export default function Inmobiliarias() {
       <InmobiliariaCrearCard
         open={openCrear}
         onCancel={() => setOpenCrear(false)}
-        onCreated={() => setOpenCrear(false)}
+        onCreated={handleCreated}
       />
 
       {/* Animación de éxito al eliminar */}
