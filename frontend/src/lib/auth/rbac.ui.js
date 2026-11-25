@@ -118,3 +118,10 @@ export function canSeeDeuda(user) {
 export function canEditLoteComercial(user) {
   return hasRole(user, "ADMINISTRADOR") || hasRole(user, "GESTOR");
 }
+
+// Borrado de archivos (DELETE /api/files/:id): solo ADMINISTRADOR y GESTOR, igual que el backend.
+// TECNICO puede subir PLANO e IMAGEN, pero no borrarlas.
+// Falla cerrada: sin usuario o con otro rol, false.
+export function canDeleteArchivo(user) {
+  return hasRole(user, "ADMINISTRADOR") || hasRole(user, "GESTOR");
+}

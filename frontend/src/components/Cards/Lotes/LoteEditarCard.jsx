@@ -9,7 +9,7 @@ import { getAllPersonas } from "../../../lib/api/personas.js";
 import { uploadArchivo, getArchivosByLote, deleteArchivo, getFileSignedUrl } from "../../../lib/api/archivos.js";
 import { useToast } from "../../../app/providers/ToastProvider.jsx";
 import { useAuth } from "../../../app/providers/AuthProvider.jsx";
-import { canSeeDeuda, canEditLoteComercial } from "../../../lib/auth/rbac.ui.js";
+import { canSeeDeuda, canEditLoteComercial, canDeleteArchivo } from "../../../lib/auth/rbac.ui.js";
 import { getLoteIdFormatted } from "../../Table/TablaLotes/utils/getters.js";
 import PersonaSearchSelect from "./PersonaSearchSelect.jsx";
 import LoteImageUploader from "./LoteImageUploader.jsx";
@@ -510,17 +510,11 @@ export default function LoteEditarCard({
 
       // Borrar archivos marcados
       if (archivosParaBorrar.length > 0) {
-        try {
-          await Promise.allSettled(
-            archivosParaBorrar.map(id => 
-              deleteArchivo(id).catch(err => {
-                console.warn(`Error borrando archivo ${id}:`, err);
-                return null;
-              })
-            )
-          );
-        } catch (delErr) {
-          console.error("Error borrando archivos:", delErr);
+        const resultados = await Promise.allSettled(archivosParaBorrar.map(id => deleteArchivo(id)));
+        const fallidos = resultados.filter(r => r.status === "rejected");
+        if (fallidos.length > 0) {
+          console.error("Error borrando imágenes:", fallidos.map(r => r.reason));
+          showError("Se actualizaron datos del lote, pero no se pudieron borrar algunas imágenes");
         }
       }
 
@@ -752,6 +746,7 @@ export default function LoteEditarCard({
                 onChange={handleImagesChange}
                 onDeletedIdsChange={handleDeletedIdsChange}
                 inputId="file-input-lote-editar"
+                canDelete={canDeleteArchivo(user)}
               />
 
               <div className="lote-description">

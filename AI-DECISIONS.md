@@ -1890,7 +1890,7 @@ Archivos:
 - GitHub #288, CCLF-21 / CL-07
 - `AI-DECISIONS.md`
 
-### AI-028 — Editor de lote: el técnico edita solo subestado y superficie
+### AI-029 — Editor de lote: el técnico edita solo subestado y superficie y no borra imágenes guardadas
 
 **Fecha:** 2026-11-24
 **Área:** Frontend / Lotes
@@ -1898,7 +1898,7 @@ Archivos:
 
 #### Problema
 
-QA (#297, bug #8, caso LOT-27) encontró que el editor de lote (`LoteEditarCard.jsx`) deja al rol TECNICO modificar campos que no son técnicos: Número Partida, Tipo (y, en espacios comunes, Nombre y Capacidad), Estado, Precio, Propietario, Calle, Número, Ocupación e Inquilino, además de la Descripción. `lote.service.ts` (`updatedLote`) filtra para TECNICO a `subestado`, `superficie` y `archivos`: descarta el resto y responde 200, y solo responde 403 si no queda ningún campo permitido ("Como TECNICO, solo puedes modificar los campos: subestado, superficie y archivos (planos)"). La pantalla mostraba cambios que no se guardaban.
+QA (#297, caso LOT-27) encontró que el editor de lote (`LoteEditarCard.jsx`) deja al rol TECNICO modificar campos que no son técnicos: Número Partida, Tipo (y, en espacios comunes, Nombre y Capacidad), Estado, Precio, Propietario, Calle, Número, Ocupación e Inquilino, además de la Descripción. `lote.service.ts` (`updatedLote`) filtra para TECNICO a `subestado`, `superficie` y `archivos`: descarta el resto y responde 200, y solo responde 403 si no queda ningún campo permitido ("Como TECNICO, solo puedes modificar los campos: subestado, superficie y archivos (planos)"). La pantalla mostraba cambios que no se guardaban.
 
 Del código se deduce un segundo efecto: para guardar un lote VENDIDO el editor exige una venta asociada, y esa búsqueda usa `GET /api/ventas`, que TECNICO no puede consultar (403, solo ADMINISTRADOR y GESTOR). La venta quedaba siempre en `null` y el chequeo corre con `form.estado` aunque el payload no lleve estado, así que un TECNICO no podía guardar ni el subestado ni la superficie de un lote VENDIDO (error "No se puede establecer el estado VENDIDO sin una venta registrada"). Este efecto no se reprodujo en ejecución: queda como punto de la prueba manual.
 
@@ -1906,9 +1906,13 @@ La regla aplicable es la de la Guía QA (LOT-27) y el Manual Maestro (§10.2 y �
 
 En una primera versión los campos no editables quedaron con un estilo de solo lectura inconsistente: los inputs se veían grises, pero los desplegables (Tipo, Estado, Calle, Ocupación) y los buscadores de persona (Propietario, Inquilino) se veían blancos aunque estuvieran deshabilitados. El trigger de `NiceSelect` trae `background: #fff` propio, que tapa el gris del contenedor, y `PersonaSearchSelect` dibuja su propio contenedor, que no recibía la clase `is-readonly`.
 
+QA (#297) encontró además un problema con las imágenes en el mismo editor. El TECNICO puede subir imágenes, porque `file.auth.utils.ts` le permite gestionar PLANO e IMAGEN. Pero el uploader también le deja marcar para borrar imágenes ya guardadas, y `DELETE /api/files/:id` (`files.routes.ts`) es solo para ADMINISTRADOR y GESTOR. El editor ignoraba el error de cada borrado (un `catch` por archivo dentro de `Promise.allSettled`), así que el borrado fallaba sin aviso: la imagen desaparecía de la pantalla y volvía al reabrir el lote. Por la misma razón, un error de borrado para Admin o Gestor tampoco se informaba.
+
 #### Prompt / intención
 
 Alinear el editor con la regla del backend actual: Subestado y Superficie editables para TECNICO, el resto de los campos visible pero deshabilitado con un estilo de solo lectura uniforme, y un payload con solo esos dos campos. Solo frontend: sin tocar backend, OpenAPI ni Prisma. ADMINISTRADOR y GESTOR quedan exactamente igual, los planos siguen por su flujo propio (botón "Planos") y no se crea infraestructura de tests.
+
+Para las imágenes: el TECNICO puede subirlas pero no borrarlas. Ocultarle la acción de borrar con un helper explícito de `rbac.ui.js` y, para ADMINISTRADOR y GESTOR, informar un error de borrado en vez de ignorarlo, con un cambio mínimo y sin rediseñar el uploader. La subida de imágenes queda igual para todos los roles que hoy pueden.
 
 #### Propuesta generada por IA
 
@@ -1921,7 +1925,11 @@ Alinear el editor con la regla del backend actual: Subestado y Superficie editab
   - Para ADMINISTRADOR y GESTOR cada condición nueva se evalúa como verdadera y el comportamiento no cambia.
 - Descripción: no estaba entre los campos reportados, pero el backend también la descarta para TECNICO, así que recibe el mismo tratamiento.
 - Estilo de solo lectura unificado (`Cards/Base/cards.css` y `Cards/Lotes/PersonaSearchSelect.jsx`): una regla de CSS acotada a `.cclf-card .field-value.is-readonly` hace transparente el trigger de `NiceSelect` (toma el gris del contenedor) y pone cursor `not-allowed` en sus controles deshabilitados; `PersonaSearchSelect` marca su contenedor como `is-readonly is-locked` cuando recibe `disabled` (el editor de lote es hoy el único que se lo pasa). Los campos no se ocultan, solo se deshabilitan. El único campo que sigue sin mostrarse a TECNICO es la deuda, por la regla de AI-022. Los campos bloqueados se ven además "apagados", como los botones deshabilitados de documentos (`.lote-doc-button:disabled`), con la clase `is-locked`: valor en gris claro (`#9ca3af`, el de las opciones deshabilitadas de `NiceSelect`), etiqueta con `opacity: 0.55` y cursor `not-allowed`. La opacidad no se aplica al campo completo para no desvanecer su fondo gris, y la etiqueta se atenúa con `:has()` (Chrome y Edge 105+, Safari 15.4+, Firefox 121+). El estilo no cambia para ADMINISTRADOR y GESTOR, porque sus contenedores no llevan `is-readonly` ni `is-locked`, ni para la fila ID.
-- No se modificaron el uploader de imágenes ni el botón "Planos". Observación sin cambios, para decidir aparte: un TECNICO puede subir imágenes (el backend lo permite) y el editor le deja marcar imágenes para borrar, pero `DELETE /api/files/:id` es solo para ADMINISTRADOR y GESTOR y el editor ignora ese error (`allSettled` más `catch`), así que ese borrado falla sin avisar.
+- Borrado de imágenes:
+  - `lib/auth/rbac.ui.js`: helper `canDeleteArchivo(user)` con los mismos roles que `DELETE /api/files/:id` (ADMINISTRADOR y GESTOR) y `false` para cualquier otro caso. Es un helper aparte de `canEditLoteComercial` porque refleja otra regla del backend, aunque hoy coincidan los roles.
+  - `Cards/Lotes/LoteImageUploader.jsx`: prop nueva `canDelete`, `true` por defecto, así que `LoteCrearCard.jsx` no cambia. Con `false` se oculta la papelera de las imágenes ya guardadas. Las imágenes recién elegidas y todavía no subidas conservan la papelera, porque quitarlas no llama al backend y le permite al TECNICO deshacer una subida antes de guardar.
+  - `LoteEditarCard.jsx`: pasa `canDelete={canDeleteArchivo(user)}` y revisa el resultado de `Promise.allSettled`. Si algún borrado falla, lo registra en consola y muestra "Se actualizaron datos del lote, pero no se pudieron borrar algunas imágenes", con el mismo formato que el aviso que ya existía para los errores de subida. Se quitó el `try/catch` que lo envolvía, que nunca se ejecutaba porque `allSettled` no rechaza.
+- No se modificó el botón "Planos".
 
 ### Validación humana
 
@@ -1931,26 +1939,30 @@ Alinear el editor con la regla del backend actual: Subestado y Superficie editab
 - Ajustes de UX decididos durante la prueba manual: primero se evaluó ocultar los campos no editables, pero se decidió mantenerlos visibles para que el técnico tenga el contexto del lote. Como algunos campos deshabilitados (Calle, Ocupación) se veían igual que los editables, se unificó el estilo de solo lectura (fondo gris, texto y etiqueta atenuados, cursor bloqueado), igual que los botones deshabilitados de documentos, para que el técnico identifique a simple vista qué puede modificar.
 - Se aceptaron las decisiones propuestas por la IA: deshabilitar también Descripción (el backend la descarta) y omitir para TECNICO las validaciones y la consulta de venta que dependían de campos que ya no se envían.
 - Se verificó en `file.auth.utils.ts` que el TECNICO puede gestionar archivos PLANO e IMAGEN (no BOLETO, ESCRITURA ni OTRO), por lo que la carga de imágenes se mantiene. Los botones Escritura, Boleto y Planos del editor están deshabilitados para todos los roles desde antes (LOT-42, decisión abierta) y no se tocaron.
-- Queda fuera de alcance, registrado como bug QA #9: el técnico puede marcar imágenes para borrar y el backend lo rechaza sin aviso.
+- Se sumó al mismo cambio el borrado de imágenes: el técnico ya no ve la acción de borrar en las imágenes guardadas, y para Admin y Gestor un error de borrado se informa. Se eligió un helper explícito (`canDeleteArchivo`, false por defecto) en lugar de reutilizar `canEditLoteComercial`, para que cada regla del backend tenga su propio punto de control. El borrado de imágenes no se pudo probar en el entorno QA local: el storage está desactivado a propósito (`.env.qa` con valores de Supabase ficticios), así que subir imágenes responde 500 y las imágenes del seed no tienen URL firmada y el editor no las muestra. En QA solo se comprobó que una imagen nueva se puede quitar antes de guardar. El resto se validó por revisión de código, build y lint, y queda por probar en un entorno con storage.
 
 ### Decisión adoptada
 
-En el editor de lote, el TECNICO solo modifica Subestado y Superficie; el resto de los campos se muestran en solo lectura con un estilo visual atenuado y uniforme, y el payload envía únicamente esos dos campos. Así la UI queda alineada con la regla vigente del backend, la Guía QA (LOT-27), el Manual Maestro (§10.2 y §16.4) y el requisito original ("modificar el estado del plano interno del lote"). ADMINISTRADOR y GESTOR no cambian.
+En el editor de lote, el TECNICO solo modifica Subestado y Superficie; el resto de los campos se muestran en solo lectura con un estilo visual atenuado y uniforme, y el payload envía únicamente esos dos campos. Así la UI queda alineada con la regla vigente del backend, la Guía QA (LOT-27), el Manual Maestro (§10.2 y §16.4) y el requisito original ("modificar el estado del plano interno del lote"). ADMINISTRADOR y GESTOR no cambian. El TECNICO puede subir imágenes al lote, pero no borrar las ya guardadas, igual que en el backend. Para Admin y Gestor, un error al borrar una imagen ahora se informa.
 
 #### Resultado
 
 - `npm run build` PASS.
-- `npx eslint` sobre `LoteEditarCard.jsx` (6 errores y 1 warning), `PersonaSearchSelect.jsx` (1 hallazgo) y `rbac.ui.js` (1 error): mismos hallazgos que en `main`, comparados regla por regla, todos preexistentes; los cambios no agregan ninguno.
-- El frontend no tiene tests automatizados. Prueba manual con qa.tecnico, qa.admin y qa.gestor (incluido un lote VENDIDO con qa.tecnico): PENDIENTE. Incluye revisar que todos los campos no editables se vean grises y apagados (valor en gris claro y etiqueta atenuada; inputs, desplegables y buscadores de persona) y que Subestado y Superficie se vean blancos y con texto normal.
+- `npx eslint` sobre `LoteEditarCard.jsx` (6 errores y 1 warning), `PersonaSearchSelect.jsx` (1 hallazgo), `rbac.ui.js` (1 error) y `LoteImageUploader.jsx` (sin hallazgos): mismos hallazgos que en `main`, comparados regla por regla, todos preexistentes; los cambios no agregan ninguno. `git diff --check` limpio.
+- El frontend no tiene tests automatizados. Prueba manual de los campos con qa.tecnico, qa.admin y qa.gestor (incluido un lote VENDIDO con qa.tecnico): OK, ver Validación humana.
+- Borrado de imágenes: no verificable en el entorno QA local (storage desactivado; ver Validación humana). Validado por revisión de código, build y lint. Falta probarlo en un entorno con storage: con TECNICO, las imágenes guardadas no muestran papelera, una imagen nueva sin guardar sí se puede quitar y la subida funciona; con ADMINISTRADOR y GESTOR, la papelera se ve en todas las imágenes y el borrado sigue funcionando.
 
 #### Evidencia / archivos relacionados
 
 - `frontend/src/lib/auth/rbac.ui.js`
 - `frontend/src/components/Cards/Lotes/LoteEditarCard.jsx`
+- `frontend/src/components/Cards/Lotes/LoteImageUploader.jsx`
 - `frontend/src/components/Cards/Lotes/PersonaSearchSelect.jsx`
 - `frontend/src/components/Cards/Base/cards.css`
 - `Backend/src/services/lote.service.ts` (`updatedLote`, regla de TECNICO; sin cambios)
-- Refs #297 · bug QA #8 (LOT-27)
+- `Backend/src/routes/files.routes.ts` (`DELETE /api/files/:id`, solo ADMINISTRADOR y GESTOR; sin cambios)
+- `Backend/src/utils/file.auth.utils.ts` (TECNICO gestiona PLANO e IMAGEN; sin cambios)
+- Refs #297 (LOT-27)
 - `AI-DECISIONS.md`
 
 
