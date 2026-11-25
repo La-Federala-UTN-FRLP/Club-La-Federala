@@ -1890,6 +1890,175 @@ Archivos:
 - GitHub #288, CCLF-21 / CL-07
 - `AI-DECISIONS.md`
 
+### AI-028 — Vista de ventas por período (frontend) y estilo de la pantalla de Reportes
+
+**Fecha:** 2026-11-24  
+**Área:** Frontend / Reportes / Estilos  
+**Herramientas:** Claude Code para relevar el contrato y el código, implementar y verificar en el navegador.
+
+#### Problema
+
+La subtarea 39.3 (CCLF-61) pedía la vista "Ventas por período", que hasta ahora era un marcador de
+posición: la pantalla de Reportes cargaba el reporte con los últimos 30 días y mostraba solo la
+cantidad de filas.
+
+El reporte del backend (38.3, CCLF-54) ya estaba en main, pero el mock del frontend había quedado
+desalineado: emitía `montoUSD` en cada fila, sin `moneda` ni `fraccionId`, y con `otrasMonedas`
+siempre vacío. Con ese mock no se podía construir ni probar la vista.
+
+CCLF-37 V4 no sirve como referencia para la fila de ventas: no la especifica y todavía dice
+`montoUSD`.
+
+#### Prompt / intención
+
+Hacer 39.3 en etapas, cada una con su informe y sin commits:
+
+1. Relevamiento de solo lectura del contrato, del mock, del cliente HTTP y de la pantalla.
+2. Alinear el mock de ventas con el backend ya mergeado.
+3. Crear los componentes compartidos (tarjeta de filtros, tarjeta de KPI, tarjeta de tabla) sin
+   tocar la vista de inventario.
+4. La vista de ventas.
+5. y 5b. Acercar el estilo de la pantalla al boceto.
+
+Condiciones: no consultar Supabase ni levantar el backend (se verifica con el mock y con un
+servidor local que sirve sus datos por HTTP), mantener el baseline de lint (113 errores y 50
+warnings) y reportar en lugar de aproximar lo que no se pudiera cumplir.
+
+#### Propuesta generada por IA
+
+- **Mock:** alinearlo contra `reporte.service.ts` y no contra la especificación. Derivar la moneda
+  de cada venta de su plan en `PLANES` (USD si no tiene plan), emitir `moneda`, `monto` y
+  `fraccionId` en la fila, separar las tarjetas por moneda y llenar `otrasMonedas`. Exigir el
+  estado además de la fecha en escrituradas y canceladas, como hace el backend. Sumar dos ventas
+  en ARS y una sin plan, con sus planes sin cuotas impagas para no alterar el reporte de cuotas
+  vencidas.
+- **Componentes:** `FiltrosReporte`, `TarjetaKpi` y `TarjetaTabla` como archivos nuevos todavía sin
+  consumidores, y `periodo.js` con `validarPeriodo`, que repite las reglas del validador del
+  backend para deshabilitar "Generar" antes de gastar un 400.
+- **Vista:** `aplicados` arranca en `null` y no se consulta nada hasta pulsar Generar; un objeto
+  nuevo en cada clic, para que dos clics con los mismos filtros sean dos consultas; una fila por
+  venta; tarjetas en USD y las otras monedas en un aviso aparte.
+- **Verificación:** instancias propias de Vite en puertos que no pisan los del equipo, Chrome
+  headless por CDP y un servidor local que importa el mock y lo sirve por HTTP, para poder contar
+  los requests y leer sus parámetros.
+
+#### Validación humana
+
+- **Alinear el mock contra el código y no contra la especificación.** La persona responsable
+  aceptó esa propuesta sabiendo que CCLF-37 V4 sigue diciendo `montoUSD` y no define la fila de
+  ventas: la especificación quedó desactualizada respecto del contrato implementado.
+- **Dos errores de redacción en los prompts, detectados por la IA.** El de la etapa 3 pedía a la
+  vez "las mismas clases que hoy" y "prefijo `reporte-`", que no pueden cumplirse juntas; se
+  resolvió con la misma estructura de marcado y clases nuevas, de modo que el estilo del boceto no
+  tocara la vista de inventario. El de la etapa 4 pedía el ámbar de la variante `warn` de
+  `TablaLotes.css`, que define el texto en `#FBBF24` sobre fondo claro: la IA avisó que es
+  ilegible en un párrafo y se usó la paleta `warn` de `StatusBadge.jsx` de Ventas, que ya está en
+  el código y tiene el texto oscuro.
+- **Mayúsculas de las insignias.** `.tl-badge` fuerza `text-transform: uppercase`, que corresponde
+  a un estado de una o dos palabras, y el rótulo "+3 vs. anterior" se veía "+3 VS. ANTERIOR".
+  Primero se acotó una regla a la cabecera de la tarjeta; después las pastillas de diferencia
+  pasaron a clases propias.
+- **Color de ESCRITURADO.** El prompt pedía verde. La IA avisó de que la tabla de Ventas lo muestra
+  en violeta y que reserva el verde para FINALIZADA. Se decidió usar violeta, apartándose del
+  boceto, para que el mismo estado no tenga dos colores en la aplicación.
+- **Cambio de criterio sobre la fidelidad al boceto.** El criterio inicial era mover solo la
+  disposición, sin tocar tokens. Al ver el resultado, la persona pidió acercar el estilo, y se
+  revirtieron dos recortes previos: el selector de reporte pasó de un `<select>` a chips, y se
+  adoptaron los colores y el radio de 20px del boceto como variables locales de `.reportes-panel`,
+  sin tocar `tokens.css`. El fondo `#f3f5f2` se aplica con `.app-content:has(.reportes-panel)`, de
+  modo que no se filtra a otras rutas; se midió en `/`, `/ventas` y `/map`.
+- **Dos cambios no pedidos, reportados por la IA y aceptados:** `flex: 1 1 auto` en `.app-content`,
+  porque sin eso el fondo cortaba a mitad de pantalla en un reporte corto, y el título de la
+  pantalla de `<h5>` a `<h1>`.
+- **Decisiones de producto contra el boceto:**
+  - Una fila por venta con sus tres fechas, en lugar de una fila por evento: el boceto obligaría a
+    duplicar en la interfaz las reglas de conteo que ya tiene el backend.
+  - "N ventas" en lugar de "Mostrando X de Y": ninguna lista del contrato está paginada, así que X
+    siempre sería igual a Y.
+  - El período viene precargado con los últimos 30 días, pero no se consulta nada hasta pulsar
+    Generar.
+  - La interfaz no calcula cifras. La única excepción es la diferencia entera de cantidades del
+    rótulo "+N vs. anterior", que son dos números que el backend informa por separado.
+- **Un diagnóstico equivocado, corregido con el código.** Ante una captura con "ARS 18.000,00" en
+  el reporte y "US$ 18.000" en la ficha de la venta, se sospechó que el backend rotulaba mal la
+  moneda. La verificación contra `pago.service.ts` —el total del plan tiene que coincidir con
+  `Venta.monto` menos la seña, sin conversión— mostró que `Venta.monto` está en la moneda del plan
+  y que el reporte es correcto: la inconsistencia está en `VentaVerCard`, que muestra "US$" fijo.
+
+#### Decisión adoptada
+
+- `reportes.mock.js` emite la fila del contrato de 38.3 (`moneda`, `monto` y `fraccionId`, sin
+  `montoUSD`), las tarjetas solo con las ventas en USD y el resto en `otrasMonedas`; escrituradas
+  y canceladas exigen el estado además de la fecha.
+- `VistaVentas.jsx`: filtros con período obligatorio, tres tarjetas comparadas contra el período
+  anterior, aviso de otras monedas y tabla de una fila por venta. No consulta hasta Generar y cada
+  clic es una consulta.
+- Componentes compartidos `FiltrosReporte`, `TarjetaKpi` y `TarjetaTabla`, y `periodo.js` con
+  `validarPeriodo` y `MAX_DIAS_PERIODO`.
+- `fmtMontoMoneda` en `etiquetas.js` para los montos en la moneda que informa el backend;
+  `fmtPrecioUsd` pasa a usarlo sin cambiar lo que ve el inventario.
+- `VARIANTE_ESTADO_VENTA` con `violet` para ESCRITURADO.
+- Estilo de la pantalla: chips en lugar del `<select>`, breadcrumb y título, variables locales con
+  los valores del boceto y fondo condicionado por `:has()`.
+- El inventario comparte las clases de la tarjeta de filtros, pero sigue con su propio formulario.
+
+#### Evidencia / archivos relacionados
+
+Verificado:
+
+- Mock: `getCuotasVencidas` y `getInventario` devuelven exactamente lo mismo que antes del cambio
+  (comparación del JSON completo); los conteos de las tarjetas coinciden con los que el script
+  recalcula sobre las filas, por moneda; la regla del estado se probó sobre copias parcheadas del
+  mock, fuera del repositorio.
+- Funciones puras en Node: `fmtMontoMoneda`, `fmtPrecioUsd` (los mismos resultados que la
+  implementación anterior en 15 casos), `validarPeriodo`, `etiquetaEstadoVenta` y las fechas.
+- En Chrome headless: 0 requests al abrir la vista, 1 al pulsar Generar y 2 en el segundo clic;
+  tarjetas 6 / 2 / 2 con sus montos; aviso de ARS; 9 filas; `fraccion=12` en el request; período
+  inválido sin consultar; el error del endpoint se muestra y no queda el spinner.
+- Estilo: valores del boceto medidos con `getComputedStyle`, y el fondo medido en `/`, `/ventas` y
+  `/map` para confirmar que no se filtra.
+- El inventario sigue filtrando igual y mandando el id de la fracción y el valor del enum.
+- `npm run lint` queda en el baseline (113 errores y 50 warnings) y `npm run build` pasa.
+
+No verificado:
+
+- Nada se probó contra el backend real: toda la verificación usó el mock, directamente o servido
+  por HTTP desde un servidor local.
+- El frontend no tiene infraestructura de tests: los scripts de verificación no se versionaron.
+
+Riesgos y deuda:
+
+- Las tarjetas principales informan solo USD y la tabla trae todas las monedas. Si una vista no
+  mostrara `otrasMonedas`, la diferencia se leería como un error.
+- El reporte muestra "Escriturada" donde la tabla de Ventas muestra FINALIZADA, que no está en el
+  enum y no se puede derivar de la fila.
+- El formato "USD 18.000,00" difiere del "US$" de la ficha de la venta, que usa `fmtMonto` de
+  `pagoUtils.js`.
+- Las cancelaciones pueden estar subcontadas, porque `cancelActivesOnNoDisponible` no setea
+  `fechaCancelacion` (ya señalado en AI-020).
+- El inventario no usa `FiltrosReporte` —solo comparte sus clases— y su tabla no está dentro de
+  `TarjetaTabla`.
+- Del boceto quedaron sin hacer la barra apilada por fracción, las cinco tarjetas con puntos, la
+  hora del corte y la columna Superficie: el contrato no trae esos datos.
+
+Archivos:
+
+- `frontend/src/components/Reportes/VistaVentas.jsx`
+- `frontend/src/components/Reportes/FiltrosReporte.jsx`
+- `frontend/src/components/Reportes/TarjetaKpi.jsx`
+- `frontend/src/components/Reportes/TarjetaTabla.jsx`
+- `frontend/src/components/Reportes/periodo.js`
+- `frontend/src/components/Reportes/etiquetas.js`
+- `frontend/src/components/Reportes/Insignias.jsx`
+- `frontend/src/components/Reportes/VistaInventario.jsx`
+- `frontend/src/lib/api/reportes.mock.js`
+- `frontend/src/lib/api/reportes.js`
+- `frontend/src/lib/fechas.js`
+- `frontend/src/pages/Reportes.jsx`
+- `frontend/src/pages/Reportes.css`
+- Jira CCLF-61 (39.3), CCLF-37 (especificación) y CCLF-54 (38.3, AI-020)
+- `AI-DECISIONS.md`
+
 ### AI-029 — Editor de lote: el técnico edita solo subestado y superficie y no borra imágenes guardadas
 
 **Fecha:** 2026-11-24

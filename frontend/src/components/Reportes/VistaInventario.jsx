@@ -177,8 +177,8 @@ export default function VistaInventario() {
 
   return (
     <div className="reportes-inventario">
-      <form className="reportes-filtros" onSubmit={aplicarFiltros}>
-        <Form.Group className="reportes-filtro">
+      <form className="reporte-filtros-card" onSubmit={aplicarFiltros}>
+        <Form.Group className="reporte-filtro">
           <Form.Label htmlFor="inv-fraccion">Fracción</Form.Label>
           <Form.Select
             id="inv-fraccion"
@@ -186,7 +186,7 @@ export default function VistaInventario() {
             onChange={cambiarFiltro("fraccion")}
             disabled={fracciones.length === 0}
           >
-            <option value="">Todas</option>
+            <option value="">Todas las fracciones</option>
             {fracciones.map((f) => (
               <option key={f.id} value={f.id}>
                 Fracción {f.numero}
@@ -195,10 +195,10 @@ export default function VistaInventario() {
           </Form.Select>
         </Form.Group>
 
-        <Form.Group className="reportes-filtro">
-          <Form.Label htmlFor="inv-estado">Estado</Form.Label>
+        <Form.Group className="reporte-filtro">
+          <Form.Label htmlFor="inv-estado">Estado comercial</Form.Label>
           <Form.Select id="inv-estado" value={borrador.estado} onChange={cambiarFiltro("estado")}>
-            <option value="">Todos</option>
+            <option value="">Todos los estados</option>
             {ESTADOS.map((estado) => (
               <option key={estado} value={estado}>
                 {etiquetaEstado(estado)}
@@ -207,14 +207,14 @@ export default function VistaInventario() {
           </Form.Select>
         </Form.Group>
 
-        <Form.Group className="reportes-filtro">
-          <Form.Label htmlFor="inv-subestado">Subestado</Form.Label>
+        <Form.Group className="reporte-filtro">
+          <Form.Label htmlFor="inv-subestado">Subestado constructivo</Form.Label>
           <Form.Select
             id="inv-subestado"
             value={borrador.subestado}
             onChange={cambiarFiltro("subestado")}
           >
-            <option value="">Todos</option>
+            <option value="">Todos los subestados</option>
             {SUBESTADOS.map((subestado) => (
               <option key={subestado} value={subestado}>
                 {etiquetaSubestado(subestado)}
@@ -226,7 +226,7 @@ export default function VistaInventario() {
         <Button
           type="submit"
           variant="primary"
-          className="reportes-filtros__boton"
+          className="reporte-filtros-card__boton"
           disabled={cargando}
         >
           {BOTON_GENERAR}
