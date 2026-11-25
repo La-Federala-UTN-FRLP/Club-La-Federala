@@ -58,9 +58,10 @@ export function canDashboardAction(user, action) {
   switch (action) {
     // Lotes
     case 'visualizarLote':   return can(user, PERMISSIONS.LOT_VIEW);
+    case 'crearLote':        return can(user, PERMISSIONS.LOT_CREATE);      // Admin + Gestor
     case 'editarLote':       return can(user, PERMISSIONS.LOT_EDIT);
     case 'registrarVenta':   return can(user, PERMISSIONS.SALE_CREATE);     // Admin + Gestor
-    case 'eliminarLote':     return can(user, PERMISSIONS.LOT_DELETE);      // Admin + Gestor
+    case 'eliminarLote':     return can(user, PERMISSIONS.LOT_DELETE);      // Solo Admin
     case 'aplicarPromocion': return can(user, PERMISSIONS.LOT_PROMO);       // Admin + Gestor
     
     // Ventas
