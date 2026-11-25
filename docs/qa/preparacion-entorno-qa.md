@@ -1,6 +1,6 @@
 # Preparación del entorno QA local
 
-Entorno **local y descartable** para ejecutar la Guía de QA funcional (épico CCLF-4): PostgreSQL 16 en Docker, migraciones, datos de prueba (`seed:qa`) y un chequeo automático de permisos, aislamiento y sesión (`qa:api`).
+Entorno **local y descartable** para ejecutar la Guía de QA funcional (épica #271, Functional QA & UX): PostgreSQL 16 en Docker, migraciones, datos de prueba (`seed:qa`) y un chequeo automático de permisos, aislamiento y sesión (`qa:api`).
 
 > **Nunca uses la base Supabase compartida de `Backend/.env` para QA.** Las pruebas crean, modifican y borran datos (bajas de inmobiliarias, usuarios eliminados, reservas de prueba). Todo lo de esta guía usa `Backend/.env.qa`, que apunta a `127.0.0.1:5433`. `seed:qa` y `qa:api` abortan si `DATABASE_URL` no es local. Los seeds base (`seed:core`, `seed:personas`, `seed:lrv`) **no tienen ese guard**: corrélos solo a través de `npm run seed:qa -- --base` o con `.env.qa` cargado en la terminal.
 
@@ -12,7 +12,7 @@ Entorno **local y descartable** para ejecutar la Guía de QA funcional (épico C
 
 ### Storage desactivado
 
-`.env.qa` usa valores dummy de `SUPABASE_*` a propósito. El backend arranca porque el cliente de Storage es lazy, pero **no hay storage**: subir, sustituir, firmar URL o purgar archivos responde `500`. Los archivos del seed son solo metadata.
+`.env.qa` usa valores dummy de `SUPABASE_*` a propósito. El backend arranca porque el cliente de Storage es lazy, pero **no hay storage**: subir, sustituir, firmar URL o purgar archivos responde `500`. Los archivos del seed son solo metadata. Desde la integración de Google Cloud Storage (PR #352), el proveedor se elige con `STORAGE_PROVIDER`. En `.env.qa` no se define, así que queda el default `supabase` con los valores dummy: no hace falta configurar GCS para QA local. Además, la purga ahora responde 500 y conserva la fila si falla el storage, así que en este entorno purgar un archivo como ADMIN da 500 (no es un bug).
 
 Se decidió no apuntar QA al bucket de Supabase del equipo: las rutas de storage son `lote-{id}/…` y los IDs de la base local coinciden con los reales, así que una subida o un purge desde QA podría pisar o borrar archivos compartidos. Los casos DOC que necesitan el binario quedan **BLOCKED** en este entorno.
 
