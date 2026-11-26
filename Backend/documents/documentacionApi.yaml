@@ -248,7 +248,9 @@ paths:
       description: >-
         Actualización parcial (al menos un campo). TECNICO solo puede modificar `subestado` y
         `superficie`: si envía cualquier otro campo del schema, o ninguno de esos dos, recibe 403. `calle` + `numeroCalle` actualizan la
-        ubicación existente o crean una; `ubicacionId` conecta una existente.
+        ubicación existente o crean una; `ubicacionId` conecta una existente. Pasar el lote a
+        "No Disponible" con una venta en curso (INICIADA o CON_BOLETO, operativa) responde 409: la
+        venta se cancela primero desde Ventas.
       x-roles: [ADMINISTRADOR, GESTOR, TECNICO]
       security: [{ bearerAuth: [] }]
       requestBody:
@@ -681,8 +683,11 @@ paths:
       description: >-
         Requiere al menos un comprador (`compradores[]` o `compradorId`). Si el lote tiene una reserva
         vigente de una inmobiliaria, la venta debe ser de esa misma inmobiliaria y por el monto de la
-        reserva (400). `inmobiliariaId` debe ser una inmobiliaria OPERATIVO: una ELIMINADO responde
-        409 "La inmobiliaria seleccionada no está disponible para operar."
+        reserva (400). Si el lote tiene una reserva vigente, el cliente de la reserva debe estar entre
+        los compradores (400). `inmobiliariaId` debe ser una inmobiliaria OPERATIVO: una ELIMINADO
+        responde 409 "La inmobiliaria seleccionada no está disponible para operar." Si dos o más
+        ventas compiten por el mismo lote, se crea una sola y las demás responden 409 sin crear
+        nada.
       x-roles: [ADMINISTRADOR, GESTOR]
       security: [{ bearerAuth: [] }]
       requestBody:
@@ -859,7 +864,10 @@ paths:
       tags: [Pagos]
       operationId: registrarPago
       summary: Registrar un pago sobre una cuota
-      description: Venta eliminada → 409.
+      description: >-
+        Venta eliminada o cancelada → 409 (los pagos ya registrados de una venta cancelada se
+        conservan). Los pagos concurrentes sobre la misma cuota se registran de a uno: cada uno ve el
+        saldo actualizado y, si lo supera, responde 409.
       x-roles: [ADMINISTRADOR, GESTOR]
       security: [{ bearerAuth: [] }]
       requestBody:
@@ -893,7 +901,9 @@ paths:
       tags: [Pagos]
       operationId: aplicarRecargo
       summary: Aplicar un recargo manual a una cuota
-      description: Venta eliminada → 409.
+      description: >-
+        Venta eliminada o cancelada → 409. Se aplica de a uno con los pagos de la misma cuota, sobre
+        el saldo actualizado.
       x-roles: [ADMINISTRADOR, GESTOR]
       security: [{ bearerAuth: [] }]
       requestBody:
