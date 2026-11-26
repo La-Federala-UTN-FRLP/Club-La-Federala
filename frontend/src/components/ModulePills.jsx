@@ -69,7 +69,6 @@ export default function ModulePills() {
     ],
     reportes: [
       { label: 'Ver Reportes', to: '/reportes', disabled: false },
-      { label: 'Descargar Reporte', to: null, disabled: true },
     ],
     personas: personasMenu,
     lotes: [
