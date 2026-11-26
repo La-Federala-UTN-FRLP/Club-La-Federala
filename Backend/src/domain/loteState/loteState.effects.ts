@@ -10,7 +10,12 @@ import { EstadoVenta, EstadoReserva, EstadoPrioridad } from '../../generated/pri
  * - Reservas ACTIVA → CANCELADA
  * - Prioridades ACTIVA → CANCELADA
  * No toca reservas ACEPTADA ni ventas finalizadas (ESCRITURADO)
+ *
+ * Una venta en curso OPERATIVA bloquea antes el pase a No Disponible (updatedLote, bug QA 24), así
+ * que acá solo llegan ventas en curso dadas de baja. Si se cancela alguna, queda con fecha y motivo.
  */
+export const MOTIVO_CANCELACION_LOTE_NO_DISPONIBLE = 'Lote pasado a No Disponible';
+
 export async function cancelActivesOnNoDisponible(loteId: number): Promise<void> {
   // Cancelar ventas no finalizadas
   await prisma.venta.updateMany({
@@ -18,7 +23,11 @@ export async function cancelActivesOnNoDisponible(loteId: number): Promise<void>
       loteId: loteId,
       estado: { in: [EstadoVenta.INICIADA, EstadoVenta.CON_BOLETO] },
     },
-    data: { estado: EstadoVenta.CANCELADA },
+    data: {
+      estado: EstadoVenta.CANCELADA,
+      fechaCancelacion: new Date(),
+      motivoCancelacion: MOTIVO_CANCELACION_LOTE_NO_DISPONIBLE,
+    },
   });
 
   // Cancelar reservas ACTIVA

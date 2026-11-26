@@ -700,6 +700,50 @@ describe('updatedLote — NO_DISPONIBLE + effects', () => {
         await updatedLote(1, { estado: 'No Disponible' });
 
         expect(cancelActives).not.toHaveBeenCalled();
+        expect(prismaMock.venta.findFirst).not.toHaveBeenCalled();
+    });
+
+    // Bug QA 24: el pase a No Disponible cancelaba en silencio una venta en curso, sin fecha ni motivo.
+    test('bug QA 24: lote con venta en curso → 409 sin escribir nada ni cancelar operaciones', async () => {
+        stubLoteActual('VENDIDO');
+        prismaMock.venta.findFirst.mockResolvedValue({ id: 12 });
+
+        await expect(
+            updatedLote(1, { estado: 'No Disponible', ocupacion: 'NO_ALQUILADO' }),
+        ).rejects.toMatchObject({
+            statusCode: 409,
+            message: 'El lote tiene una venta en curso; para retirarlo, cancelá primero la venta desde Ventas',
+        });
+        expect(prismaMock.venta.findFirst).toHaveBeenCalledWith({
+            where: { loteId: 1, estado: { in: ['INICIADA', 'CON_BOLETO'] }, estadoOperativo: 'OPERATIVO' },
+            select: { id: true },
+        });
+        expect(cancelActives).not.toHaveBeenCalled();
+        expect(prismaMock.lote.update).not.toHaveBeenCalled();
+        expect(prismaMock.alquiler.findFirst).not.toHaveBeenCalled();
+    });
+
+    // La consulta solo busca ventas INICIADA o CON_BOLETO operativas: con la venta ESCRITURADO o
+    // CANCELADA (o dada de baja) no encuentra nada y el pase a No Disponible sigue como antes.
+    test('bug QA 24: lote sin venta en curso (venta ESCRITURADO o CANCELADA) → pasa a No Disponible', async () => {
+        stubLoteActual('VENDIDO');
+        prismaMock.venta.findFirst.mockResolvedValue(null);
+        prismaMock.lote.update.mockResolvedValue(buildPrismaLote({ estado: 'NO_DISPONIBLE' }));
+
+        await updatedLote(1, { estado: 'No Disponible' });
+
+        expect(cancelActives).toHaveBeenCalledWith(1);
+        expect(prismaMock.lote.update.mock.calls[0][0].data.estado).toBe('NO_DISPONIBLE');
+    });
+
+    test('bug QA 24: otro cambio de estado no consulta ventas', async () => {
+        stubLoteActual('VENDIDO');
+        prismaMock.lote.update.mockResolvedValue(buildPrismaLote({ estado: 'DISPONIBLE' }));
+
+        await updatedLote(1, { estado: 'Disponible' });
+
+        expect(prismaMock.venta.findFirst).not.toHaveBeenCalled();
+        expect(prismaMock.lote.update.mock.calls[0][0].data.estado).toBe('DISPONIBLE');
     });
 });
 
