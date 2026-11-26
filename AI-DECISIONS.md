@@ -2510,7 +2510,10 @@ Para el bug QA 17, con un cambio solo de frontend: no dibujar Propietario ni Inq
   - La consulta de ADMINISTRADOR no cambia.
 
   El test verifica la consulta que recibe Prisma; el filtrado en la base lo hace Prisma. Se descartó un test de integración contra PostgreSQL para esta entrega.
-- **Docs** (`docs/architecture/matriz-rbac.md` y su CSV): fila "Asociaciones en el detalle de persona" en "Campos visibles por rol" (INMOBILIARIA ve los datos de la persona y Reservas con su inmobiliaria, sin Propietario, Inquilino ni Ventas), fila "Ver persona" actualizada y referencias de línea corregidas.
+- **Docs** (`docs/architecture/matriz-rbac.md` y su CSV):
+  - Fila "Asociaciones en el detalle de persona" en "Campos visibles por rol" (INMOBILIARIA ve los datos de la persona y Reservas con su inmobiliaria, sin Propietario, Inquilino ni Ventas), fila "Ver persona" actualizada y referencias de línea corregidas.
+  - Columna "Decisión" de D2, D7 y D8: "Ninguna: se mantiene el frontend; el backend conserva el permiso" (D2 y D7) y "Ninguna: fuera del alcance de esta entrega (funcionalidad nueva)" (D8). D7 se cierra después en la AI-036.
+  - Listado de fracciones: "Alta de lote" corregido a ADMIN y GESTOR, alineado con D4.
 
 #### Validación humana
 
@@ -2626,6 +2629,87 @@ Observado, fuera del alcance: la venta 37593 figura como "Cancelada" sin fecha d
 - Especificación y contratos de Reportes + IA (CCLF-37), V4
 - `AI-DECISIONS.md`
 
+### AI-036 — Backend alineado con el frontend: grupo familiar, jefe de familia por PUT y edición de lote del técnico
+
+**Fecha:** 2026-11-26
+**Área:** Backend / Personas y Lotes / Autorización y validación
+**Herramientas:** Claude Code
+
+#### Problema
+
+Tres diferencias entre lo que acepta el backend y lo que ya muestra el frontend:
+
+- **D7 (matriz RBAC):** `GET /personas/:id/grupo-familiar` aceptaba ADMINISTRADOR, GESTOR y TECNICO. El frontend solo muestra el grupo familiar a ADMINISTRADOR y GESTOR, y D7 había quedado resuelta solo en el frontend: TECNICO seguía pudiendo leer datos personales del grupo familiar llamando a la API.
+- **Bug QA 14:** `PUT /personas/:id` aceptaba `jefeDeFamiliaId`, respondía 200 ("se actualizó con éxito") y lo ignoraba. Quien lo enviaba creía haber cambiado el grupo familiar, que se gestiona solo con `/personas/:id/grupo-familiar/miembros`.
+- **Bugs QA 7 y 8:** `PUT /lotes/:id` como TECNICO aceptaba el body completo, aplicaba solo `subestado` y `superficie` y respondía 200 descartando el resto en silencio. Solo daba 403 si no venía ningún campo permitido (por ejemplo, `deuda` sola).
+
+#### Prompt / intención
+
+Alinear el backend con lo que ya muestra el frontend con tres cambios mínimos, solo en `Backend/` y docs:
+- Sacar a TECNICO de la ruta del grupo familiar.
+- Rechazar `jefeDeFamiliaId` en `PUT /personas/:id` con 400 y un mensaje claro.
+- Responder 403 si TECNICO manda en `PUT /lotes/:id` algún campo fuera de su whitelist.
+
+ADMINISTRADOR y GESTOR sin cambios, sin tocar reservas, prioridades ni ventas (D2, D5 y D8), manteniendo la paridad OpenAPI y el aislamiento multi-tenant. Antes de editar, verificar que el frontend no mande nada que el cambio vaya a rechazar.
+
+#### Propuesta generada por IA
+
+- **Verificación previa en el frontend** (ninguna pantalla se rompe):
+  - El PUT de persona (`frontend/src/lib/api/personas.js`) nunca manda `jefeDeFamiliaId`, y es el único que llama a `PUT /personas/:id`.
+  - `LoteEditarCard.jsx` manda como TECNICO solo `subestado` y `superficie`, y `lib/api/lotes.js` pasa el payload sin agregar campos.
+  - Desde D7 el frontend no muestra el grupo familiar a TECNICO.
+- **D7** (`Backend/src/routes/persona.routes.ts`): la ruta pasa a `authorize('ADMINISTRADOR', 'GESTOR')`. En OpenAPI, el `x-roles` de `obtenerGrupoFamiliar` pasa a `[ADMINISTRADOR, GESTOR]` (el test de paridad compara `x-roles` con los roles de cada ruta).
+- **Bug QA 14** (`Backend/src/validations/persona.validation.ts`):
+  - En `updatePersonaSchema`, `jefeDeFamiliaId` pasa a `z.undefined({ error: MENSAJE_JEFE_POR_PUT }).optional()`. Si no viene, el update sigue igual. Con cualquier valor (número, string o `null`) responde el 400 estándar (`VALIDATION_ERROR`) con `field: "jefeDeFamiliaId"` y un mensaje que remite a `/personas/:id/grupo-familiar/miembros`.
+  - La IA había propuesto `z.undefined()` sin `.optional()`; los tests mostraron que en Zod 4 eso rechaza también los PUT que no traen el campo, y se corrigió.
+  - Se quitó la copia del campo en el controller y `jefeDeFamiliaId` del DTO de update del service, que ya no lo usaba.
+  - En OpenAPI se sacó `jefeDeFamiliaId` de `PersonaActualizar` y la descripción del PUT dice que enviarlo responde 400.
+- **Bugs QA 7 y 8** (`Backend/src/services/lote.service.ts`, `updatedLote`):
+  - Si TECNICO manda algún campo fuera de `subestado`, `superficie` y `archivos`, responde 403 con el mensaje de siempre y la lista de campos no permitidos. Con solo campos permitidos responde 200 como antes.
+  - Alcance: las claves que el schema de lote no declara las descarta Zod antes del service (regla general de body de `backend.md`), así que el 403 aplica a los campos del schema (`precio`, `deuda`, `estado`, `tipo`, `propietarioId`, etc.). Se decidió no rechazar claves desconocidas para TECNICO.
+  - OpenAPI: la descripción de `actualizarLote` dice que TECNICO recibe 403 si envía otro campo del schema.
+- **Tests:**
+  - `personas.contracts.routes.test.ts`: grupo familiar 200 para ADMINISTRADOR y GESTOR y 403 para TECNICO e INMOBILIARIA. `PUT /personas/:id` con `jefeDeFamiliaId` (5, "5", null) responde 400 sin llegar al service. Un PUT normal responde 200.
+  - `lote.service.test.ts`: TECNICO con `subestado` y `superficie` responde 200. El payload mixto, antes "descarta en silencio", ahora es 403 nombrando los campos, sin consultar ni actualizar. Con `deuda`, `precio`, `estado`, `tipo` o `propietarioId` junto a `subestado`, 403. ADMINISTRADOR y GESTOR siguen aplicando el payload completo.
+  - `body.ids.adoption.test.ts`: `persona.update jefeDeFamiliaId` sale de la política de IDs y pasa a un test propio que exige 400 con cualquier valor.
+  - `persona.familia.test.ts`: el test de "se ignora" queda como defensa en profundidad (si el campo llegara al service, no se aplica).
+- **Docs:**
+  - `docs/architecture/backend.md` (modelo plano del grupo familiar): `PUT /personas/:id` con `jefeDeFamiliaId` responde 400.
+  - `docs/architecture/matriz-rbac.md`: fila "Ver grupo familiar" (TECNICO No, coincide por D7), decisión de D7, filas "Editar lote" (403 del técnico) y "Editar persona" (400 por `jefeDeFamiliaId`), y referencias de línea corridas por estos cambios. Se aplicó después del merge del PR del bug QA 16, para no generar conflictos.
+  - CSV regenerado desde la matriz.
+
+#### Validación humana
+
+Se probó en el entorno QA local. Con qa.admin: editar persona desde la pantalla guarda bien; PUT /personas/:id con jefeDeFamiliaId responde 400 con mensaje que remite a grupo familiar; el grupo familiar de un propietario responde 200. Con qa.gestor: grupo familiar 200, editar precio de lote 200, editar persona 200 y jefeDeFamiliaId 400. Con qa.tecnico: editar subestado y superficie desde el editor de lote guarda bien; un PUT con un campo fuera de la whitelist (precio) responde 403 nombrando el campo; GET /personas/:id/grupo-familiar responde 403. npm run qa:api contra la base QA local: PASS 38, FAIL 0. Typecheck, tests (incluida la paridad OpenAPI) y build en verde.
+
+#### Decisión adoptada
+
+El backend acepta solo lo que la pantalla ofrece en estos tres casos: TECNICO no accede al grupo familiar (D7 = B); PUT /personas/:id rechaza jefeDeFamiliaId con 400 porque el grupo familiar se gestiona por su propia ruta (bug QA 14); y TECNICO recibe 403 si al editar un lote manda campos fuera de subestado, superficie y archivos, en lugar de un 200 que los descartaba en silencio (bugs QA 7 y 8). ADMINISTRADOR y GESTOR no cambian. Las diferencias D2, D5 y D8 se mantienen como están en la matriz.
+
+#### Resultado
+
+- Backend: `npm run typecheck` OK, `npm test` PASS (97 suites, 3511 tests, incluida la paridad OpenAPI) y `npm run build` OK.
+- Con el código anterior de las rutas, la validación y el service de lotes, los tests de estos tres archivos fallan (16 casos) y con el cambio pasan.
+- OpenAPI: mismo número de operaciones. Solo cambian `x-roles` de `obtenerGrupoFamiliar`, el schema `PersonaActualizar` y dos descripciones.
+- `npm run qa:api` contra la base QA local: PASS 38, FAIL 0.
+- Matriz: CSV regenerado (83 filas, 10 columnas, BOM), coincide fila por fila con el `.md`. `git diff --check` limpio.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/routes/persona.routes.ts` (`GET /:id/grupo-familiar`)
+- `Backend/src/validations/persona.validation.ts` (`updatePersonaSchema`, `MENSAJE_JEFE_POR_PUT`)
+- `Backend/src/controllers/persona.controller.ts` y `Backend/src/services/persona.service.ts` (DTO de update)
+- `Backend/src/services/lote.service.ts` (`updatedLote`, whitelist de TECNICO)
+- `Backend/documents/documentacionApi.yaml`
+- `Backend/tests/unit/routes/personas.contracts.routes.test.ts`
+- `Backend/tests/unit/services/lote.service.test.ts`
+- `Backend/tests/unit/services/persona.familia.test.ts`
+- `Backend/tests/unit/validations/body.ids.adoption.test.ts`
+- `docs/architecture/backend.md`
+- `docs/architecture/matriz-rbac.md` y `docs/qa/resultados/matriz-rbac.csv` (D7, "Editar lote" y "Editar persona")
+- `docs/qa/resultados/api-permisos-2026-11-26.md` (corrida de `qa:api`)
+- `frontend/src/lib/api/personas.js`, `frontend/src/components/Cards/Lotes/LoteEditarCard.jsx` y `frontend/src/lib/api/lotes.js` (revisados; sin cambios)
+- `AI-DECISIONS.md`
 
 
 ## Plantilla para entradas nuevas
