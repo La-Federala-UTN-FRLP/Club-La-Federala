@@ -2712,6 +2712,77 @@ El backend acepta solo lo que la pantalla ofrece en estos tres casos: TECNICO no
 - `AI-DECISIONS.md`
 
 
+### AI-037 — Reservas y promociones concurrentes sobre el mismo lote y precio promocional menor al actual
+
+**Fecha:** 2026-11-26
+**Área:** Backend / Reservas y Promociones / Concurrencia y validación
+**Herramientas:** Claude Code
+
+#### Problema
+
+Dos bugs de QA en la creación de reservas y la aplicación de promociones:
+
+- **Bug QA 18 (P1, RES-30):** dos `POST /api/reservas` enviados en paralelo sobre el mismo lote DISPONIBLE, con clientes distintos, creaban dos reservas ACTIVA (reproducido en los lotes 12 y 14 de la base QA). En secuencia la segunda sí se rechazaba. `createReserva` validaba el estado del lote y la reserva vigente fuera de la transacción, y marcaba el lote RESERVADO después del commit: los dos requests pasaban la validación y los dos insertaban.
+- **Bug QA 20 (LOT-34):** `POST /api/lotes/:id/promociones/aplicar` aceptaba un `precioPromocional` mayor o igual al precio actual del lote. El equipo decidió que debe ser estrictamente menor.
+
+#### Prompt / intención
+
+Cambio mínimo y sin migración:
+- Bug QA 18: una sola reserva vigente por lote aunque lleguen dos altas a la vez; la otra responde 409 sin dejar datos parciales. Usar el patrón que ya usa `prioridad.service` (update condicionado del estado del lote dentro de la transacción, verificando `count`), o un lock de la fila. Si hiciera falta un índice único parcial, proponerlo y frenar.
+- Bug QA 20: `precioPromocional >= precio actual` responde 400 con un mensaje claro.
+- Sin tocar el índice `Prioridad_loteId_activa_key` ni otras reglas de reservas (prioridades, tenant, estados del lote, restauración), con aislamiento multi-tenant intacto y paridad OpenAPI.
+
+En la revisión del plan se sumó la misma protección para dos promociones aplicadas en paralelo sobre el mismo lote.
+
+#### Propuesta generada por IA
+
+- **Bug QA 18** (`Backend/src/services/reserva.service.ts`, `createReserva`):
+  - El primer paso de la transacción es `tx.lote.updateMany({ where: { id: loteId, estado: estadoOriginalLote }, data: { estado: RESERVADO } })`. Si `count !== 1`, responde 409 ("El lote ya no está disponible para reservar: otra operación lo modificó. Volvé a intentarlo.") y la transacción se revierte sin crear reserva ni oferta.
+  - Por qué alcanza: en Postgres (READ COMMITTED) el segundo UPDATE espera el lock de la fila del lote hasta que el primero confirma; después vuelve a evaluar el `WHERE` con el lote ya RESERVADO, afecta 0 filas y responde 409. Si la primera transacción falla (por ejemplo, número de reserva duplicado), se revierte entera y la segunda puede avanzar.
+  - Se quitó el `updateLoteState(..., RESERVADO)` que corría después del commit: el lote se marca dentro de la transacción, así que tampoco puede quedar una reserva creada con el lote sin marcar.
+  - Sin cambios: las validaciones previas (estado del lote, reserva vigente, prioridad, tenant, cliente), `loteEstadoAlCrear`, la restauración, `cancelPrioridadActivaOnReserva` y el índice de prioridades. La transacción solo bloquea la fila del lote, así que no se cruza con el cierre de prioridades (prioridad → lote).
+  - No hizo falta un índice único parcial ni una migración: la barrera es el estado del lote.
+- **Bug QA 20** (`Backend/src/services/promocion.service.ts`, `aplicarPromocion`): después de validar que el lote tenga precio, si `precioPromocional >= precio` responde 400 "El precio promocional debe ser menor al precio actual del lote". Se compara con `Prisma.Decimal`, el mismo tipo de la columna (`Decimal(12,2)`), en lugar de pasar a `Number`.
+- **Promociones en paralelo** (mismo archivo): el `tx.lote.update` pasa a ser el primer paso de la transacción como `tx.lote.updateMany({ where: { id, estado: DISPONIBLE }, data: { estado: EN_PROMOCION, precio } })`. Si `count !== 1`, responde 409 sin crear la promoción.
+- **OpenAPI** (`Backend/documents/documentacionApi.yaml`): solo cambian las descripciones de `crearReserva` (409 si dos altas compiten por el mismo lote) y `aplicarPromocion` (400 por precio y 409 por cambio de estado en paralelo). Las dos operaciones ya declaraban 400 y 409. Mismo número de operaciones.
+- **Tests:**
+  - `reserva.service.test.ts`: el lote se marca RESERVADO con el `updateMany` condicionado al estado validado (DISPONIBLE y CON_PRIORIDAD) y antes de crear la reserva. Con `count: 0` responde 409 sin crear reserva ni oferta y sin cancelar la prioridad.
+  - `promocion.service.test.ts` (nuevo): precio menor se aplica y el lote queda EN_PROMOCION con ese precio; igual y mayor responden 400 sin abrir la transacción; el lote se marca antes de crear la promoción; con `count: 0` responde 409 sin crear la promoción.
+  - `tests/support/mocks/prisma.ts` e `inmobiliaria-eliminada.asignacion.routes.test.ts`: los mocks de la transacción de reservas suman `lote.updateMany`.
+
+#### Observaciones
+
+- **CONTRAOFERTA:** `assertReservaUnicaVigente` sigue mirando solo ACTIVA y ACEPTADA. No se cambió esa regla. Con este cambio la barrera efectiva es el estado del lote (una reserva vigente lo deja RESERVADO), así que tampoco entra una reserva nueva mientras otra esté en CONTRAOFERTA.
+- **Decimales del precio promocional:** el schema acepta más de dos decimales. Un valor como `999.999` pasa como menor que `1000`, pero la columna lo guarda redondeado a `1000.00`. Se deja como está.
+
+#### Validación humana
+
+Se probó en el entorno QA local (seed:qa, build completo sin errores). Con qa.admin: dos y tres POST /api/reservas en paralelo sobre el mismo lote DISPONIBLE dejan una sola reserva ACTIVA; las demás responden 409 con el mensaje de concurrencia y no dejan reservas ni ofertas huérfanas. Una reserva normal pasa el lote a RESERVADO y al cancelarla vuelve a DISPONIBLE; sobre un lote CON_PRIORIDAD del Club, la prioridad queda FINALIZADA y el lote RESERVADO. Promociones: precio igual o mayor al actual → 400 con mensaje claro; menor → 201 y el lote queda EN_PROMOCION con ese precio; dos aplicaciones en paralelo → una 201 y otra 409. Typecheck, tests (incluida la paridad OpenAPI) y build en verde.
+
+#### Decisión adoptada
+
+Una sola reserva vigente por lote, garantizada dentro de la transacción con un update condicionado del estado del lote (mismo patrón que prioridades, sin migración): la segunda alta concurrente responde 409 sin crear nada. El precio promocional debe ser menor al precio actual del lote (decisión del equipo), y la aplicación de promociones usa la misma protección contra concurrencia. CONTRAOFERTA y precios con más de dos decimales quedan como observaciones, sin cambios.
+
+#### Resultado
+
+- Backend: `npm run typecheck` OK y `npm test` PASS (99 suites, 3522 tests, incluida la paridad OpenAPI).
+- `npm run build`: `tsc` compila OK. En esta máquina el paso `copy-prisma-generated.cjs` falló con EPERM al borrar `dist/generated/prisma/query_engine-windows.dll.node`, que tenía abierto otro proceso de node; la compilación se verificó también con `tsc --outDir` a una carpeta temporal.
+- Con el código anterior de `reserva.service.ts` y `promocion.service.ts`, los tests nuevos y actualizados fallan (8 casos) y con el cambio pasan.
+- OpenAPI: mismo número de operaciones; solo cambian dos descripciones.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/services/reserva.service.ts` (`createReserva`)
+- `Backend/src/services/promocion.service.ts` (`aplicarPromocion`)
+- `Backend/src/services/prioridad.service.ts` (`createPrioridad`, patrón de referencia; sin cambios)
+- `Backend/documents/documentacionApi.yaml`
+- `Backend/tests/unit/services/reserva.service.test.ts`
+- `Backend/tests/unit/services/promocion.service.test.ts`
+- `Backend/tests/unit/routes/inmobiliaria-eliminada.asignacion.routes.test.ts`
+- `Backend/tests/support/mocks/prisma.ts`
+- `AI-DECISIONS.md`
+
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.

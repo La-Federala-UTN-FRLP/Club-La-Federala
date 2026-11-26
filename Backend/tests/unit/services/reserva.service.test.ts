@@ -52,6 +52,11 @@ const cancelPrioridad = cancelPrioridadActivaOnReserva as jest.Mock;
 const FECHA = '2026-03-01T18:00:00.000Z';
 const FECHA_FIN = '2026-03-10T18:00:00.000Z';
 
+beforeEach(() => {
+    // Alta de reserva: por defecto el lote sigue en el estado validado al marcarlo RESERVADO.
+    txMock.lote.updateMany.mockResolvedValue({ count: 1 });
+});
+
 afterEach(() => {
     resetPrismaMock(prismaMock);
     resetPrismaMock(txMock);
@@ -637,10 +642,36 @@ describe('createReserva — transaction, oferta y side effects', () => {
         );
     });
 
-    test('después de crear, el lote pasa a Reservado', async () => {
+    test('el lote pasa a Reservado dentro de la transaction, condicionado al estado validado y antes de crear', async () => {
         stubCreateHappyPath();
         await createReserva(buildCreateBody(), buildUser('ADMINISTRADOR'));
-        expect(updateLote).toHaveBeenCalledWith(3, ESTADO_LOTE_OP.RESERVADO);
+        expect(txMock.lote.updateMany).toHaveBeenCalledWith({
+            where: { id: 3, estado: 'DISPONIBLE' },
+            data: { estado: 'RESERVADO' },
+        });
+        expect(txMock.lote.updateMany.mock.invocationCallOrder[0]).toBeLessThan(
+            txMock.reserva.create.mock.invocationCallOrder[0],
+        );
+        expect(updateLote).not.toHaveBeenCalledWith(3, ESTADO_LOTE_OP.RESERVADO);
+        expect(cancelPrioridad).not.toHaveBeenCalled();
+    });
+
+    // Bug QA 18: dos altas concurrentes sobre el mismo lote. La primera ya lo marcó RESERVADO, así que
+    // el UPDATE condicionado de la segunda no afecta filas dentro de la transaction.
+    test('si el lote ya no está en el estado validado al reservar → 409 sin crear reserva ni oferta', async () => {
+        stubCreateHappyPath();
+        txMock.lote.updateMany.mockResolvedValue({ count: 0 });
+
+        await expectStatus(
+            () => createReserva(buildCreateBody(), buildUser('ADMINISTRADOR')),
+            409,
+        );
+        await expect(createReserva(buildCreateBody(), buildUser('ADMINISTRADOR'))).rejects.toThrow(
+            /ya no está disponible para reservar/i,
+        );
+        expect(txMock.reserva.create).not.toHaveBeenCalled();
+        expect(txMock.ofertaReserva.create).not.toHaveBeenCalled();
+        expect(updateLote).not.toHaveBeenCalled();
         expect(cancelPrioridad).not.toHaveBeenCalled();
     });
 
@@ -657,6 +688,10 @@ describe('createReserva — transaction, oferta y side effects', () => {
         txMock.ofertaReserva.create.mockResolvedValue({ id: 1 });
 
         await createReserva(buildCreateBody({ inmobiliariaId: null }), buildUser('ADMINISTRADOR'));
+        expect(txMock.lote.updateMany).toHaveBeenCalledWith({
+            where: { id: 3, estado: 'CON_PRIORIDAD' },
+            data: { estado: 'RESERVADO' },
+        });
         expect(cancelPrioridad).toHaveBeenCalledWith(3);
     });
 });

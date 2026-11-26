@@ -334,8 +334,21 @@ export async function createReserva(
     const estadoOriginalLote = lote.estado;
 
     const result = await prisma.$transaction(async (tx) => {
-        // 1. Crear Reserva
-        // 1. Crear Reserva
+        // 1. Marcar el lote RESERVADO solo si sigue en el estado validado (bug QA 18).
+        // Es la barrera contra dos altas concurrentes sobre el mismo lote: el segundo UPDATE espera
+        // el lock de la fila, ve el lote ya RESERVADO, afecta 0 filas y la transacción se revierte
+        // con 409 sin crear reserva ni oferta. Mismo patrón que createPrioridad.
+        const { count } = await tx.lote.updateMany({
+          where: { id: body.loteId, estado: estadoOriginalLote },
+          data: { estado: EstadoLote.RESERVADO },
+        });
+        if (count !== 1) {
+          const err: any = new Error('El lote ya no está disponible para reservar: otra operación lo modificó. Volvé a intentarlo.');
+          err.status = 409;
+          throw err;
+        }
+
+        // 2. Crear Reserva
         const reserva = await tx.reserva.create({
           data: {
             fechaReserva: new Date(body.fechaReserva),
@@ -357,7 +370,7 @@ export async function createReserva(
           }
         });
 
-        // 2. Crear Oferta Inicial (Primer registro histórico)
+        // 3. Crear Oferta Inicial (Primer registro histórico)
         let nombreEfector = "La Federala";
         let efectorId = null;
         let ownerType: OwnerPrioridad = OwnerPrioridad.CCLF; // Default admin
@@ -384,9 +397,7 @@ export async function createReserva(
         return reserva;
     });
 
-    // 3. Side Effects (Lote Update)
-    await updateLoteState(body.loteId, ESTADO_LOTE_OP.RESERVADO);
-
+    // 4. Side effects: el lote ya quedó RESERVADO dentro de la transacción
     if (estadoOriginalLote === EstadoLote.CON_PRIORIDAD) {
       await cancelPrioridadActivaOnReserva(body.loteId);
     }
