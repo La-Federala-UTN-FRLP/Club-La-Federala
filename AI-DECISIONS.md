@@ -2531,12 +2531,12 @@ REP-A5 (archivo contra pantalla):
 - Cuotas vencidas en USD: 6 filas, saldo 213.833,34, 2 ventas.
 - Cuotas vencidas en ARS: 11 cuotas en 3 ventas, saldo 130.842,66, tramos 272,00 / 272,00 / 130.298,66; igual a la pantalla.
 - Inventario sin filtro: 47 filas, 17 ofrecibles, y los totales por estado, fracción y subestado suman 47.
+- Inventario con Fracción 3: 39 filas, todas de esa fracción, 16 ofrecibles, totales por estado y subestado que suman 39, y `Filtro: Fracción 3` en la hoja Parámetros; coincide con la pantalla.
 - Los nombres de archivo salen con el formato del contrato en los tres reportes.
 
 Lint con el mismo número de problemas que antes (163: 113 errores y 50 advertencias) y build correcto.
 
 No verificado:
-- La exportación del Inventario con Fracción 3 (no se generó el archivo).
 - El error con "Reintentar" con el backend caído.
 - La atenuación del resultado anterior al volver a generar (el backend responde demasiado rápido para verla).
 - El comportamiento a 768 px.
