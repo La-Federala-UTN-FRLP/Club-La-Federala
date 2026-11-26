@@ -445,6 +445,59 @@ export async function createPlanPagoInicial(
   return result;
 }
 
+const MENSAJE_VENTA_CANCELADA_SIN_PAGOS = 'No se pueden registrar pagos ni recargos sobre una venta cancelada';
+
+/**
+ * Una venta eliminada o cancelada no admite pagos ni recargos (409). PAG-28: los pagos ya
+ * registrados de una venta cancelada se conservan; solo se impide registrar nuevos.
+ */
+function assertVentaAdmitePagos(venta: { estado: string; estadoOperativo: string }): void {
+  if (venta.estadoOperativo === 'ELIMINADO') {
+    const error = new Error('La venta está eliminada') as any;
+    error.statusCode = 409;
+    throw error;
+  }
+  if (venta.estado === 'CANCELADA') {
+    const error = new Error(MENSAJE_VENTA_CANCELADA_SIN_PAGOS) as any;
+    error.statusCode = 409;
+    throw error;
+  }
+}
+
+/**
+ * Primer paso de la transacción de un pago o un recargo (bug QA 22): bloquea la fila de la cuota
+ * y la de la venta (SELECT … FOR UPDATE) y devuelve la cuota releída con el lock tomado.
+ * - Dos pagos (o un pago y un recargo) sobre la misma cuota se serializan: el segundo espera al
+ *   primero y calcula montoPagado y saldo sobre los valores ya actualizados, sin lost update.
+ * - El estado de la venta se relee con lock: si una cancelación (o baja) confirmó antes, responde
+ *   409; si llega después, espera a que termine el pago.
+ * Orden de locks: cuota → venta. La cancelación o la baja de una venta solo bloquean la venta.
+ */
+async function bloquearCuotaYVenta(tx: Prisma.TransactionClient, ventaId: number, cuotaId: number) {
+  await tx.$queryRaw`SELECT "id" FROM "public"."CuotaPlanPago" WHERE "id" = ${cuotaId} FOR UPDATE`;
+  const ventas = await tx.$queryRaw<Array<{ estado: string; estadoOperativo: string }>>`SELECT "estado", "estadoOperativo" FROM "public"."Venta" WHERE "id" = ${ventaId} FOR UPDATE`;
+  const venta = ventas[0];
+  if (!venta) {
+    const error = new Error('Venta no encontrada') as any;
+    error.statusCode = 404;
+    throw error;
+  }
+  assertVentaAdmitePagos(venta);
+
+  const cuota = await tx.cuotaPlanPago.findUnique({ where: { id: cuotaId } });
+  if (!cuota) {
+    const error = new Error('Cuota no encontrada') as any;
+    error.statusCode = 404;
+    throw error;
+  }
+  if (toNum(cuota.saldoPendiente) <= 0 || cuota.estadoCuota === 'PAGA') {
+    const error = new Error('La cuota ya está paga o no tiene saldo pendiente') as any;
+    error.statusCode = 409;
+    throw error;
+  }
+  return cuota;
+}
+
 interface RegistrarPagoPayload {
   cuotaId: number;
   fechaPago: string;
@@ -461,7 +514,7 @@ export async function registrarPagoEnVenta(
 ) {
   const venta = await prisma.venta.findUnique({
     where: { id: ventaId },
-    select: { id: true, estadoOperativo: true },
+    select: { id: true, estado: true, estadoOperativo: true },
   });
 
   if (!venta) {
@@ -470,11 +523,7 @@ export async function registrarPagoEnVenta(
     throw error;
   }
 
-  if (venta.estadoOperativo === 'ELIMINADO') {
-    const error = new Error('La venta está eliminada') as any;
-    error.statusCode = 409;
-    throw error;
-  }
+  assertVentaAdmitePagos(venta);
 
   const plan = await prisma.planPago.findFirst({
     where: { ventaId, esVigente: true },
@@ -537,6 +586,14 @@ export async function registrarPagoEnVenta(
   const registradoBy = user?.email ?? null;
 
   const result = await prisma.$transaction(async (tx) => {
+    // Bug QA 22: lock de cuota y venta, y validaciones sobre la cuota releída (no sobre la lectura previa)
+    const cuotaBloqueada = await bloquearCuotaYVenta(tx, ventaId, cuota.id);
+    if (payload.monto > toNum(cuotaBloqueada.saldoPendiente)) {
+      const error = new Error('El monto del pago supera el saldo pendiente de la cuota') as any;
+      error.statusCode = 409;
+      throw error;
+    }
+
     const pagoCreado = await tx.pagoRegistrado.create({
       data: {
         ventaId,
@@ -551,8 +608,8 @@ export async function registrarPagoEnVenta(
       },
     });
 
-    const montoPagadoActual = toNum(cuota.montoPagado);
-    const montoTotalExigible = toNum(cuota.montoTotalExigible);
+    const montoPagadoActual = toNum(cuotaBloqueada.montoPagado);
+    const montoTotalExigible = toNum(cuotaBloqueada.montoTotalExigible);
     const nuevoMontoPagado = montoPagadoActual + payload.monto;
     const nuevoSaldoPendiente = Math.max(0, montoTotalExigible - nuevoMontoPagado);
     const nuevoEstadoCuota = determinarEstadoCuota(nuevoMontoPagado, nuevoSaldoPendiente);
@@ -665,7 +722,7 @@ export async function aplicarRecargoManualEnVenta(
 ) {
   const venta = await prisma.venta.findUnique({
     where: { id: ventaId },
-    select: { id: true, estadoOperativo: true },
+    select: { id: true, estado: true, estadoOperativo: true },
   });
 
   if (!venta) {
@@ -674,11 +731,7 @@ export async function aplicarRecargoManualEnVenta(
     throw error;
   }
 
-  if (venta.estadoOperativo === 'ELIMINADO') {
-    const error = new Error('La venta está eliminada') as any;
-    error.statusCode = 409;
-    throw error;
-  }
+  assertVentaAdmitePagos(venta);
 
   const plan = await prisma.planPago.findFirst({
     where: { ventaId, esVigente: true },
@@ -721,17 +774,26 @@ export async function aplicarRecargoManualEnVenta(
     throw error;
   }
 
-  const montoOriginal = toNum(cuota.montoOriginal);
-  const montoPagado = toNum(cuota.montoPagado);
-  const recargoPrevio = toNum(cuota.montoRecargoManual);
-  const nuevoMontoRecargoManual = recargoPrevio + payload.montoRecargo;
-  const montoTotalExigible = calcularMontoTotalExigible(montoOriginal, nuevoMontoRecargoManual);
-  const nuevoSaldoPendiente = calcularSaldoPendiente(montoTotalExigible, montoPagado);
-  const nuevoEstadoCuota = determinarEstadoCuota(montoPagado, nuevoSaldoPendiente);
-
   const recargoAplicadoBy = user?.email ?? null;
 
   await prisma.$transaction(async (tx) => {
+    // Bug QA 22: el recargo toca la misma fila que los pagos. Lock de cuota y venta, y montos
+    // calculados sobre la cuota releída para no pisar un pago confirmado en el medio.
+    const cuotaBloqueada = await bloquearCuotaYVenta(tx, ventaId, cuota.id);
+    if (!estaCuotaVencida(cuotaBloqueada.fechaVencimiento, toNum(cuotaBloqueada.saldoPendiente), ahora)) {
+      const error = new Error('Solo se puede aplicar recargo a una cuota vencida con saldo pendiente') as any;
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const montoOriginal = toNum(cuotaBloqueada.montoOriginal);
+    const montoPagado = toNum(cuotaBloqueada.montoPagado);
+    const recargoPrevio = toNum(cuotaBloqueada.montoRecargoManual);
+    const nuevoMontoRecargoManual = recargoPrevio + payload.montoRecargo;
+    const montoTotalExigible = calcularMontoTotalExigible(montoOriginal, nuevoMontoRecargoManual);
+    const nuevoSaldoPendiente = calcularSaldoPendiente(montoTotalExigible, montoPagado);
+    const nuevoEstadoCuota = determinarEstadoCuota(montoPagado, nuevoSaldoPendiente);
+
     await tx.cuotaPlanPago.update({
       where: { id: cuota.id },
       data: {
