@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: API Club de Campo La Federala (CCLF)
-  version: 1.0.14
+  version: 1.0.15
   description: >-
     API del backend de CCLF: lotes, promociones, reservas, ventas, pagos, prioridades, personas,
     inmobiliarias, usuarios, archivos, fracciones, ubicaciones y reportes.
@@ -63,7 +63,14 @@ tags:
       Solo lectura. Las ubicaciones se crean y modifican dentro del alta y la edición de lotes
       (`calle` + `numeroCalle`, o `ubicacionId`).
   - name: Reportes
-    description: Reportes de gestión (inventario, ventas por período, cuotas vencidas). Solo staff.
+    description: >-
+      Reportes de gestión (inventario, ventas por período, cuotas vencidas), cada uno en JSON y en
+      Excel (.xlsx). Solo ADMINISTRADOR y GESTOR: INMOBILIARIA y TECNICO reciben 403 en todas las
+      operaciones. Las cifras se calculan en el backend con fecha de corte en
+      America/Argentina/Buenos_Aires. Los montos viajan como string decimal con 2 cifras y ARS y
+      USD nunca se suman ni se convierten. La query se valida antes de generar el reporte: los
+      parámetros no declarados se ignoran y un valor inválido responde 400 `VALIDATION_ERROR`
+      (también en las exportaciones, que en ese caso devuelven JSON y no un archivo).
 
 paths:
   # ============================================================ HEALTH
@@ -2235,21 +2242,49 @@ paths:
       operationId: reporteInventario
       summary: Reporte de inventario de lotes
       description: >-
-        Conteos por estado, fracción y subestado, ofrecibles y filas al corte (día actual en
-        America/Argentina/Buenos_Aires).
+        Foto del inventario al corte (día actual en America/Argentina/Buenos_Aires). Universo: lotes
+        de tipo LOTE_VENTA (sin ESPACIO_COMUN), excluidos los de estado ELIMINADO. Los filtros se
+        aplican a los totales y a las filas. Ofrecible = estado DISPONIBLE o EN_PROMOCION, con
+        cualquier subestado. Los totales por estado, fracción y subestado omiten los grupos en
+        cero y siguen el orden del enum (fracciones por número). Filas por número de fracción y
+        número de lote (los lotes sin número, al final). Los precios son siempre USD: la respuesta
+        no incluye moneda.
       x-roles: [ADMINISTRADOR, GESTOR]
       security: [{ bearerAuth: [] }]
       parameters:
-        - { name: fraccion, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
-        - { name: estado, in: query, schema: { $ref: '#/components/schemas/EstadoLote' } }
-        - { name: subestado, in: query, schema: { $ref: '#/components/schemas/SubestadoLote' } }
+        - $ref: '#/components/parameters/ReporteFraccion'
+        - $ref: '#/components/parameters/ReporteEstadoLote'
+        - $ref: '#/components/parameters/ReporteSubestadoLote'
       responses:
         '200':
           description: Reporte de inventario
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ReporteInventarioResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
+              example:
+                success: true
+                data:
+                  corte: '2026-11-24'
+                  totales:
+                    porEstado:
+                      - { estado: DISPONIBLE, cantidad: 1 }
+                      - { estado: EN_PROMOCION, cantidad: 1 }
+                      - { estado: RESERVADO, cantidad: 1 }
+                      - { estado: VENDIDO, cantidad: 1 }
+                    porFraccion:
+                      - { fraccionId: 7, fraccion: 2, cantidad: 2, ofrecibles: 2 }
+                      - { fraccionId: 9, fraccion: 3, cantidad: 2, ofrecibles: 0 }
+                    porSubestado:
+                      - { subestado: CONSTRUIDO, cantidad: 2 }
+                      - { subestado: NO_CONSTRUIDO, cantidad: 1 }
+                      - { subestado: EN_CONSTRUCCION, cantidad: 1 }
+                    ofrecibles: 2
+                  filas:
+                    - { loteId: 128, numero: 45, fraccionId: 7, fraccion: 2, estado: DISPONIBLE, subestado: CONSTRUIDO, precio: '85000.00', enlace: '/?lote=128' }
+                    - { loteId: 131, numero: 48, fraccionId: 7, fraccion: 2, estado: EN_PROMOCION, subestado: NO_CONSTRUIDO, precio: '72000.50', enlace: '/?lote=131' }
+                    - { loteId: 140, numero: 12, fraccionId: 9, fraccion: 3, estado: RESERVADO, subestado: CONSTRUIDO, precio: '90000.00', enlace: '/?lote=140' }
+                    - { loteId: 152, numero: null, fraccionId: 9, fraccion: 3, estado: VENDIDO, subestado: EN_CONSTRUCCION, precio: null, enlace: '/?lote=152' }
+        '400': { $ref: '#/components/responses/ReporteInventarioBadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
@@ -2262,16 +2297,17 @@ paths:
         Mismos filtros, validaciones y filas que `GET /reportes/inventario`. Hojas: "Inventario" (ID de
         lote, Fracción, N.º de lote, Estado, Subestado constructivo, Precio (USD)), "Totales" (ofrecibles,
         por estado, por fracción y por subestado) y "Parámetros". Archivo
-        `reporte-inventario_corte-YYYY-MM-DD.xlsx`.
+        `reporte-inventario_corte-YYYY-MM-DD.xlsx` (ejemplo `inventario` del header
+        `Content-Disposition`).
       x-roles: [ADMINISTRADOR, GESTOR]
       security: [{ bearerAuth: [] }]
       parameters:
-        - { name: fraccion, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
-        - { name: estado, in: query, schema: { $ref: '#/components/schemas/EstadoLote' } }
-        - { name: subestado, in: query, schema: { $ref: '#/components/schemas/SubestadoLote' } }
+        - $ref: '#/components/parameters/ReporteFraccion'
+        - $ref: '#/components/parameters/ReporteEstadoLote'
+        - $ref: '#/components/parameters/ReporteSubestadoLote'
       responses:
         '200': { $ref: '#/components/responses/ReporteXlsx' }
-        '400': { $ref: '#/components/responses/BadRequest' }
+        '400': { $ref: '#/components/responses/ReporteInventarioBadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
@@ -2291,16 +2327,36 @@ paths:
       x-roles: [ADMINISTRADOR, GESTOR]
       security: [{ bearerAuth: [] }]
       parameters:
-        - { name: desde, in: query, required: true, schema: { type: string, format: date } }
-        - { name: hasta, in: query, required: true, schema: { type: string, format: date } }
-        - { name: fraccion, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
+        - $ref: '#/components/parameters/ReporteDesde'
+        - $ref: '#/components/parameters/ReporteHasta'
+        - $ref: '#/components/parameters/ReporteFraccion'
       responses:
         '200':
           description: Reporte de ventas
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ReporteVentasResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
+              example:
+                success: true
+                data:
+                  corte: '2026-11-24'
+                  periodo: { desde: '2026-11-01', hasta: '2026-11-30' }
+                  periodoAnterior: { desde: '2026-10-02', hasta: '2026-10-31' }
+                  tarjetas:
+                    iniciadas: { cantidad: 1, montoUSD: '85000.00', cantidadAnterior: 1, montoUSDAnterior: '72000.50' }
+                    escrituradas: { cantidad: 1, montoUSD: '78000.00', cantidadAnterior: 0, montoUSDAnterior: '0.00' }
+                    canceladas: { cantidad: 1, montoUSD: '72000.50', cantidadAnterior: 0, montoUSDAnterior: '0.00' }
+                  otrasMonedas:
+                    - moneda: ARS
+                      iniciadas: { cantidad: 1, monto: '95000000.00', cantidadAnterior: 0, montoAnterior: '0.00' }
+                      escrituradas: { cantidad: 0, monto: '0.00', cantidadAnterior: 0, montoAnterior: '0.00' }
+                      canceladas: { cantidad: 0, monto: '0.00', cantidadAnterior: 0, montoAnterior: '0.00' }
+                  filas:
+                    - { ventaId: 302, numero: CCLF-2026-302, loteId: 128, loteNumero: 45, fraccionId: 7, fraccion: 2, estado: INICIADA, fechaAlta: '2026-11-12', fechaEscritura: null, fechaCancelacion: null, moneda: USD, monto: '85000.00', enlace: '/ventas?openId=302' }
+                    - { ventaId: 305, numero: CCLF-2026-305, loteId: 140, loteNumero: 12, fraccionId: 9, fraccion: 3, estado: INICIADA, fechaAlta: '2026-11-05', fechaEscritura: null, fechaCancelacion: null, moneda: ARS, monto: '95000000.00', enlace: '/ventas?openId=305' }
+                    - { ventaId: 299, numero: CCLF-2026-299, loteId: 131, loteNumero: 48, fraccionId: 7, fraccion: 2, estado: CANCELADA, fechaAlta: '2026-10-20', fechaEscritura: null, fechaCancelacion: '2026-11-03', moneda: USD, monto: '72000.50', enlace: '/ventas?openId=299' }
+                    - { ventaId: 287, numero: CCLF-2026-287, loteId: 133, loteNumero: 50, fraccionId: 7, fraccion: 2, estado: ESCRITURADO, fechaAlta: '2026-09-18', fechaEscritura: '2026-11-10', fechaCancelacion: null, moneda: USD, monto: '78000.00', enlace: '/ventas?openId=287' }
+        '400': { $ref: '#/components/responses/ReporteVentasBadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
@@ -2314,16 +2370,17 @@ paths:
         N.º de venta, Fracción, N.º de lote, Estado, Fecha de alta, Fecha de escritura, Fecha de
         cancelación, Moneda, Monto con el formato de su moneda), "Totales" (tarjetas en USD y cada otra
         moneda aparte, sin sumar) y "Parámetros". Archivo
-        `reporte-ventas_YYYY-MM-DD_a_YYYY-MM-DD_corte-YYYY-MM-DD.xlsx` (desde, hasta y corte).
+        `reporte-ventas_YYYY-MM-DD_a_YYYY-MM-DD_corte-YYYY-MM-DD.xlsx` (desde, hasta y corte; ejemplo
+        `ventas` del header `Content-Disposition`).
       x-roles: [ADMINISTRADOR, GESTOR]
       security: [{ bearerAuth: [] }]
       parameters:
-        - { name: desde, in: query, required: true, schema: { type: string, format: date } }
-        - { name: hasta, in: query, required: true, schema: { type: string, format: date } }
-        - { name: fraccion, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
+        - $ref: '#/components/parameters/ReporteDesde'
+        - $ref: '#/components/parameters/ReporteHasta'
+        - $ref: '#/components/parameters/ReporteFraccion'
       responses:
         '200': { $ref: '#/components/responses/ReporteXlsx' }
-        '400': { $ref: '#/components/responses/BadRequest' }
+        '400': { $ref: '#/components/responses/ReporteVentasBadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
@@ -2338,19 +2395,37 @@ paths:
         vencimiento anterior al día de corte (America/Argentina/Buenos_Aires): una cuota que vence el
         día de corte no está vencida. Se excluyen las ventas canceladas y las dadas de baja lógica. El
         saldo incluye los recargos aplicados y descuenta los pagos parciales. Tramos por días de
-        atraso: 1-30, 31-60 y +60.
+        atraso: 1-30, 31-60 y +60. A diferencia del inventario y de ventas, la fila no trae
+        `fraccionId`: solo `fraccion` (el número visible).
       x-roles: [ADMINISTRADOR, GESTOR]
       security: [{ bearerAuth: [] }]
       parameters:
-        - { name: moneda, in: query, required: true, schema: { $ref: '#/components/schemas/Moneda' } }
-        - { name: fraccion, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
+        - $ref: '#/components/parameters/ReporteMoneda'
+        - $ref: '#/components/parameters/ReporteFraccion'
       responses:
         '200':
           description: Reporte de cuotas vencidas
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ReporteCuotasVencidasResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
+              example:
+                success: true
+                data:
+                  corte: '2026-11-24'
+                  moneda: USD
+                  saldoVencido: '5403.40'
+                  cuotas: 4
+                  ventas: 2
+                  tramos:
+                    - { tramo: '1-30', cuotas: 2, saldo: '2103.40' }
+                    - { tramo: '31-60', cuotas: 1, saldo: '1650.00' }
+                    - { tramo: '+60', cuotas: 1, saldo: '1650.00' }
+                  filas:
+                    - { cuotaId: 921, ventaId: 287, ventaNumero: CCLF-2026-287, loteId: 133, loteNumero: 50, fraccion: 2, numeroCuota: 4, cantidadCuotas: 24, fechaVencimiento: '2026-09-10', diasAtraso: 75, tramo: '+60', saldoPendiente: '1650.00', enlace: /ventas/287/pagos }
+                    - { cuotaId: 922, ventaId: 287, ventaNumero: CCLF-2026-287, loteId: 133, loteNumero: 50, fraccion: 2, numeroCuota: 5, cantidadCuotas: 24, fechaVencimiento: '2026-10-10', diasAtraso: 45, tramo: '31-60', saldoPendiente: '1650.00', enlace: /ventas/287/pagos }
+                    - { cuotaId: 901, ventaId: 302, ventaNumero: CCLF-2026-302, loteId: 128, loteNumero: 45, fraccion: 2, numeroCuota: 3, cantidadCuotas: 36, fechaVencimiento: '2026-10-29', diasAtraso: 26, tramo: '1-30', saldoPendiente: '1278.00', enlace: /ventas/302/pagos }
+                    - { cuotaId: 923, ventaId: 287, ventaNumero: CCLF-2026-287, loteId: 133, loteNumero: 50, fraccion: 2, numeroCuota: 6, cantidadCuotas: 24, fechaVencimiento: '2026-11-10', diasAtraso: 14, tramo: '1-30', saldoPendiente: '825.40', enlace: /ventas/287/pagos }
+        '400': { $ref: '#/components/responses/ReporteCuotasVencidasBadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
@@ -2364,15 +2439,16 @@ paths:
         vencidas" (ID de cuota, N.º de venta, Fracción, N.º de lote, N.º de cuota, Cantidad de cuotas,
         Vencimiento, Días de atraso, Tramo, Saldo (incluye recargos) en la moneda pedida), "Totales"
         (saldo vencido, cuotas, ventas afectadas y los 3 tramos) y "Parámetros". Archivo
-        `reporte-cuotas-vencidas_<MONEDA>_corte-YYYY-MM-DD.xlsx`.
+        `reporte-cuotas-vencidas_<MONEDA>_corte-YYYY-MM-DD.xlsx` (ejemplo `cuotasVencidas` del header
+        `Content-Disposition`).
       x-roles: [ADMINISTRADOR, GESTOR]
       security: [{ bearerAuth: [] }]
       parameters:
-        - { name: moneda, in: query, required: true, schema: { $ref: '#/components/schemas/Moneda' } }
-        - { name: fraccion, in: query, schema: { $ref: '#/components/schemas/IdQuery' } }
+        - $ref: '#/components/parameters/ReporteMoneda'
+        - $ref: '#/components/parameters/ReporteFraccion'
       responses:
         '200': { $ref: '#/components/responses/ReporteXlsx' }
-        '400': { $ref: '#/components/responses/BadRequest' }
+        '400': { $ref: '#/components/responses/ReporteCuotasVencidasBadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
@@ -2396,6 +2472,59 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/IdPath' }
+    # Reportes: cada parámetro lo comparten el reporte JSON y su exportación .xlsx.
+    ReporteFraccion:
+      name: fraccion
+      in: query
+      required: false
+      description: >-
+        Id de la fracción (`Fraccion.id`, el `fraccionId` de las respuestas), no su número visible.
+        Sin filtro: todas las fracciones.
+      schema: { $ref: '#/components/schemas/IdQuery' }
+      example: '7'
+    ReporteEstadoLote:
+      name: estado
+      in: query
+      required: false
+      description: >-
+        Estado comercial del lote, con los valores del enum de las respuestas (no los de
+        `EstadoLoteEntrada`). `ELIMINADO` es válido pero siempre da un reporte vacío, porque esos
+        lotes no forman parte del inventario.
+      schema: { $ref: '#/components/schemas/EstadoLote' }
+      example: DISPONIBLE
+    ReporteSubestadoLote:
+      name: subestado
+      in: query
+      required: false
+      description: Subestado constructivo del lote.
+      schema: { $ref: '#/components/schemas/SubestadoLote' }
+      example: CONSTRUIDO
+    ReporteDesde:
+      name: desde
+      in: query
+      required: true
+      description: >-
+        Primer día del período (YYYY-MM-DD, fecha existente, sin hora), incluido. Sin valor por
+        defecto. Debe cumplir `desde` <= `hasta`.
+      schema: { type: string, format: date }
+      example: '2026-11-01'
+    ReporteHasta:
+      name: hasta
+      in: query
+      required: true
+      description: >-
+        Último día del período (YYYY-MM-DD, fecha existente, sin hora), incluido. El período, con
+        ambos extremos, no puede superar 366 días (un año bisiesto completo). Puede ser posterior al
+        día de corte.
+      schema: { type: string, format: date }
+      example: '2026-11-30'
+    ReporteMoneda:
+      name: moneda
+      in: query
+      required: true
+      description: Moneda del reporte. ARS y USD nunca se mezclan ni se convierten.
+      schema: { $ref: '#/components/schemas/Moneda' }
+      example: USD
 
   responses:
     BadRequest:
@@ -2488,16 +2617,106 @@ components:
         Content-Disposition:
           description: Descarga con nombre del reporte y fecha de corte (solo `[a-z0-9._-]`).
           schema: { type: string }
-          example: attachment; filename="reporte-inventario_corte-2026-11-24.xlsx"
+          examples:
+            inventario:
+              summary: GET /reportes/inventario.xlsx
+              value: attachment; filename="reporte-inventario_corte-2026-11-24.xlsx"
+            ventas:
+              summary: GET /reportes/ventas.xlsx?desde=2026-11-01&hasta=2026-11-30
+              value: attachment; filename="reporte-ventas_2026-11-01_a_2026-11-30_corte-2026-11-24.xlsx"
+            cuotasVencidas:
+              summary: GET /reportes/cuotas-vencidas.xlsx?moneda=USD
+              value: attachment; filename="reporte-cuotas-vencidas_USD_corte-2026-11-24.xlsx"
       content:
         application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
           schema: { type: string, format: binary }
+    ReporteInventarioBadRequest:
+      description: Query inválida en el reporte de inventario (JSON o .xlsx).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ValidationErrorResponse' }
+          examples:
+            fraccionNoCanonica:
+              summary: fraccion=07
+              value:
+                success: false
+                code: VALIDATION_ERROR
+                message: Datos inválidos
+                errors: [{ field: fraccion, message: Debe ser un entero positivo }]
+            subestadoDesconocido:
+              summary: subestado=TERMINADO
+              value:
+                success: false
+                code: VALIDATION_ERROR
+                message: Datos inválidos
+                errors: [{ field: subestado, message: 'Invalid option: expected one of "CONSTRUIDO"|"NO_CONSTRUIDO"|"EN_CONSTRUCCION"' }]
+    ReporteVentasBadRequest:
+      description: >-
+        Período inválido en el reporte de ventas (JSON o .xlsx): fecha faltante o inexistente,
+        `desde` posterior a `hasta` o período mayor a 366 días. Las reglas del período se informan
+        en el campo `hasta`.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ValidationErrorResponse' }
+          examples:
+            fechaInvalida:
+              summary: Sin `desde` y con hasta=2026-02-30
+              value:
+                success: false
+                code: VALIDATION_ERROR
+                message: Datos inválidos
+                errors:
+                  - { field: desde, message: Fecha inválida (formato YYYY-MM-DD) }
+                  - { field: hasta, message: Fecha inválida (formato YYYY-MM-DD) }
+            desdePosterior:
+              summary: desde=2026-12-01&hasta=2026-11-01
+              value:
+                success: false
+                code: VALIDATION_ERROR
+                message: Datos inválidos
+                errors: [{ field: hasta, message: '`desde` no puede ser posterior a `hasta`' }]
+            periodoMayorA366:
+              summary: desde=2025-01-01&hasta=2026-12-31
+              value:
+                success: false
+                code: VALIDATION_ERROR
+                message: Datos inválidos
+                errors: [{ field: hasta, message: El período no puede superar 366 días }]
+    ReporteCuotasVencidasBadRequest:
+      description: Moneda faltante o desconocida, o fracción inválida, en el reporte de cuotas vencidas (JSON o .xlsx).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ValidationErrorResponse' }
+          examples:
+            monedaFaltante:
+              summary: Sin `moneda` (o con moneda=EUR)
+              value:
+                success: false
+                code: VALIDATION_ERROR
+                message: Datos inválidos
+                errors: [{ field: moneda, message: 'Invalid option: expected one of "ARS"|"USD"' }]
+
+  examples:
+    AiUnavailable:
+      summary: Servicio de IA no disponible (AI_UNAVAILABLE)
+      description: >-
+        Body de error con el contrato común (`ErrorResponse`), para la operación de resumen con IA
+        de Reportes (CCLF-37) cuando se implemente. El mensaje es público: no incluye el detalle del
+        proveedor, que queda solo en el log del servidor.
+      value: { success: false, code: AI_UNAVAILABLE, message: No se pudo generar el resumen. Los reportes siguen disponibles. }
 
   schemas:
     # ------------------------------------------------------------ Errores
     ErrorCode:
       type: string
-      enum: [BAD_REQUEST, VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, CONFLICT_UNIQUE, CONFLICT_FK, PAYLOAD_TOO_LARGE, TOO_MANY_REQUESTS, INTERNAL_ERROR]
+      description: >-
+        Código estable del error, para que el cliente decida sin parsear `message`.
+        `AI_UNAVAILABLE`: el servicio de IA (Gemini en Vertex AI) no respondió, superó el timeout o
+        devolvió una salida que no pasó la validación. Es el código del resumen con IA de Reportes
+        (CCLF-37), que todavía no está implementado: hoy ninguna operación lo devuelve, y el status
+        HTTP se documenta junto con esa operación. Los reportes y sus exportaciones no dependen de
+        la IA y nunca lo devuelven. Ejemplo de body en `#/components/examples/AiUnavailable`.
+      enum: [BAD_REQUEST, VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, CONFLICT_UNIQUE, CONFLICT_FK, PAYLOAD_TOO_LARGE, TOO_MANY_REQUESTS, AI_UNAVAILABLE, INTERNAL_ERROR]
     ErrorResponse:
       type: object
       required: [success, code, message]
