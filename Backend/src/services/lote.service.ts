@@ -1,5 +1,5 @@
 import { DeleteLoteResponse, TipoLote as TipoLoteDto, EstadoLoteOpc as EstadoLoteDto, SubestadoLote as SubestadoLoteDto} from '../types/interfacesCCLF.d';
-import { Lote, TipoLote as TipoLotePrisma, EstadoLote as EstadoLotePrisma, SubestadoLote as SubestadoLotePrisma} from '../generated/prisma';
+import { Lote, TipoLote as TipoLotePrisma, EstadoLote as EstadoLotePrisma, SubestadoLote as SubestadoLotePrisma, EstadoVenta as EstadoVentaPrisma} from '../generated/prisma';
 import prisma from '../config/prisma';
 import { Prisma } from '../generated/prisma';
 import { cancelActivesOnNoDisponible } from '../domain/loteState/loteState.effects';
@@ -571,6 +571,30 @@ export async function updatedLote(id: number, data: any, role?: string): Promise
     const error: any = new Error('Lote no encontrado');
     error.statusCode = 404;
     throw error;
+  }
+
+  // Bug QA 24: un lote con una venta en curso (INICIADA o CON_BOLETO, operativa) no pasa a
+  // No Disponible desde acá; la venta se cancela primero desde Ventas, con fecha y motivo.
+  // Se valida antes de cualquier escritura (alquiler, ubicación, lote). No afecta otros cambios de
+  // estado ni lotes cuya venta esté ESCRITURADO o CANCELADA.
+  if (
+    payload.estado &&
+    estadoLoteToPrisma(payload.estado) === EstadoLotePrisma.NO_DISPONIBLE &&
+    loteActual.estado !== EstadoLotePrisma.NO_DISPONIBLE
+  ) {
+    const ventaEnCurso = await prisma.venta.findFirst({
+      where: {
+        loteId: id,
+        estado: { in: [EstadoVentaPrisma.INICIADA, EstadoVentaPrisma.CON_BOLETO] },
+        estadoOperativo: 'OPERATIVO',
+      },
+      select: { id: true },
+    });
+    if (ventaEnCurso) {
+      const error: any = new Error('El lote tiene una venta en curso; para retirarlo, cancelá primero la venta desde Ventas');
+      error.statusCode = 409;
+      throw error;
+    }
   }
 
   // La autorización para TECNICO ya fue manejada por el middleware y la lógica en getLoteById.

@@ -88,6 +88,8 @@ export const lotePrismaSpec = {
     persona: ['findUnique'],
     ubicacion: ['update'],
     fraccion: ['findUnique'],
+    // updatedLote: venta en curso que bloquea el pase a No Disponible (bug QA 24)
+    venta: ['findFirst'],
 } as const;
 
 const lotePrismaDelegates = createPrismaMock(lotePrismaSpec);

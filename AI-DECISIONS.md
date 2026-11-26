@@ -2783,6 +2783,90 @@ Una sola reserva vigente por lote, garantizada dentro de la transacción con un 
 - `AI-DECISIONS.md`
 
 
+### AI-038 — Ventas y pagos concurrentes, lote con venta en curso y reglas de venta con reserva y venta cancelada
+
+**Fecha:** 2026-11-26
+**Área:** Backend / Ventas, Pagos y Lotes / Concurrencia y validación
+**Herramientas:** Claude Code
+
+#### Problema
+
+Tres bugs y dos decisiones del QA de Ventas y Pagos (Refs #300):
+
+- **Bug QA 22 (P0, PAG-30):** dos `POST /api/ventas/:ventaId/pagos` en paralelo sobre la misma cuota se registraban ambos, pero `montoPagado` y el saldo de la cuota descontaban uno solo (lost update). Reproducido en main: dos pagos de 3000 sobre saldo 6500 dejaban la cuota con `montoPagado` 7000 y pagos por 10000. `registrarPagoEnVenta` leía la cuota fuera de la transacción y escribía el nuevo `montoPagado` calculado sobre esa lectura. `aplicarRecargoManualEnVenta` tenía el mismo patrón sobre la misma fila.
+- **Bug QA 23 (P1, VEN-23):** dos o tres `POST /api/ventas` en paralelo sobre el mismo lote creaban todas las ventas. `createVenta` validaba el estado del lote fuera de la transacción y lo marcaba VENDIDO con un `update` sin condición.
+- **Bug QA 24 (P1, LOT-28):** `PUT /api/lotes/:id` con estado "No Disponible" sobre un lote con una venta en curso (INICIADA o CON_BOLETO, operativa) se aceptaba, y `cancelActivesOnNoDisponible` cancelaba esa venta sin `fechaCancelacion` ni `motivoCancelacion`.
+- **VEN-06 (decisión del equipo):** si el lote tiene una reserva vigente, la venta debe incluir entre sus compradores al cliente de la reserva. Hoy solo se logueaba un warning.
+- **PAG-28 (decisión del equipo):** no se deben registrar pagos ni recargos sobre una venta CANCELADA. Hoy solo se rechazaba la venta eliminada.
+
+#### Prompt / intención
+
+Cambios mínimos y sin migraciones (si hiciera falta una migración, un índice u otra regla de negocio, proponerlo y frenar):
+- Bug QA 22: pagos concurrentes serializados, con un lock de la fila de la cuota (`SELECT … FOR UPDATE`) o un update condicionado sobre el saldo; el segundo pago ve el saldo actualizado y, si lo supera, responde 409. `montoPagado`, saldo, resumen y `estadoCobro` siempre consistentes con la suma de pagos.
+- Bug QA 23: una sola venta por lote; las demás 409 sin datos parciales, con el patrón de update condicionado del estado del lote dentro de la transacción (`count === 1`).
+- Bug QA 24: 409 al pasar a "No Disponible" un lote con venta en curso, sin bloquear otros cambios de estado ni lotes con venta ESCRITURADO o CANCELADA; si `cancelActivesOnNoDisponible` cancela algo, con fecha y motivo.
+- VEN-06: 400 si falta el cliente de la reserva entre los compradores.
+- PAG-28: 409 "No se pueden registrar pagos ni recargos sobre una venta cancelada", conservando los pagos registrados.
+
+Sin cambiar el resto de las reglas de ventas, pagos, planes ni reservas, con permisos sin cambios, aislamiento multi-tenant intacto y paridad OpenAPI. En la revisión del plan se sumaron el lock en `aplicarRecargoManualEnVenta` y la relectura del estado de la venta dentro de la transacción (carrera cancelar venta / registrar pago).
+
+#### Propuesta generada por IA
+
+- **Bug QA 22** (`Backend/src/services/pago.service.ts`):
+  - Nuevo helper `bloquearCuotaYVenta`, primer paso de la transacción de un pago y de un recargo: `SELECT "id" FROM "public"."CuotaPlanPago" WHERE "id" = … FOR UPDATE`, después `SELECT "estado", "estadoOperativo" FROM "public"."Venta" WHERE "id" = … FOR UPDATE`, y relectura de la cuota con `tx.cuotaPlanPago.findUnique`.
+  - Con la cuota releída se vuelven a validar el saldo y el estado PAGA (409) y, en el pago, que el monto no supere el saldo (409); en el recargo, que la cuota siga vencida. `montoPagado`, saldo, estado de la cuota, resumen y `estadoCobro` (y en el recargo, `montoRecargoManual` y `montoTotalExigible`) se calculan con esos valores.
+  - Opción elegida: lock de la fila y no update condicionado. Con el lock, el segundo pago espera al primero y ve el saldo ya descontado: si entra en el saldo se registra, y si lo supera responde 409. Un update condicionado sobre `montoPagado` haría fallar siempre al segundo aunque entrara en el saldo.
+  - Orden de locks: cuota → venta. La cancelación o la baja de una venta solo bloquean la fila de la venta, así que no se forma un ciclo.
+  - Las validaciones previas a la transacción se mantienen, para fallar rápido sin abrirla.
+- **PAG-28** (mismo archivo): `assertVentaAdmitePagos` rechaza la venta eliminada (409, como antes) y la CANCELADA (409 "No se pueden registrar pagos ni recargos sobre una venta cancelada"), antes de buscar el plan y otra vez dentro de la transacción, sobre el estado leído con lock. Si una cancelación confirma antes, el pago o el recargo responde 409; si llega después, espera a que el pago termine. Los pagos ya registrados no se tocan.
+- **Bug QA 23** (`Backend/src/services/venta.service.ts`, `createVenta`): el primer paso de la transacción es `tx.lote.updateMany({ where: { id: loteId, estado: estadoLeído }, data: { estado: VENDIDO } })`. Si `count !== 1`, responde 409 ("El lote ya no está disponible para vender: otra operación lo modificó. Volvé a intentarlo.") sin crear la venta ni tocar prioridad o reserva. Reemplaza al `tx.lote.update` sin condición. También cubre una venta que corre en paralelo con el pase del lote a No Disponible.
+- **VEN-06** (mismo archivo): el `console.warn` pasa a ser un 400 "La venta debe incluir entre sus compradores al cliente de la reserva vigente del lote (clienteId: X)". Se usa la misma reserva vigente que ya buscaba el código (ACTIVA o ACEPTADA, operativa, no consumida). El cliente puede ser comprador principal o co-comprador.
+- **Bug QA 24:**
+  - `Backend/src/services/lote.service.ts` (`updatedLote`): justo después del 404 del lote y antes de cualquier escritura (alquiler, ubicación, lote), si el lote pasa a NO_DISPONIBLE y antes no lo estaba, busca una venta INICIADA o CON_BOLETO operativa; si existe, responde 409 "El lote tiene una venta en curso; para retirarlo, cancelá primero la venta desde Ventas". No consulta ventas en otros cambios de estado, ni bloquea lotes cuya venta esté ESCRITURADO, CANCELADA o dada de baja.
+  - `Backend/src/domain/loteState/loteState.effects.ts` (`cancelActivesOnNoDisponible`): las ventas que cancela (ahora solo pueden ser ventas en curso dadas de baja) quedan con `fechaCancelacion` y el motivo "Lote pasado a No Disponible". Reservas y prioridades, sin cambios.
+- **OpenAPI** (`Backend/documents/documentacionApi.yaml`): solo cambian las descripciones de `actualizarLote`, `crearVenta`, `registrarPago` y `aplicarRecargo`. Las cuatro ya declaraban 400 y 409. Mismo número de operaciones.
+- **Tests:**
+  - `pago.service.test.ts` (nuevo): locks de cuota y venta (en ese orden) antes de escribir; pago válido actualiza cuota, resumen y `estadoCobro`; el segundo pago calcula sobre la cuota releída (sin lost update); con el saldo actualizado superado, o la cuota ya paga, 409 sin escrituras; venta CANCELADA 409 sin abrir la transacción; venta cancelada o eliminada mientras se registraba el pago, 409 sin escrituras; lo mismo para el recargo.
+  - `venta.service.test.ts`: lote marcado VENDIDO condicionado al estado leído y antes de crear la venta; con `count: 0`, 409 sin crear venta ni tocar prioridad o reserva; el test "no bloquea" del cliente de la reserva pasa a 400 sin transacción; el cliente de la reserva como co-comprador sigue funcionando.
+  - `lote.service.test.ts`: con venta en curso, 409 sin escribir ni cancelar; sin venta en curso (venta ESCRITURADO o CANCELADA), el pase a No Disponible sigue como antes; otro cambio de estado no consulta ventas.
+  - `loteState.effects.test.ts` (nuevo): fecha y motivo en las ventas canceladas; reservas y prioridades como antes.
+  - `tests/support/mocks/prisma.ts`: el mock de lotes suma `venta.findFirst`.
+- **Tests de integración:** se revisó `Backend/tests/integration`. Las ventas se crean directo con `prisma.venta.create` (no por `createVenta`), ninguno registra pagos por la API ni pasa un lote a No Disponible, así que no hubo que ajustar ninguno. El script `qa:api` tampoco crea ventas ni registra pagos.
+
+#### Observaciones
+
+- **Reemplazo de plan en paralelo con un pago:** queda como está. `reemplazarPlanPagoVigente` no toma el lock de las cuotas, así que un reemplazo de plan y un pago sobre una cuota del plan anterior no se serializan.
+
+#### Validación humana
+
+Se probó en el entorno QA local (seed:qa, build completo). Con qa.admin: dos pagos en paralelo sobre la misma cuota se aplican ambos y montoPagado coincide con la suma de pagos (antes se perdía uno); pago y recargo en paralelo quedan consistentes; tres pagos que superan el saldo → dos 201 y uno 409, sin sobrecobro. Tres ventas en paralelo sobre el mismo lote → una 201 y dos 409. Pasar a No Disponible un lote con venta INICIADA → 409 y la venta queda intacta; con venta ESCRITURADO se permite. Venta de un lote reservado sin el cliente de la reserva → 400; con el cliente como co-comprador → 201. Pago y recargo sobre venta CANCELADA → 409, conservando los pagos previos. Flujo normal (venta, plan, pago, cancelación con lote devuelto a DISPONIBLE) sin cambios. En pantalla, el formulario de crear plan regenera el cronograma con confirmación al cambiar la cantidad de cuotas. Typecheck, tests (incluida la paridad OpenAPI) y build en verde.
+
+#### Decisión adoptada
+
+Pagos y recargos sobre una misma cuota se serializan con lock de fila (SELECT ... FOR UPDATE) y relectura dentro de la transacción; la venta también se bloquea y relee para no registrar pagos sobre una venta que se canceló en paralelo. Las ventas usan el update condicionado del estado del lote (mismo patrón que reservas). Un lote con venta en curso no puede pasar a No Disponible desde la edición del lote: la venta se cancela desde Ventas, con fecha y motivo. Por decisión del equipo, la venta de un lote con reserva vigente debe incluir al cliente de la reserva, y no se registran pagos ni recargos sobre ventas canceladas. El reemplazo de plan en paralelo con un pago queda como observación.
+
+#### Resultado
+
+- Backend: `npm run typecheck` OK, `npm test` PASS (101 suites, 3543 tests, incluida la paridad OpenAPI) y `npm run build` OK.
+- Con el código anterior de `pago.service.ts`, `venta.service.ts`, `lote.service.ts` y `loteState.effects.ts`, los tests nuevos y actualizados fallan (18 casos) y con el cambio pasan.
+- OpenAPI: mismo número de operaciones; solo cambian cuatro descripciones.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/services/pago.service.ts` (`registrarPagoEnVenta`, `aplicarRecargoManualEnVenta`, `bloquearCuotaYVenta`, `assertVentaAdmitePagos`)
+- `Backend/src/services/venta.service.ts` (`createVenta`)
+- `Backend/src/services/lote.service.ts` (`updatedLote`)
+- `Backend/src/domain/loteState/loteState.effects.ts` (`cancelActivesOnNoDisponible`)
+- `Backend/documents/documentacionApi.yaml`
+- `Backend/tests/unit/services/pago.service.test.ts`
+- `Backend/tests/unit/services/venta.service.test.ts`
+- `Backend/tests/unit/services/lote.service.test.ts`
+- `Backend/tests/unit/domain/loteState.effects.test.ts`
+- `Backend/tests/support/mocks/prisma.ts`
+- `Backend/tests/integration/` y `Backend/scripts/qa/api-permisos.qa.ts` (revisados; sin cambios)
+- `AI-DECISIONS.md`
+
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.

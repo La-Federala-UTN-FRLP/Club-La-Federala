@@ -12,10 +12,15 @@ import type { PostVentaRequest } from '../../../src/types/interfacesCCLF';
 
 const mockTx = {
     venta: { create: jest.fn() },
-    lote: { update: jest.fn() },
+    lote: { update: jest.fn(), updateMany: jest.fn() },
     prioridad: { updateMany: jest.fn() },
     reserva: { update: jest.fn() },
 };
+
+beforeEach(() => {
+    // createVenta: por defecto el lote sigue en el estado validado al marcarlo VENDIDO (bug QA 23)
+    mockTx.lote.updateMany.mockResolvedValue({ count: 1 });
+});
 
 jest.mock('../../../src/config/prisma', () => ({
     venta: {
@@ -419,9 +424,44 @@ describe('createVenta', () => {
         expect(result).toBeDefined();
         expect(prisma.$transaction).toHaveBeenCalledTimes(1);
         expect(mockTx.venta.create).toHaveBeenCalledTimes(1);
-        expect(mockTx.lote.update).toHaveBeenCalledWith(
-            expect.objectContaining({ where: { id: 10 }, data: { estado: 'VENDIDO' } })
+        expect(mockTx.lote.updateMany).toHaveBeenCalledWith({
+            where: { id: 10, estado: 'DISPONIBLE' },
+            data: { estado: 'VENDIDO' },
+        });
+        expect(mockTx.lote.update).not.toHaveBeenCalled();
+        expect(mockTx.reserva.update).not.toHaveBeenCalled();
+    });
+
+    test('bug QA 23: el lote se marca VENDIDO, condicionado al estado leído, antes de crear la venta', async () => {
+        setupBaseMocks({ estado: 'RESERVADO' });
+        (prisma.reserva.findMany as jest.Mock).mockResolvedValue([
+            { id: 50, loteId: 10, estado: 'ACTIVA', estadoOperativo: 'OPERATIVO', ventaId: null, inmobiliariaId: null, clienteId: 100, ofertaInicial: 80000, ofertaActual: 80000 },
+        ]);
+
+        await createVenta(baseVentaRequest());
+
+        expect(mockTx.lote.updateMany).toHaveBeenCalledWith({
+            where: { id: 10, estado: 'RESERVADO' },
+            data: { estado: 'VENDIDO' },
+        });
+        expect(mockTx.lote.updateMany.mock.invocationCallOrder[0]).toBeLessThan(
+            mockTx.venta.create.mock.invocationCallOrder[0],
         );
+    });
+
+    // Bug QA 23: ventas concurrentes sobre el mismo lote. Otra ya lo marcó VENDIDO, así que el UPDATE
+    // condicionado de esta no afecta filas dentro de la transacción.
+    test('bug QA 23: si el lote ya no está en el estado leído al vender → 409 sin crear venta ni tocar prioridad o reserva', async () => {
+        setupBaseMocks({ estado: 'RESERVADO' });
+        (prisma.reserva.findMany as jest.Mock).mockResolvedValue([
+            { id: 50, loteId: 10, estado: 'ACTIVA', estadoOperativo: 'OPERATIVO', ventaId: null, inmobiliariaId: null, clienteId: 100, ofertaInicial: 80000, ofertaActual: 80000 },
+        ]);
+        mockTx.lote.updateMany.mockResolvedValue({ count: 0 });
+
+        await expectStatus(() => createVenta(baseVentaRequest()), 409);
+        await expect(createVenta(baseVentaRequest())).rejects.toThrow(/ya no está disponible para vender/);
+        expect(mockTx.venta.create).not.toHaveBeenCalled();
+        expect(mockTx.prioridad.updateMany).not.toHaveBeenCalled();
         expect(mockTx.reserva.update).not.toHaveBeenCalled();
     });
 
@@ -519,20 +559,29 @@ describe('createVenta', () => {
         await expect(createVenta(baseVentaRequest())).rejects.toThrow(/Conflicto.*reservas vigentes/);
     });
 
-    test('cliente reserva no coincide con compradores: no bloquea, se crea la venta', async () => {
+    test('VEN-06: cliente de la reserva fuera de los compradores → 400 sin abrir la transacción', async () => {
         setupBaseMocks({ estado: 'RESERVADO' });
         (prisma.reserva.findMany as jest.Mock).mockResolvedValue([
             { id: 55, loteId: 10, estado: 'ACEPTADA', estadoOperativo: 'OPERATIVO', ventaId: null, inmobiliariaId: null, clienteId: 999, ofertaInicial: 80000, ofertaActual: 80000 },
         ]);
-        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
-        await expect(createVenta(baseVentaRequest())).resolves.toBeDefined();
-
-        expect(warnSpy).toHaveBeenCalledWith(
-            expect.stringContaining('[Venta-Reserva]'),
-            expect.objectContaining({ reservaId: 55, clienteId: 999 })
+        await expectStatus(() => createVenta(baseVentaRequest()), 400);
+        await expect(createVenta(baseVentaRequest())).rejects.toThrow(
+            'La venta debe incluir entre sus compradores al cliente de la reserva vigente del lote (clienteId: 999)'
         );
-        warnSpy.mockRestore();
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    test('VEN-06: el cliente de la reserva como co-comprador (no principal) → se crea la venta', async () => {
+        setupBaseMocks({ estado: 'RESERVADO' });
+        (prisma.reserva.findMany as jest.Mock).mockResolvedValue([
+            { id: 56, loteId: 10, estado: 'ACEPTADA', estadoOperativo: 'OPERATIVO', ventaId: null, inmobiliariaId: null, clienteId: 999, ofertaInicial: 80000, ofertaActual: 80000 },
+        ]);
+
+        await expect(
+            createVenta(baseVentaRequest({ compradorId: undefined, compradores: [{ personaId: 100 }, { personaId: 999 }] } as any))
+        ).resolves.toBeDefined();
+        expect(mockTx.reserva.update).toHaveBeenCalledWith({ where: { id: 56 }, data: { ventaId: 1 } });
     });
 
     test('finaliza prioridad activa del lote dentro de la transacción (escritura condicionada a ACTIVA)', async () => {
