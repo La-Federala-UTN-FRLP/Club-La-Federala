@@ -247,7 +247,7 @@ paths:
       summary: Actualizar lote
       description: >-
         Actualización parcial (al menos un campo). TECNICO solo puede modificar `subestado` y
-        `superficie`; si no envía ninguno de ellos recibe 403. `calle` + `numeroCalle` actualizan la
+        `superficie`: si envía cualquier otro campo del schema, o ninguno de esos dos, recibe 403. `calle` + `numeroCalle` actualizan la
         ubicación existente o crean una; `ubicacionId` conecta una existente.
       x-roles: [ADMINISTRADOR, GESTOR, TECNICO]
       security: [{ bearerAuth: [] }]
@@ -1584,7 +1584,8 @@ paths:
       description: >-
         Actualización parcial (al menos un campo). Una persona eliminada no se edita (409). Reasignar
         `inmobiliariaId` a una inmobiliaria ELIMINADO responde 409; conservar la actual no es una
-        reasignación. No modifica el grupo familiar (`jefeDeFamiliaId` se ignora).
+        reasignación. No modifica el grupo familiar: enviar `jefeDeFamiliaId` responde 400 (se gestiona con
+        `/personas/{id}/grupo-familiar/miembros`).
       x-roles: [ADMINISTRADOR, GESTOR]
       security: [{ bearerAuth: [] }]
       requestBody:
@@ -1679,7 +1680,7 @@ paths:
       tags: [Personas]
       operationId: obtenerGrupoFamiliar
       summary: Obtener el grupo familiar de un titular
-      x-roles: [ADMINISTRADOR, GESTOR, TECNICO]
+      x-roles: [ADMINISTRADOR, GESTOR]
       security: [{ bearerAuth: [] }]
       responses:
         '200':
@@ -3461,7 +3462,6 @@ components:
         razonSocial: { type: string, maxLength: 200 }
         telefono: { type: integer, minimum: 1, nullable: true }
         email: { type: string, format: email, nullable: true }
-        jefeDeFamiliaId: { allOf: [{ $ref: '#/components/schemas/IdEntrada' }], description: Se ignora; el grupo familiar no se modifica por PUT }
         estado: { allOf: [{ $ref: '#/components/schemas/EstadoOperativo' }], description: Se ignora; usar desactivar/reactivar }
         inmobiliariaId: { allOf: [{ $ref: '#/components/schemas/IdEntrada' }], nullable: true }
     Persona:

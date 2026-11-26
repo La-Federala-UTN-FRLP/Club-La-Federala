@@ -19,6 +19,7 @@ const updateSpy = jest.spyOn(PersonaService.prototype, 'update');
 const crearMiembroSpy = jest.spyOn(PersonaService.prototype, 'crearMiembroFamiliar');
 const eliminarMiembroSpy = jest.spyOn(PersonaService.prototype, 'eliminarMiembroFamiliar');
 const findAllSpy = jest.spyOn(PersonaService.prototype, 'findAll');
+const grupoFamiliarSpy = jest.spyOn(PersonaService.prototype, 'getGrupoFamiliar');
 
 useTestWebEnv();
 
@@ -29,6 +30,7 @@ beforeEach(() => {
     crearMiembroSpy.mockReset().mockResolvedValue({ id: 30 } as any);
     eliminarMiembroSpy.mockReset().mockResolvedValue(undefined as any);
     findAllSpy.mockReset().mockResolvedValue({ personas: [], total: 0 });
+    grupoFamiliarSpy.mockReset().mockResolvedValue({ titular: { id: 5 }, miembros: [] } as any);
 });
 
 afterAll(() => {
@@ -109,6 +111,38 @@ describe('PUT /api/personas/:id', () => {
         const res = await request(app).put('/api/personas/5').set(authHeader('TECNICO')).send({ nombre: 'Ana' });
         expect(res.status).toBe(403);
         expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    // Bug QA 14: antes respondía 200 "se actualizó con éxito" e ignoraba el campo.
+    test.each([[5], ['5'], [null]])('jefeDeFamiliaId %p responde 400 con el campo y el mensaje, sin llegar al service', async (valor) => {
+        const res = await request(app).put('/api/personas/5').set(ADMIN).send({ nombre: 'Ana', jefeDeFamiliaId: valor });
+        expect(res.status).toBe(400);
+        expect(res.body.message).toBe('Datos inválidos');
+        expect(res.body.errors).toEqual([
+            expect.objectContaining({ field: 'jefeDeFamiliaId', message: expect.stringMatching(/grupo-familiar\/miembros/) }),
+        ]);
+        expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    test('un PUT normal (sin jefeDeFamiliaId) sigue respondiendo 200', async () => {
+        const res = await request(app).put('/api/personas/5').set(authHeader('GESTOR')).send({ nombre: 'Ana' });
+        expect(res.status).toBe(200);
+        expect(updateSpy).toHaveBeenCalledWith(5, { nombre: 'Ana' });
+    });
+});
+
+// D7 (matriz RBAC): el grupo familiar es solo para ADMINISTRADOR y GESTOR.
+describe('GET /api/personas/:id/grupo-familiar — roles', () => {
+    test.each(['ADMINISTRADOR', 'GESTOR'])('%s → 200', async (rol) => {
+        const res = await request(app).get('/api/personas/5/grupo-familiar').set(authHeader(rol));
+        expect(res.status).toBe(200);
+        expect(grupoFamiliarSpy).toHaveBeenCalledWith(5);
+    });
+
+    test.each(['TECNICO', 'INMOBILIARIA'])('%s → 403 sin llegar al service', async (rol) => {
+        const res = await request(app).get('/api/personas/5/grupo-familiar').set(authHeader(rol));
+        expect(res.status).toBe(403);
+        expect(grupoFamiliarSpy).not.toHaveBeenCalled();
     });
 });
 

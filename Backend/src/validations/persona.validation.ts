@@ -92,6 +92,9 @@ export const createPersonaSchema = baseCreatePersonaSchema;
 // Body ya validado y normalizado por la ruta (lo que el controller recibe en req.body).
 export type CreatePersonaInput = z.output<typeof createPersonaSchema>;
 
+export const MENSAJE_JEFE_POR_PUT =
+  "jefeDeFamiliaId no se puede modificar por PUT: el grupo familiar se gestiona con /personas/:id/grupo-familiar/miembros";
+
 export const updatePersonaSchema = z.object({
   identificadorTipo: identificadorTipoEnum.optional(),
   identificadorValor: z
@@ -104,7 +107,9 @@ export const updatePersonaSchema = z.object({
   razonSocial: z.string().max(200).optional(),
   telefono: z.union([z.number().int().positive(), z.null()]).optional(),
   email: z.union([z.string().email("Email invalido"), z.null()]).optional(),
-  jefeDeFamiliaId: idDelBody("del jefe de familia").optional(),
+  // El grupo familiar se gestiona solo con /personas/:id/grupo-familiar/miembros (bug QA 14):
+  // enviar jefeDeFamiliaId, con cualquier valor, responde 400 en lugar de ignorarse.
+  jefeDeFamiliaId: z.undefined({ error: MENSAJE_JEFE_POR_PUT }).optional(),
   estado: z.enum(["OPERATIVO", "ELIMINADO"]).optional(),
   inmobiliariaId: idDelBody("de la inmobiliaria").nullable().optional(),
 })

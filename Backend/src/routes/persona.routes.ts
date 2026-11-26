@@ -89,7 +89,7 @@ router.delete(
 router.get(
     '/:id/grupo-familiar',
     authenticate,
-    authorize('ADMINISTRADOR', 'GESTOR', 'TECNICO'),
+    authorize('ADMINISTRADOR', 'GESTOR'),
     validateParams(getPersonaSchema),
     personaController.obtenerGrupoFamiliar
 );
