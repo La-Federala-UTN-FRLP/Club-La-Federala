@@ -53,6 +53,15 @@ export default function PersonaVerCard({
         return;
       }
 
+      // INMOBILIARIA: GET /personas/:id no la acepta (D6 de la matriz RBAC); el detalle usa solo los datos de la lista.
+      if (isInmobiliaria) {
+        const deLista = persona ?? (personaId != null && Array.isArray(personas)
+          ? personas.find(p => `${p.id}` === `${personaId}`) ?? null
+          : null);
+        if (!abort) setDetalleCompleto(deLista);
+        return;
+      }
+
       const idToUse = persona?.id ?? personaId;
 
       if (idToUse != null) {
@@ -81,7 +90,7 @@ export default function PersonaVerCard({
     }
     run();
     return () => { abort = true; };
-  }, [open, persona?.id, personaId, persona, personas]);
+  }, [open, persona?.id, personaId, persona, personas, isInmobiliaria]);
 
   const pers = useMemo(() => {
     if (detalleCompleto) return detalleCompleto;
