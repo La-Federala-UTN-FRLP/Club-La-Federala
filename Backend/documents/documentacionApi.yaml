@@ -320,7 +320,9 @@ paths:
       summary: Aplicar promoción a un lote
       description: >-
         El lote debe estar DISPONIBLE, tener precio y no tener otra promoción activa. Pasa a
-        EN_PROMOCION con el precio promocional.
+        EN_PROMOCION con el precio promocional, que debe ser menor al precio actual del lote (si es
+        igual o mayor, 400). Si otra operación cambia el estado del lote mientras se aplica (por
+        ejemplo, otra promoción en paralelo), responde 409 sin crear la promoción.
       x-roles: [ADMINISTRADOR, GESTOR]
       security: [{ bearerAuth: [] }]
       requestBody:
@@ -435,7 +437,9 @@ paths:
 
 
         El lote debe estar DISPONIBLE, EN_PROMOCION o CON_PRIORIDAD (400) y sin otra reserva vigente
-        (409). Un lote con prioridad solo lo reserva el dueño de la prioridad (403).
+        (409). Un lote con prioridad solo lo reserva el dueño de la prioridad (403). Si dos altas
+        compiten por el mismo lote, se crea una sola reserva y la otra responde 409 sin crear
+        nada.
       x-roles: [ADMINISTRADOR, GESTOR, INMOBILIARIA]
       security: [{ bearerAuth: [] }]
       requestBody:
