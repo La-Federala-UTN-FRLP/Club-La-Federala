@@ -2415,6 +2415,57 @@ El frontend muestra cada acción solo a los roles que el backend acepta: INMOBIL
 - Closes #360
 - `AI-DECISIONS.md`
 
+### AI-033 — Contrato OpenAPI del módulo Reportes y código de error AI_UNAVAILABLE
+
+**Fecha:** 2026-11-25
+**Área:** Docs / OpenAPI (Reportes)
+**Herramientas:** Claude Code
+
+#### Problema
+
+Las 6 operaciones de `/api/reportes` ya estaban en `documentacionApi.yaml` (CCLF-52 a CCLF-56) y el test de paridad pasaba, pero el contrato estaba incompleto para quien consume la API:
+
+- Sin ejemplos de respuesta.
+- Parámetros sin descripción, límites ni ejemplos, repetidos en cada operación.
+- Errores 400 genéricos, con ejemplos de otros módulos.
+- Sin el código `AI_UNAVAILABLE` que pide la especificación CCLF-37 (V4).
+
+#### Prompt / intención
+
+Completar el contrato de las 6 operaciones siguiendo el estilo del YAML, con los nombres de campo exactos del backend, y agregar `AI_UNAVAILABLE` al contrato de errores. Sin tocar código de negocio. Si el código y la especificación V4 no coinciden, documentar lo que hace el código y anotar la diferencia.
+
+#### Propuesta generada por IA
+
+- **Parámetros reutilizables** en `components/parameters` (`ReporteFraccion`, `ReporteEstadoLote`, `ReporteSubestadoLote`, `ReporteDesde`, `ReporteHasta`, `ReporteMoneda`), cada uno compartido por el reporte JSON y su exportación. Incluyen formato `YYYY-MM-DD`, `desde` <= `hasta`, máximo de 366 días y enums.
+- **Ejemplos 200** para los 3 reportes JSON, con datos ficticios coherentes entre sí (totales que cuadran con las filas, orden real del backend, ARS en `otrasMonedas` y nunca sumado a las tarjetas en USD). Para las 3 exportaciones, ejemplos del header `Content-Disposition` con el nombre real de cada archivo.
+- **Errores 400 por reporte** (`ReporteInventarioBadRequest`, `ReporteVentasBadRequest`, `ReporteCuotasVencidasBadRequest`), con los mensajes reales que devuelve la validación Zod.
+- **`AI_UNAVAILABLE`** en el enum `ErrorCode`, con descripción, y un ejemplo de body en `components/examples/AiUnavailable` con el formato de error común. No se agregó a ninguna operación: ninguna de las 6 usa IA y el resumen con IA (`POST /reportes/resumen`) no está implementado. Una respuesta en `components/responses` sin uso habría hecho fallar el test de componentes huérfanos.
+- **Método para verificar:** los ejemplos se armaron a partir de respuestas reales, capturadas con los fakes de test. Se validaron contra los schemas con el mismo validador estricto de los tests de contrato, y los 400 se compararon con la respuesta real de cada URL. Los tests temporales usados para eso se borraron.
+
+#### Validación humana
+
+- PENDIENTE: decidir el status HTTP de `AI_UNAVAILABLE`. La especificación V4 dice 502 y el pedido de la tarea 38.7 decía 503. Por ahora el YAML no fija status; se documenta junto con `POST /reportes/resumen`.
+- PENDIENTE: revisión del diff del YAML en la PR.
+
+#### Decisión adoptada
+
+El contrato documenta lo que hace el código hoy: 6 operaciones, sin el resumen con IA. `AI_UNAVAILABLE` queda reservado en el contrato común de errores, sin status ni operación hasta que se implemente el resumen.
+
+#### Resultado
+
+- Test de paridad y tests de contrato de la OpenAPI: 108/108 PASS, igual que en `main`.
+- Suite unitaria del backend: 97 suites, 3491 tests PASS.
+- `swagger-cli validate`: los mismos errores que en `main`, todos preexistentes y ajenos a Reportes; ninguno nuevo. `git diff --check` limpio.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/documents/documentacionApi.yaml`
+- `Backend/src/routes/reportes.routes.ts`, `Backend/src/validations/reporte.validation.ts` y `Backend/src/services/reporte.service.ts` (fuente de verdad; sin cambios)
+- `Backend/tests/unit/openapi/` (paridad y contrato; sin cambios)
+- Especificación y contratos de Reportes + IA (CCLF-37), V4
+- `AI-DECISIONS.md`
+
+
 ### AI-034 — Reservas del cliente para la inmobiliaria en el detalle de persona
 
 **Fecha:** 2026-11-25
