@@ -1,0 +1,84 @@
+﻿Módulo;Acción;Endpoint;ADMIN;GESTOR;INMOBILIARIA;TECNICO;Pantalla;¿Coincide?;Referencias
+Lotes;Listar lotes;GET /lotes;Sí;Sí;Sí (sin NO_DISPONIBLE, campos filtrados);Sí (campos filtrados);Todos ven tablero y mapa;Sí;lote.routes.ts:12-15, lote.service.ts:217-219, :344-348
+Lotes;Ver lote;GET /lotes/:id;Sí;Sí;Sí (NO_DISPONIBLE responde 404);Sí (campos filtrados);Todos ven "Ver";Sí;lote.routes.ts:20-23, lote.service.ts:394, TablaLotes.jsx:420
+Lotes;Crear lote;POST /lotes;Sí;Sí;No;No;"+ Agregar Lote" solo ADMIN;No (D4);lote.routes.ts:28-31, TablaLotes.jsx:266, :552
+Lotes;Editar lote;PUT /lotes/:id;Sí;Sí;No;Sí (solo subestado, superficie y archivos);ADMIN y GESTOR editan todo. TECNICO solo subestado y superficie. INMO no ve Editar;Sí;lote.routes.ts:36-39, lote.service.ts:535-551, LoteEditarCard.jsx:171, LoteSidePanel.jsx:248-253
+Lotes;Eliminar lote;DELETE /lotes/:id;Sí;No;No;No;"Eliminar Lote" para ADMIN y GESTOR;No (D3);lote.routes.ts:45-48, rbac.js:92, TablaLotes.jsx:718
+Lotes;Aplicar promoción;POST /lotes/:id/promociones/aplicar;Sí;Sí;No;No;ADMIN y GESTOR (LOT_PROMO);Sí;lote.routes.ts:53-56, rbac.ui.js:64, TablaLotes.jsx:723
+Lotes;Quitar promoción;POST /lotes/:id/promociones/quitar;Sí;Sí;No;No;ADMIN y GESTOR (LOT_PROMO);Sí;lote.routes.ts:62-65, rbac.ui.js:64, TablaLotes.jsx:723
+Lotes;Ver promoción activa;GET /lotes/:id/promociones/activa;Sí;Sí;Sí (NO_DISPONIBLE responde sin promoción);Sí;Todos ven el precio con promoción;Sí;lote.routes.ts:70-73, promocion.service.ts:155
+Reservas;Listar reservas;GET /reservas;Sí;Sí;Sí, solo propias;No;ADMIN, GESTOR e INMO;Sí;reserva.routes.ts:13-16, reserva.service.ts:120-122
+Reservas;Ver reserva;GET /reservas/:id;Sí;Sí;Sí, solo propias;No;"Ver Reserva" para ADMIN, GESTOR e INMO;Sí;reserva.routes.ts:23-26, reserva.service.ts:177-183, TablaReservas.jsx:316
+Reservas;Reservas de una inmobiliaria;GET /reservas/inmob/:id;Sí;Sí;Sí, solo su id;No;Ninguna pantalla lo usa;Sin pantalla;reserva.routes.ts:31-34, reserva.service.ts:192-197
+Reservas;Crear reserva;POST /reservas;Sí;Sí;Sí (con su inmobiliaria, no sobre NO_DISPONIBLE ni prioridad del Club);No;ADMIN, GESTOR e INMO (tabla y "Reservar" del mapa);Sí;reserva.routes.ts:39-42, reserva.service.ts:226, :271-293, :321-327, Reservas.jsx:629, LoteSidePanel.jsx:239
+Reservas;Editar reserva;PUT /reservas/:id;Sí;Sí;No;No;"Editar Reserva" para ADMIN, GESTOR e INMO;No (D1);reserva.routes.ts:47-50, rbac.js:115, TablaReservas.jsx:321-325, ReservaEditarCard.jsx:216-219
+Reservas;Eliminar reserva;PATCH /reservas/:id/eliminar;Sí;Sí;Sí, solo propias;No;"Eliminar Reserva" solo ADMIN y GESTOR;No (D2);reserva.routes.ts:56-59, reserva.service.ts:714-716, Reservas.jsx:137, :626
+Reservas;Reactivar reserva;PATCH /reservas/:id/reactivar;Sí;Sí;Sí, solo propias;No;"Reactivar Reserva" solo ADMIN y GESTOR;No (D2);reserva.routes.ts:65-68, reserva.service.ts:808-810, Reservas.jsx:627
+Reservas;Ver ofertas;GET /reservas/:id/ofertas;Sí;Sí;Sí, solo propias;No;"Ver Ofertas" para ADMIN, GESTOR e INMO;Sí;reserva.routes.ts:75-78, reserva.service.ts:868-870, TablaReservas.jsx:326-330
+Reservas;Ofertar, aceptar o rechazar;POST /reservas/:id/ofertas;Sí;Sí;Sí, solo propias;No;ADMIN, GESTOR e INMO desde Ver Ofertas;Sí;reserva.routes.ts:84-87, reserva.service.ts:896-898, OfertasReservaCard.jsx:105-108
+Prioridades;Listar prioridades;GET /prioridades;Sí;Sí;Sí, solo propias;No;ADMIN, GESTOR e INMO;Sí;prioridad.routes.ts:18-21, prioridad.service.ts:299-301
+Prioridades;Ver prioridad;GET /prioridades/:id;Sí;Sí;Sí, solo propias;No;ADMIN, GESTOR e INMO;Sí;prioridad.routes.ts:29-32, prioridad.service.ts:577-584
+Prioridades;Crear prioridad;POST /prioridades;Sí;Sí;Sí (con su inmobiliaria, no sobre NO_DISPONIBLE);No;ADMIN, GESTOR e INMO. Solo ADMIN y GESTOR eligen la inmobiliaria;Sí;prioridad.routes.ts:40-43, prioridad.service.ts:142, :190-224, Prioridades.jsx:405, PrioridadCrearCard.jsx:540
+Prioridades;Editar prioridad;PATCH /prioridades/:id;Sí;Sí;Sí, solo propias (sin cambiar inmobiliaria ni fecha fin);No;"Editar Prioridad" para ADMIN, GESTOR e INMO;Sí;prioridad.routes.ts:52-55, prioridad.service.ts:749-762, :844-855, TablaPrioridades.jsx:200, PrioridadEditarCard.jsx:257, :276
+Prioridades;Cancelar prioridad;PATCH /prioridades/:id/cancelar;Sí;Sí;Sí, solo propias;No;Desde Editar Prioridad (ADMIN, GESTOR e INMO);Sí;prioridad.routes.ts:64-67, prioridad.service.ts:613-619, PrioridadEditarCard.jsx:332
+Prioridades;Finalizar prioridad;PATCH /prioridades/:id/finalizar;Sí;Sí;Sí, solo propias;No;Desde Editar Prioridad (ADMIN, GESTOR e INMO);Sí;prioridad.routes.ts:75-78, prioridad.service.ts:656-662, PrioridadEditarCard.jsx:330
+Prioridades;Expirar vencidas (manual);POST /prioridades/jobs/expire;Sí;Sí;No;No;Ninguna pantalla tiene el botón (existe en la capa API);Sin pantalla;prioridad.routes.ts:86-89, lib/api/prioridades.js:256-258
+Prioridades;Eliminar prioridad;PATCH /prioridades/:id/eliminar;Sí;Sí;Sí, solo propias;No;"Eliminar Prioridad" solo ADMIN;No (D5);prioridad.routes.ts:96-99, prioridad.service.ts:412, rbac.js:84, TablaPrioridades.jsx:210
+Prioridades;Reactivar prioridad;PATCH /prioridades/:id/reactivar;Sí;Sí;Sí, solo propias;No;"Reactivar Prioridad" solo ADMIN;No (D5);prioridad.routes.ts:107-110, prioridad.service.ts:504, rbac.js:84, TablaPrioridades.jsx:210-219
+Ventas y pagos;Listar ventas;GET /ventas;Sí;Sí;No;No;ADMIN y GESTOR;Sí;ventas.routes.ts:19-22, rbac.js:68, :93
+Ventas y pagos;Ventas de una inmobiliaria;GET /ventas/inmobiliaria/:id;Sí;Sí;Sí, solo su id;No;INMO no tiene el módulo Ventas;No (D8);ventas.routes.ts:27-30, venta.service.ts:169-174, rbac.js:111-122
+Ventas y pagos;Ver venta;GET /ventas/:id;Sí;Sí;No;No;"Ver" para ADMIN y GESTOR;Sí;ventas.routes.ts:36-39, TablaVentas.jsx:219
+Ventas y pagos;Registrar venta;POST /ventas;Sí;Sí;No;No;ADMIN y GESTOR (tabla de ventas y tablero de lotes);Sí;ventas.routes.ts:44-47, Ventas.jsx:609, TablaLotes.jsx:422
+Ventas y pagos;Editar venta;PUT /ventas/:id;Sí;Sí;No;No;ADMIN y GESTOR;Sí;ventas.routes.ts:52-55, TablaVentas.jsx:221
+Ventas y pagos;Eliminar venta;PATCH /ventas/:id/eliminar;Sí;Sí;No;No;ADMIN y GESTOR;Sí;ventas.routes.ts:62-65, TablaVentas.jsx:223
+Ventas y pagos;Reactivar venta;PATCH /ventas/:id/reactivar;Sí;Sí;No;No;ADMIN y GESTOR;Sí;ventas.routes.ts:72-75, Ventas.jsx:177
+Ventas y pagos;Ver pagos;GET /ventas/:ventaId/pagos;Sí;Sí;No;No;ADMIN y GESTOR;Sí;ventas.routes.ts:83-86, App.jsx:53-57
+Ventas y pagos;Registrar recargo;POST /ventas/:ventaId/pagos/recargo;Sí;Sí;No;No;ADMIN y GESTOR (SALE_EDIT);Sí;ventas.routes.ts:91-94, VentaPagosPage.jsx:446-629
+Ventas y pagos;Registrar pago;POST /ventas/:ventaId/pagos;Sí;Sí;No;No;ADMIN y GESTOR (SALE_EDIT);Sí;ventas.routes.ts:100-103, VentaPagosPage.jsx:446-629
+Ventas y pagos;Reemplazar plan de pagos;POST /ventas/:ventaId/pagos/plan/reemplazar;Sí;Sí;No;No;ADMIN y GESTOR (SALE_EDIT);Sí;ventas.routes.ts:109-112, VentaPagosPage.jsx:446-629
+Ventas y pagos;Crear plan de pagos;POST /ventas/:ventaId/pagos/plan;Sí;Sí;No;No;ADMIN y GESTOR (SALE_EDIT);Sí;ventas.routes.ts:118-121, VentaPagosPage.jsx:446-629
+Personas;Listar personas;GET /personas;Sí;Sí;Sí (solo Mis clientes, sin eliminadas);Sí (sin eliminadas);Todos. INMO solo "Ver Mis Clientes";Sí;persona.routes.ts:13-16, persona.service.ts:404-415, :451-458, Sidebar.jsx:77-86
+Personas;Buscar por CUIL;GET /personas/cuil/:cuil;Sí;Sí;No;Sí;Ninguna pantalla lo usa (existe en la capa API);Sin pantalla;persona.routes.ts:23-26, lib/api/personas.js:149
+Personas;Ver persona;GET /personas/:id;Sí;Sí;No;Sí;Todos abren el detalle. Para INMO la API responde 403 y la pantalla usa los datos de la lista;No (D6);persona.routes.ts:32-35, PersonaVerCard.jsx:61-73
+Personas;Crear persona;POST /personas;Sí;Sí;Sí (queda asignada a su inmobiliaria);No;ADMIN, GESTOR e INMO;Sí;persona.routes.ts:43-46, persona.service.ts:611-618, Personas.jsx:323
+Personas;Editar persona;PUT /personas/:id;Sí;Sí;No;No;ADMIN y GESTOR (PEOPLE_EDIT);Sí;persona.routes.ts:52-55, Personas.jsx:127, PersonaVerCard.jsx:425
+Personas;Desactivar persona;PATCH /personas/:id/desactivar;Sí;Sí;No;No;ADMIN y GESTOR (PEOPLE_DELETE);Sí;persona.routes.ts:62-65, Personas.jsx:128
+Personas;Reactivar persona;PATCH /personas/:id/reactivar;Sí;Sí;No;No;ADMIN y GESTOR (PEOPLE_DELETE);Sí;persona.routes.ts:71-74, Personas.jsx:128
+Personas;Borrado definitivo;DELETE /personas/:id;Sí;No;No;No;Solo ADMIN;Sí;persona.routes.ts:80-83, Personas.jsx:322
+Personas;Ver grupo familiar;GET /personas/:id/grupo-familiar;Sí;Sí;No;Sí;Solo ADMIN y GESTOR;No (D7);persona.routes.ts:89-92, Personas.jsx:324
+Personas;Agregar miembro;POST /personas/:id/grupo-familiar/miembros;Sí;Sí;No;No;Solo ADMIN y GESTOR;Sí;persona.routes.ts:98-101, Personas.jsx:324
+Personas;Quitar miembro;DELETE /personas/:id/grupo-familiar/miembros/:miembroId;Sí;Sí;No;No;Solo ADMIN y GESTOR;Sí;persona.routes.ts:108-111, Personas.jsx:324
+Inmobiliarias;Listar inmobiliarias;GET /inmobiliarias;Sí;Sí;No;No;ADMIN y GESTOR;Sí;inmobiliaria.routes.ts:10-13, App.jsx:47
+Inmobiliarias;Ver inmobiliaria;GET /inmobiliarias/:id;Sí;Sí;No;No;ADMIN y GESTOR;Sí;inmobiliaria.routes.ts:18-21, Inmobiliarias.jsx:238
+Inmobiliarias;Crear inmobiliaria;POST /inmobiliarias;Sí;Sí;No;No;ADMIN y GESTOR;Sí;inmobiliaria.routes.ts:26-29, Inmobiliarias.jsx:239, TablaInmobiliarias.jsx:416
+Inmobiliarias;Editar inmobiliaria;PUT /inmobiliarias/:id;Sí;Sí;No;No;ADMIN y GESTOR;Sí;inmobiliaria.routes.ts:34-37, Inmobiliarias.jsx:240, TablaInmobiliarias.jsx:256
+Inmobiliarias;Dar de baja;PATCH /inmobiliarias/:id/eliminar;Sí;Sí;No;No;ADMIN y GESTOR;Sí;inmobiliaria.routes.ts:43-46, Inmobiliarias.jsx:241, TablaInmobiliarias.jsx:323
+Inmobiliarias;Reactivar;PATCH /inmobiliarias/:id/reactivar;Sí;Sí;No;No;ADMIN y GESTOR;Sí;inmobiliaria.routes.ts:51-54, Inmobiliarias.jsx:242, TablaInmobiliarias.jsx:296
+Usuarios;Listar usuarios;GET /usuarios;Sí;Sí;No;No;Sin pantalla;Sin pantalla;usuario.routes.ts:10-13
+Usuarios;Ver usuario;GET /usuarios/:id;Sí;Sí;No;No;Sin pantalla;Sin pantalla;usuario.routes.ts:17-20
+Usuarios;Crear usuario;POST /usuarios;Sí;Sí (no puede crear un ADMIN);No;No;Sin pantalla;Sin pantalla;usuario.routes.ts:25-28, backend.md (Matriz RBAC: decisiones cerradas)
+Usuarios;Editar usuario;PUT /usuarios/:id;Sí;Sí (no puede promover a ADMIN ni editar un ADMIN);No;No;Sin pantalla;Sin pantalla;usuario.routes.ts:33-36, backend.md (Matriz RBAC: decisiones cerradas)
+Usuarios;Eliminar usuario;DELETE /usuarios/:id;Sí;No;No;No;Sin pantalla;Sin pantalla;usuario.routes.ts:43-46
+Archivos;Listar archivos de una venta;GET /files/venta/:ventaId;Sí;Sí;Sí, solo ventas propias;Sí (sin documentos de venta);ADMIN y GESTOR desde Ventas;Sí;files.routes.ts:25-28, file.controller.ts:168-174
+Archivos;Listar archivos de un lote;GET /files/lote/:idLoteAsociado;Sí;Sí;Sí (filtrado por tipo, vacío si el lote es NO_DISPONIBLE);Sí (solo PLANO e IMAGEN);Todos desde el detalle del lote. TECNICO solo la pestaña Planos;Sí;files.routes.ts:36-39, file.service.ts:154-200, LoteVerCard.jsx:321-323
+Archivos;Ver metadata de un archivo;GET /files/:id;Sí;Sí;Sí (filtrado por tipo);Sí (filtrado por tipo);Todos desde Documentos;Sí;files.routes.ts:47-50, file.controller.ts:27-50
+Archivos;Firmar URL de descarga;POST /files/:id/url;Sí;Sí;Sí (filtrado por tipo);Sí (filtrado por tipo);Todos desde Documentos;Sí;files.routes.ts:57-60, file.controller.ts:27-50
+Archivos;Subir archivo;POST /files;Sí;Sí;No;Sí (solo PLANO e IMAGEN);ADMIN, GESTOR y TECNICO;Sí;files.routes.ts:99-102, file.controller.ts:91-92, LoteVerCard.jsx:312-315, Ventas.jsx:180
+Archivos;Sustituir archivo;POST /files/:id/sustituir;Sí;Sí;No;Sí (solo PLANO e IMAGEN);ADMIN, GESTOR y TECNICO;Sí;files.routes.ts:90-93, DocumentoVerCard.jsx:408
+Archivos;Aprobar plano;PATCH /files/:id/aprobaciones;Sí;Sí;No;Sí (solo Comisión, no Municipio);Comisión: ADMIN, GESTOR y TECNICO. Municipio: ADMIN y GESTOR;Sí;files.routes.ts:81-84, file.auth.utils.ts:121-129, DocumentoVerCard.jsx:93-94
+Archivos;Eliminar archivo;DELETE /files/:id;Sí;Sí;No;No;ADMIN y GESTOR;Sí;files.routes.ts:108-111, rbac.ui.js:125-127, LoteVerCard.jsx:316-319, LoteEditarCard.jsx:749
+Archivos;Restaurar archivo;POST /files/:id/restore;Sí;Sí;No;No;ADMIN y GESTOR;Sí;files.routes.ts:65-68, DocumentoVerCard.jsx:69-70
+Archivos;Purgar archivo;DELETE /files/:id/purge;Sí;No;No;No;Solo ADMIN;Sí;files.routes.ts:73-76, DocumentoVerCard.jsx:71
+Reportes;Ver inventario;GET /reportes/inventario;Sí;Sí;No;No;ADMIN y GESTOR;Sí;reportes.routes.ts:19-23
+Reportes;Exportar inventario;GET /reportes/inventario.xlsx;Sí;Sí;No;No;ADMIN y GESTOR;Sí;reportes.routes.ts:26-30
+Reportes;Ver ventas por período;GET /reportes/ventas;Sí;Sí;No;No;ADMIN y GESTOR;Sí;reportes.routes.ts:33-37
+Reportes;Exportar ventas;GET /reportes/ventas.xlsx;Sí;Sí;No;No;ADMIN y GESTOR;Sí;reportes.routes.ts:40-44
+Reportes;Ver cuotas vencidas;GET /reportes/cuotas-vencidas;Sí;Sí;No;No;ADMIN y GESTOR;Sí;reportes.routes.ts:47-51
+Reportes;Exportar cuotas vencidas;GET /reportes/cuotas-vencidas.xlsx;Sí;Sí;No;No;ADMIN y GESTOR;Sí;reportes.routes.ts:54-58
+Fracciones y ubicaciones;Listar fracciones;GET /fracciones;Sí;Sí;No;Sí;Alta de lote (solo ADMIN) y Reportes (ADMIN y GESTOR);Sí;fraccion.routes.ts:10-13, LoteCrearCard.jsx:133, lib/api/reportes.js:184
+Fracciones y ubicaciones;Ver fracción;GET /fracciones/:id;Sí;Sí;No;Sí;Ninguna pantalla lo usa;Sin pantalla;fraccion.routes.ts:18-21
+Fracciones y ubicaciones;Crear fracción;POST /fracciones;Sí;Sí;No;No;Sin pantalla;Sin pantalla;fraccion.routes.ts:27-30
+Fracciones y ubicaciones;Editar fracción;PUT /fracciones/:id;Sí;Sí;No;No;Sin pantalla;Sin pantalla;fraccion.routes.ts:36-39
+Fracciones y ubicaciones;Eliminar fracción;DELETE /fracciones/:id;Sí;No;No;No;Sin pantalla;Sin pantalla;fraccion.routes.ts:46-49
+Fracciones y ubicaciones;Listar ubicaciones;GET /ubicaciones;Sí;Sí;No;Sí;Ninguna pantalla lo usa;Sin pantalla;ubicacion.routes.ts:13-16
+Fracciones y ubicaciones;Ver ubicación;GET /ubicaciones/:id;Sí;Sí;No;Sí;Ninguna pantalla lo usa;Sin pantalla;ubicacion.routes.ts:21-24

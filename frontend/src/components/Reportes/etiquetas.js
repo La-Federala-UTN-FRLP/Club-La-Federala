@@ -139,3 +139,105 @@ export function etiquetaLote(fraccion, numero) {
   if (numero == null) return "Sin número";
   return `Lote ${fraccion}-${numero}`;
 }
+
+/* ------------------------- Cuotas vencidas (39.4) ------------------------- */
+
+// Un dato que el backend no manda. `fmtMontoMoneda` hace la misma comprobación en línea; no se
+// la toca para que esta etapa agregue código y no reescriba el que ya está en main.
+const sinDato = (valor) => valor == null || valor === "";
+
+/**
+ * Tramo de atraso → texto visible.
+ *
+ * Las claves son los tres valores exactos del contrato (`TRAMOS_ATRASO` de reporte.service.ts):
+ * cadenas con guión y con signo, no identificadores, así que van entre comillas.
+ */
+export const ETIQUETA_TRAMO = {
+  "1-30": "1 a 30 días",
+  "31-60": "31 a 60 días",
+  "+60": "Más de 60 días",
+};
+
+/**
+ * Texto de un tramo.
+ *
+ * Un tramo que no esté en el mapa se devuelve tal como vino, convertido a texto: el contrato fija
+ * tres valores, así que un cuarto es un dato que esta pantalla no conoce, y mostrarlo crudo deja
+ * ver qué llegó en lugar de esconderlo. No lanza nunca.
+ *
+ * @param {string} tramo - "1-30", "31-60" o "+60"
+ * @returns {string}
+ */
+export function etiquetaTramo(tramo) {
+  return Object.hasOwn(ETIQUETA_TRAMO, tramo) ? ETIQUETA_TRAMO[tramo] : String(tramo);
+}
+
+/**
+ * Un número con su sustantivo en la forma que corresponde: "1 cuota", "2 cuotas".
+ *
+ * No había un helper así: las vistas resolvían el plural con un ternario en el lugar donde lo
+ * necesitaban (VistaVentas.jsx lo hace para "venta"/"ventas"). En cuotas vencidas hace falta para
+ * días, cuotas y ventas, así que vale escribirlo una vez.
+ *
+ * @param {number} n
+ * @param {string} singular - Forma para n === 1
+ * @param {string} formaPlural - Forma para cualquier otro n (incluido 0)
+ * @returns {string}
+ */
+export function plural(n, singular, formaPlural) {
+  return `${n} ${n === 1 ? singular : formaPlural}`;
+}
+
+/**
+ * Días de atraso de una cuota: "1 día", "80 días".
+ *
+ * `diasAtraso` es un entero >= 1 por contrato (una cuota que vence el día de corte todavía no está
+ * vencida), así que cualquier otra cosa es un dato que no se puede rotular: se dice con el mismo
+ * guión con el que la tabla marca una celda sin valor, en lugar de mostrar "0 días" o "1.5 días".
+ *
+ * @param {number} dias
+ * @returns {string} El rótulo, o "—"
+ */
+export function etiquetaDiasAtraso(dias) {
+  if (!Number.isInteger(dias) || dias < 1) return "—";
+  return plural(dias, "día", "días");
+}
+
+/**
+ * Posición de la cuota dentro de su plan: "14 de 36".
+ *
+ * Los dos números los informa el backend (`numeroCuota` y `cantidadCuotas` de la fila). Si falta
+ * alguno no hay nada que ubicar, así que no se muestra media frase.
+ *
+ * @param {number} numeroCuota
+ * @param {number} cantidadCuotas
+ * @returns {string} "14 de 36", o "—"
+ */
+export function etiquetaCuotaDePlan(numeroCuota, cantidadCuotas) {
+  if (sinDato(numeroCuota) || sinDato(cantidadCuotas)) return "—";
+  return `${numeroCuota} de ${cantidadCuotas}`;
+}
+
+/** Tramo de atraso → sufijo de la clase CSS que lo pinta. */
+export const CLASE_TRAMO = {
+  "1-30": "corto",
+  "31-60": "medio",
+  "+60": "largo",
+};
+
+/**
+ * Sufijo de clase de un tramo, para componer `reporte-insignia--tramo-<sufijo>`: la insignia de
+ * atraso de la tabla se pinta con `reporte-insignia--tramo-corto`, `-medio`, `-largo` o
+ * `-desconocido`. El mismo sufijo compone `reporte-tramo--<sufijo>`, que es lo que colorea los
+ * segmentos y los puntos de la barra de antigüedad.
+ *
+ * Un tramo desconocido da "desconocido", que en el CSS queda neutro (gris), y no uno de los
+ * tres: si el backend agregara un tramo, se vería sin color en lugar de pintado como un tramo
+ * que no es.
+ *
+ * @param {string} tramo
+ * @returns {"corto"|"medio"|"largo"|"desconocido"}
+ */
+export function sufijoTramo(tramo) {
+  return Object.hasOwn(CLASE_TRAMO, tramo) ? CLASE_TRAMO[tramo] : "desconocido";
+}

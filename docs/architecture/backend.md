@@ -108,6 +108,10 @@ Identificación del cliente (sin cambiar el `trust proxy` global de Express):
 
 Limitaciones: el store es en memoria (`MemoryStore`, por proceso) y se pierde al reiniciar. Alcanza con la única instancia actual; con varias instancias cada una contaría por separado (no hay protección distribuida) y habría que pasar a un store compartido. El contrato de client IP es específico de Render: al migrar a Cloud Run hay que revalidar la IP del cliente, el store compartido y `max-instances` antes de reutilizarlo (Cloud checkpoint, ver `docs/architecture/freeze-pre-cloud.md`).
 
+### Matriz de permisos
+
+La matriz completa por módulo (endpoint, roles que acepta el backend, qué muestra la pantalla a cada rol y si coinciden) está en [matriz-rbac.md](matriz-rbac.md), con las diferencias entre backend y pantalla que quedan por decidir. Para Excel: `docs/qa/resultados/matriz-rbac.csv`.
+
 ### Matriz RBAC: decisiones cerradas
 
 | Superficie | Regla |
