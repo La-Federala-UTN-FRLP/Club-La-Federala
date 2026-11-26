@@ -2444,8 +2444,8 @@ Completar el contrato de las 6 operaciones siguiendo el estilo del YAML, con los
 
 #### Validación humana
 
-- PENDIENTE: decidir el status HTTP de `AI_UNAVAILABLE`. La especificación V4 dice 502 y el pedido de la tarea 38.7 decía 503. Por ahora el YAML no fija status; se documenta junto con `POST /reportes/resumen`.
-- PENDIENTE: revisión del diff del YAML en la PR.
+- Status HTTP de `AI_UNAVAILABLE`: la especificación V4 (vigente) dice 502 y el pedido de la tarea 38.7 decía 503. Se adopta 502, que es el contrato vigente. El YAML todavía no lo fija: se documenta junto con `POST /reportes/resumen` (40.3). El frontend decide por `code`, no por el status. Decisión tomada en la revisión cruzada, a confirmar por la autora.
+- Revisión del diff del YAML: hecha en la PR por Agus (revisión cruzada). Se verificaron a mano los ejemplos contra las reglas de cálculo (totales, tramos, orden, ARS fuera de las tarjetas USD) y los campos nulos del schema.
 
 #### Decisión adoptada
 
@@ -2465,6 +2465,94 @@ El contrato documenta lo que hace el código hoy: 6 operaciones, sin el resumen 
 - Especificación y contratos de Reportes + IA (CCLF-37), V4
 - `AI-DECISIONS.md`
 
+
+### AI-035 — Estados de pantalla y exportación a Excel en los tres reportes (frontend)
+
+**Fecha:** 2026-11-26  
+**Área:** Frontend / Reportes (tarea 39.5)  
+**Herramientas:** Claude Code (implementación) y Claude (planificación, revisión y verificación en el navegador)  
+
+#### Problema
+
+Los tres reportes (Inventario, Ventas por período y Cuotas vencidas) mostraban datos, pero no resolvían los estados que pide la especificación (CCLF-37, V4) ni permitían exportar:
+
+- Sin mensaje de error ni forma de reintentar.
+- Sin estado vacío con los filtros visibles.
+- Sin marca de resultado desactualizado cuando se cambia un filtro sin volver a generar.
+- Sin exportación a Excel: el submenú "Descargar Reporte" estaba deshabilitado.
+- Cada vista repetía su propio código de carga y de filtros.
+
+La exportación tenía que cumplir REP-A5: el archivo debe tener las mismas filas y totales que la pantalla, con los mismos filtros, corte y permisos.
+
+#### Prompt / intención
+
+Trabajo en etapas chicas: lectura del código sin escribir, hooks y componentes compartidos, migración de Ventas y Cuotas vencidas con la exportación, ajustes de interacción, migración del Inventario y esta entrada. Después de cada etapa la IA se detenía y reportaba (`git diff --stat`, fragmentos del código, lint y build), y una persona aprobaba antes de la siguiente. La IA tenía prohibido hacer `git add`, `git commit` y `git push`.
+
+Reglas dadas: respetar el contrato de CCLF-37; la pantalla nunca recalcula cifras que calculó el backend; exportar siempre los filtros aplicados y no los que se están editando; usar solo tokens de color existentes; dejar el lint con el mismo número de problemas.
+
+#### Propuesta generada por IA
+
+- `useReporte`: un hook con el filtro en edición, el filtro aplicado, los datos, la carga, el error, la marca de desactualizado y las acciones `generar` y `reintentar`. Lo usan los tres reportes.
+- `useCatalogoFracciones` para el selector de fracciones, que estaba repetido.
+- `IndicadorCarga`, `ErrorReporte` (mensaje y botón "Reintentar") y `ResultadoReporte` (atenúa el resultado anterior mientras se vuelve a generar).
+- `exportarReporte` en `lib/api/reportes.js`: descarga el `.xlsx`, muestra el mensaje del backend si responde un error en JSON, valida el tipo de contenido y toma el nombre del archivo de `Content-Disposition`.
+- `useExportarReporte`, `BotonExportar` y `descargarBlob`: botón con cuatro estados, que exporta siempre los filtros aplicados.
+- Se quitó el ítem deshabilitado "Descargar Reporte" del menú lateral.
+- El Inventario pasó al mismo esquema: carga al entrar y comparte filtros, estados y exportación.
+
+#### Validación humana
+
+- El Inventario no se postergó: era el único reporte que quedaba sin estados ni exportación y habría dejado tres pantallas con comportamientos distintos.
+- "Exportar a Excel" queda deshabilitado mientras la pantalla está cargando, para no exportar con datos viejos.
+- Se verificó en el código de react-bootstrap que el toast ya declara `role="alert"`; por eso no se agregó otro anuncio accesible para el error de exportación.
+- Se midió en el navegador que el hover de Bootstrap pisaba el color del botón "Generar reporte" (rgb(11,94,215)). Se corrigió con una regla explícita y se volvió a medir.
+- Doble clic: la protección solo cubría la petición en vuelo, y como el backend responde rápido un doble clic descargaba dos archivos. Se agregó una traba mínima de 1 segundo. Verificado el 26/11 con dos clics separados por 150 ms: una petición y una descarga. Un segundo clic pasado ese segundo es una exportación nueva, y se decidió dejarlo así.
+- Con `VITE_REPORTES_MOCK=true` el botón de exportar queda deshabilitado ("No disponible con datos simulados"): no se simula una exportación. Sin la variable, el cliente usa la API real, así que el mock no puede llegar a staging por olvido.
+- Se quitó "Descargar Reporte" del menú en lugar de reemplazarlo: la exportación vive dentro de cada reporte.
+- Al quitar ese ítem, el menú flotante de Reportes quedó corrido hacia arriba: `SidebarItem.jsx` centraba el menú suponiendo una altura fija de 200 px, y con una sola opción mide 104 px. Se pasó a medir la altura real del menú. Es un defecto previo que afectaba a todos los módulos con pocas opciones.
+- La migración de Ventas y Cuotas dejó el botón "Generar reporte" del Inventario sin alineación a la derecha. Se detectó al migrar el Inventario y quedó corregido con la migración.
+- El Inventario conserva su `TarjetaKpi` local y las clases `reportes-kpi*`, que duplican a `reporte-kpi*`. No se migraron para no ampliar el cambio; queda como deuda.
+
+#### Decisión adoptada
+
+Los tres reportes comparten el mismo hook y los mismos estados. La exportación usa siempre los filtros aplicados, el mismo endpoint y los mismos permisos que la vista. La pantalla muestra lo que devuelve el backend, sin recalcular. El único color nuevo es el del ícono de Excel (`--reporte-excel-icono`).
+
+#### Resultado
+
+Verificado en el navegador con el backend real:
+- El Inventario carga al entrar (47 lotes, 17 ofrecibles). Con Fracción 3: 39 lotes y 16 ofrecibles.
+- La marca de desactualizado aparece al cambiar un filtro y desaparece al generar (Ventas e Inventario).
+- Contrastes medidos: aviso 8,43, "Exportar a Excel" 14,84, "Generar reporte" 7,89.
+- Doble clic: una petición y una descarga.
+- Menú flotante del sidebar centrado con su ícono en los 6 módulos (de 1 a 4 opciones, de 104 a 234 px de alto): diferencia de 0 px.
+
+REP-A5 (archivo contra pantalla):
+- Ventas por período (27/10 al 25/11): el archivo tiene las mismas filas y totales que la pantalla. Con el filtro de fracción, el archivo registra `Filtro: Fracción 3` en la hoja Parámetros.
+- Cuotas vencidas en USD: 6 filas, saldo 213.833,34, 2 ventas.
+- Cuotas vencidas en ARS: 11 cuotas en 3 ventas, saldo 130.842,66, tramos 272,00 / 272,00 / 130.298,66; igual a la pantalla.
+- Inventario sin filtro: 47 filas, 17 ofrecibles, y los totales por estado, fracción y subestado suman 47.
+- Los nombres de archivo salen con el formato del contrato en los tres reportes.
+
+Lint con el mismo número de problemas que antes (163: 113 errores y 50 advertencias) y build correcto.
+
+No verificado:
+- La exportación del Inventario con Fracción 3 (no se generó el archivo).
+- El error con "Reintentar" con el backend caído.
+- La atenuación del resultado anterior al volver a generar (el backend responde demasiado rápido para verla).
+- El comportamiento a 768 px.
+- Lotes sin número o sin precio con datos reales: la base actual no tiene ninguno, solo hay ejemplos del contrato.
+- El menú flotante en una ventana baja, donde entra en juego el límite contra el borde del viewport.
+
+Observado, fuera del alcance: la venta 37593 figura como "Cancelada" sin fecha de cancelación, por eso el reporte la cuenta como iniciada y no como cancelada (origen probable: `cancelActivesOnNoDisponible`). También hay un lote "Disponible" con precio 0 en la base.
+
+#### Evidencia / archivos relacionados
+
+- `frontend/src/components/Reportes/` (`useReporte.js`, `useCatalogoFracciones.js`, `EstadosReporte.jsx`, `useExportarReporte.js`, `BotonExportar.jsx`, `FiltrosReporte.jsx`, `VistaInventario.jsx`, `VistaVentas.jsx`, `VistaCuotasVencidas.jsx`)
+- `frontend/src/lib/api/reportes.js` y `frontend/src/lib/descargas.js`
+- `frontend/src/pages/Reportes.css`
+- `frontend/src/components/sidebar/Sidebar.jsx` y `frontend/src/components/sidebar/SidebarItem.jsx`
+- Especificación y contratos de Reportes + IA (CCLF-37), V4
+- `AI-DECISIONS.md`
 
 ## Plantilla para entradas nuevas
 
