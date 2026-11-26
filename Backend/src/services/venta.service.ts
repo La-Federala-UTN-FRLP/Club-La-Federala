@@ -256,12 +256,13 @@ export async function createVenta(data: PostVentaRequest): Promise<Venta> {
             }
         }
 
-        // Warning de trazabilidad (no bloquea la venta)
+        // VEN-06 (decisión del equipo): el cliente de la reserva vigente debe estar entre los compradores
         if (!compradorIds.includes(reserva.clienteId)) {
-            console.warn(
-                `[Venta-Reserva] Cliente de reserva no coincide con compradores.`,
-                { reservaId: reserva.id, clienteId: reserva.clienteId, compradorIds }
+            const error = new Error(
+                `La venta debe incluir entre sus compradores al cliente de la reserva vigente del lote (clienteId: ${reserva.clienteId})`
             );
+            (error as any).statusCode = 400;
+            throw error;
         }
 
         const montoEsperado = montoVentaEsperadoDesdeReserva(reserva);
@@ -284,8 +285,21 @@ export async function createVenta(data: PostVentaRequest): Promise<Venta> {
     // D1: la venta no puede quedar a nombre de una inmobiliaria ELIMINADO
     await assertInmobiliariaAsignable(data.inmobiliariaId);
 
-    // Transacción atómica: crear venta, marcar lote VENDIDO, finalizar prioridad, consumir reserva
+    // Transacción atómica: marcar lote VENDIDO (condicionado), crear venta, finalizar prioridad, consumir reserva
     const newVenta = await prisma.$transaction(async (tx) => {
+        // Bug QA 23: el lote pasa a VENDIDO solo si sigue en el estado validado. De dos o más ventas
+        // concurrentes sobre el mismo lote, las demás esperan el lock de la fila, afectan 0 filas y
+        // se revierten con 409 sin crear la venta ni tocar prioridad o reserva.
+        const { count } = await tx.lote.updateMany({
+            where: { id: data.loteId, estado: loteExists.estado },
+            data: { estado: EstadoLote.VENDIDO },
+        });
+        if (count !== 1) {
+            const error = new Error('El lote ya no está disponible para vender: otra operación lo modificó. Volvé a intentarlo.');
+            (error as any).statusCode = 409;
+            throw error;
+        }
+
         const venta = await tx.venta.create({
             data: {
                 loteId: data.loteId,
@@ -307,11 +321,6 @@ export async function createVenta(data: PostVentaRequest): Promise<Venta> {
                 },
             },
             include: VENTA_INCLUDE,
-        });
-
-        await tx.lote.update({
-            where: { id: data.loteId },
-            data: { estado: EstadoLote.VENDIDO },
         });
 
         // Finaliza la prioridad ACTIVA del lote, si la hay. Escritura condicionada: si otra
