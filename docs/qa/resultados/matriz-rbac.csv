@@ -2,7 +2,7 @@
 Lotes;Listar lotes;GET /lotes;Sí;Sí;Sí (sin NO_DISPONIBLE, campos filtrados);Sí (campos filtrados);Todos ven tablero y mapa;Sí;lote.routes.ts:12-15, lote.service.ts:217-219, :344-348
 Lotes;Ver lote;GET /lotes/:id;Sí;Sí;Sí (NO_DISPONIBLE responde 404);Sí (campos filtrados);"Todos ven ""Ver""";Sí;lote.routes.ts:20-23, lote.service.ts:394, TablaLotes.jsx:420
 Lotes;Crear lote;POST /lotes;Sí;Sí;No;No;"""+ Agregar Lote"" para ADMIN y GESTOR (LOT_CREATE)";Sí (D4);lote.routes.ts:28-31, rbac.ui.js:61, TablaLotes.jsx:421, :553
-Lotes;Editar lote;PUT /lotes/:id;Sí;Sí;No;Sí (solo subestado, superficie y archivos);ADMIN y GESTOR editan todo. TECNICO solo subestado y superficie. INMO no ve Editar;Sí;lote.routes.ts:36-39, lote.service.ts:535-551, LoteEditarCard.jsx:171, LoteSidePanel.jsx:248-253
+Lotes;Editar lote;PUT /lotes/:id;Sí;Sí;No;Sí (solo subestado, superficie y archivos. Otro campo del schema → 403);ADMIN y GESTOR editan todo. TECNICO solo subestado y superficie. INMO no ve Editar;Sí;lote.routes.ts:36-39, lote.service.ts:535-560, LoteEditarCard.jsx:171, LoteSidePanel.jsx:248-253
 Lotes;Eliminar lote;DELETE /lotes/:id;Sí;No;No;No;"""Eliminar Lote"" solo ADMIN";Sí (D3);lote.routes.ts:45-48, rbac.js:92, rbac.ui.js:64, TablaLotes.jsx:719
 Lotes;Aplicar promoción;POST /lotes/:id/promociones/aplicar;Sí;Sí;No;No;ADMIN y GESTOR (LOT_PROMO);Sí;lote.routes.ts:53-56, rbac.ui.js:65, TablaLotes.jsx:724
 Lotes;Quitar promoción;POST /lotes/:id/promociones/quitar;Sí;Sí;No;No;ADMIN y GESTOR (LOT_PROMO);Sí;lote.routes.ts:62-65, rbac.ui.js:65, TablaLotes.jsx:724
@@ -37,15 +37,15 @@ Ventas y pagos;Registrar recargo;POST /ventas/:ventaId/pagos/recargo;Sí;Sí;No;
 Ventas y pagos;Registrar pago;POST /ventas/:ventaId/pagos;Sí;Sí;No;No;ADMIN y GESTOR (SALE_EDIT);Sí;ventas.routes.ts:100-103, VentaPagosPage.jsx:446-629
 Ventas y pagos;Reemplazar plan de pagos;POST /ventas/:ventaId/pagos/plan/reemplazar;Sí;Sí;No;No;ADMIN y GESTOR (SALE_EDIT);Sí;ventas.routes.ts:109-112, VentaPagosPage.jsx:446-629
 Ventas y pagos;Crear plan de pagos;POST /ventas/:ventaId/pagos/plan;Sí;Sí;No;No;ADMIN y GESTOR (SALE_EDIT);Sí;ventas.routes.ts:118-121, VentaPagosPage.jsx:446-629
-Personas;Listar personas;GET /personas;Sí;Sí;Sí (solo Mis clientes, sin eliminadas);Sí (sin eliminadas);"Todos. INMO solo ""Ver Mis Clientes""";Sí;persona.routes.ts:13-16, persona.service.ts:404-415, :461-468, Sidebar.jsx:77-86
+Personas;Listar personas;GET /personas;Sí;Sí;Sí (solo Mis clientes, sin eliminadas);Sí (sin eliminadas);"Todos. INMO solo ""Ver Mis Clientes""";Sí;persona.routes.ts:13-16, persona.service.ts:403-414, :460-467, Sidebar.jsx:77-86
 Personas;Buscar por CUIL;GET /personas/cuil/:cuil;Sí;Sí;No;Sí;Ninguna pantalla lo usa (existe en la capa API);Sin pantalla;persona.routes.ts:23-26, lib/api/personas.js:149
 Personas;Ver persona;GET /personas/:id;Sí;Sí;No;Sí;ADMIN, GESTOR y TECNICO abren el detalle desde la API. Para INMO el frontend no pide el detalle, usa los datos de la lista y no muestra Propietario ni Inquilino;Sí (D6);persona.routes.ts:32-35, PersonaVerCard.jsx:56-63, :398-400
-Personas;Crear persona;POST /personas;Sí;Sí;Sí (queda asignada a su inmobiliaria);No;ADMIN, GESTOR e INMO;Sí;persona.routes.ts:43-46, persona.service.ts:621-628, Personas.jsx:323
-Personas;Editar persona;PUT /personas/:id;Sí;Sí;No;No;ADMIN y GESTOR (PEOPLE_EDIT);Sí;persona.routes.ts:52-55, Personas.jsx:127, PersonaVerCard.jsx:434
+Personas;Crear persona;POST /personas;Sí;Sí;Sí (queda asignada a su inmobiliaria);No;ADMIN, GESTOR e INMO;Sí;persona.routes.ts:43-46, persona.service.ts:620-627, Personas.jsx:323
+Personas;Editar persona;PUT /personas/:id;Sí;Sí;No;No;ADMIN y GESTOR (PEOPLE_EDIT). El backend responde 400 si llega jefeDeFamiliaId (el frontend no lo envía);Sí;persona.routes.ts:52-55, persona.validation.ts:112, Personas.jsx:127, PersonaVerCard.jsx:439
 Personas;Desactivar persona;PATCH /personas/:id/desactivar;Sí;Sí;No;No;ADMIN y GESTOR (PEOPLE_DELETE);Sí;persona.routes.ts:62-65, Personas.jsx:128
 Personas;Reactivar persona;PATCH /personas/:id/reactivar;Sí;Sí;No;No;ADMIN y GESTOR (PEOPLE_DELETE);Sí;persona.routes.ts:71-74, Personas.jsx:128
 Personas;Borrado definitivo;DELETE /personas/:id;Sí;No;No;No;Solo ADMIN;Sí;persona.routes.ts:80-83, Personas.jsx:322
-Personas;Ver grupo familiar;GET /personas/:id/grupo-familiar;Sí;Sí;No;Sí;Solo ADMIN y GESTOR;No (D7);persona.routes.ts:89-92, Personas.jsx:324
+Personas;Ver grupo familiar;GET /personas/:id/grupo-familiar;Sí;Sí;No;No;Solo ADMIN y GESTOR;Sí (D7);persona.routes.ts:89-92, Personas.jsx:324
 Personas;Agregar miembro;POST /personas/:id/grupo-familiar/miembros;Sí;Sí;No;No;Solo ADMIN y GESTOR;Sí;persona.routes.ts:98-101, Personas.jsx:324
 Personas;Quitar miembro;DELETE /personas/:id/grupo-familiar/miembros/:miembroId;Sí;Sí;No;No;Solo ADMIN y GESTOR;Sí;persona.routes.ts:108-111, Personas.jsx:324
 Inmobiliarias;Listar inmobiliarias;GET /inmobiliarias;Sí;Sí;No;No;ADMIN y GESTOR;Sí;inmobiliaria.routes.ts:10-13, App.jsx:47
