@@ -534,6 +534,16 @@ export async function updatedLote(id: number, data: any, role?: string): Promise
   let payload = data;
   if (role === 'TECNICO') {
     const allowedFields = ['subestado', 'superficie', 'archivos'];
+    // Bugs QA 7 y 8: un campo fuera de la whitelist se rechaza con 403 en lugar de descartarse en
+    // silencio. Las claves que el schema no declara ya las descartó Zod (regla general de body).
+    const noPermitidos = Object.keys(data || {}).filter((field) => !allowedFields.includes(field));
+    if (noPermitidos.length > 0) {
+      const e: any = new Error(
+        `Como TECNICO, solo puedes modificar los campos: subestado, superficie y archivos (planos). Campos no permitidos: ${noPermitidos.join(', ')}`,
+      );
+      e.statusCode = 403;
+      throw e;
+    }
     const filtered: Record<string, any> = {};
     Object.keys(data || {}).forEach((field) => {
       if (allowedFields.includes(field)) {
