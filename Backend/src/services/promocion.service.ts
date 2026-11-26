@@ -1,6 +1,6 @@
 // src/services/promocion.service.ts
 import prisma from '../config/prisma';
-import { EstadoLote } from '../generated/prisma';
+import { EstadoLote, Prisma } from '../generated/prisma';
 import { updateLoteState } from './lote.service';
 import { ESTADO_LOTE_OP } from '../domain/loteState/loteState.types';
 
@@ -54,10 +54,34 @@ export async function aplicarPromocion(
     throw err;
   }
 
+  // El precio promocional debe ser estrictamente menor al actual (bug QA 20).
+  // Se compara en Decimal, el mismo tipo de la columna, para no perder precisión.
+  if (new Prisma.Decimal(body.precioPromocional).gte(lote.precio)) {
+    const err: any = new Error('El precio promocional debe ser menor al precio actual del lote');
+    err.statusCode = 400;
+    throw err;
+  }
+
   const precioAnterior = lote.precio;
 
   // Ejecutar en transacción
   const resultado = await prisma.$transaction(async (tx) => {
+    // Pasar el lote a EN_PROMOCION solo si sigue DISPONIBLE: de dos promociones concurrentes sobre
+    // el mismo lote, la segunda espera el lock de la fila, afecta 0 filas y se revierte con 409 sin
+    // crear la promoción. Mismo patrón que createPrioridad y createReserva.
+    const { count } = await tx.lote.updateMany({
+      where: { id: loteId, estado: EstadoLote.DISPONIBLE },
+      data: {
+        estado: EstadoLote.EN_PROMOCION,
+        precio: body.precioPromocional,
+      },
+    });
+    if (count !== 1) {
+      const err: any = new Error('El lote ya no está disponible para aplicar la promoción: otra operación lo modificó. Volvé a intentarlo.');
+      err.statusCode = 409;
+      throw err;
+    }
+
     // Crear promoción
     const promocion = await tx.promocion.create({
       data: {
@@ -69,15 +93,6 @@ export async function aplicarPromocion(
         fin: body.fin ? (typeof body.fin === 'string' ? new Date(body.fin) : body.fin) : null,
         activa: true,
         explicacion: body.explicacion || null,
-      },
-    });
-
-    // Actualizar lote: estado a EN_PROMOCION y precio a precioPromocional
-    await tx.lote.update({
-      where: { id: loteId },
-      data: {
-        estado: EstadoLote.EN_PROMOCION,
-        precio: body.precioPromocional,
       },
     });
 
