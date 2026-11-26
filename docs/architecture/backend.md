@@ -110,7 +110,7 @@ Limitaciones: el store es en memoria (`MemoryStore`, por proceso) y se pierde al
 
 ### Matriz de permisos
 
-La matriz completa por módulo (endpoint, roles que acepta el backend, qué muestra la pantalla a cada rol y si coinciden) está en [matriz-rbac.md](matriz-rbac.md), con las diferencias entre backend y pantalla que quedan por decidir. Para Excel: `docs/qa/resultados/matriz-rbac.csv`.
+La matriz completa por módulo (endpoint, roles que acepta el backend, qué muestra la pantalla a cada rol y si coinciden) está en [matriz-rbac.md](matriz-rbac.md), con las diferencias encontradas y la decisión de cada una. Para Excel: `docs/qa/resultados/matriz-rbac.csv`.
 
 ### Matriz RBAC: decisiones cerradas
 
@@ -119,7 +119,7 @@ La matriz completa por módulo (endpoint, roles que acepta el backend, qué mues
 | `GET/POST/PUT /usuarios` | `ADMINISTRADOR` y `GESTOR`. Un `GESTOR` administra usuarios comunes, pero no puede crear un `ADMINISTRADOR`, promover a nadie (ni a sí mismo) a `ADMINISTRADOR`, ni modificar un usuario que ya es `ADMINISTRADOR` → `403` sin escrituras. Editar un usuario inexistente → `404`. |
 | `DELETE /usuarios/:id` | Solo `ADMINISTRADOR`. |
 | `PATCH /ventas/:id/eliminar` y `/reactivar` | Solo `ADMINISTRADOR` y `GESTOR`. `INMOBILIARIA` (incluso sobre ventas propias) y `TECNICO` → `403`. |
-| `PATCH /reservas/:id/eliminar` y `/reactivar` | `INMOBILIARIA` opera sobre las reservas de su inmobiliaria; las de otra → `403` sin escrituras. |
+| `PATCH /reservas/:id/eliminar` y `/reactivar` | El backend acepta a `INMOBILIARIA` sobre las reservas de su inmobiliaria; las de otra → `403` sin escrituras. Por decisión del equipo, el frontend no le ofrece estas acciones (ver [matriz-rbac.md](matriz-rbac.md), D2). |
 | `GET /lotes?deudor=…` | `TECNICO` no puede usar el filtro `deudor` (`400`, sin consultar la DB): el campo `deuda` se le oculta y el filtro permitiría inferirlo. La regla vive en `lote.service`, donde se arma el `where`. |
 
 ### Tenant de Prioridades

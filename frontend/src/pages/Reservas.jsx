@@ -638,7 +638,7 @@ export default function Reservas() {
         reserva={reservaSel} 
         reservas={allReservas}
         onClose={() => setOpenVer(false)}
-        onEdit={(reserva) => {
+        onEdit={canReservaEdit ? (reserva) => {
           setOpenVer(false);
           // Abrir el modal de editar con la misma reserva
           setReservaSel(reserva);
@@ -656,7 +656,7 @@ export default function Reservas() {
               console.error("Error obteniendo reserva por id para editar:", e);
             }
           })();
-        }}
+        } : null}
       />
 
       <ReservaEditarCard

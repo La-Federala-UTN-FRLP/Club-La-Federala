@@ -1,6 +1,6 @@
 # Matriz de permisos por rol (RBAC)
 
-Compara lo que permite el backend con lo que muestra el frontend, para cada rol. Sirve para definir el contrato en cada diferencia: los casos abiertos están en [Diferencias a decidir](#diferencias-a-decidir).
+Compara lo que permite el backend con lo que muestra el frontend, para cada rol. Sirve para definir el contrato en cada diferencia: las diferencias encontradas y la decisión de cada una están en [Diferencias y decisiones](#diferencias-y-decisiones).
 
 - **Fecha del relevamiento:** 2026-11-25, sobre `main`.
 - **Roles:** `ADMINISTRADOR` (ADMIN), `GESTOR`, `INMOBILIARIA` (INMO) y `TECNICO`.
@@ -37,9 +37,9 @@ El backend filtra estos campos en la respuesta. La pantalla los oculta con la mi
 
 | Dato | ADMIN | GESTOR | INMOBILIARIA | TECNICO | Backend | Pantalla |
 |---|---|---|---|---|---|---|
-| Lotes `NO_DISPONIBLE` | Sí | Sí | No (lista sin ellos, detalle 404) | Sí | `lote.service.ts:217-219`, `:394` | Filtro de estado sin `NO_DISPONIBLE` (`rbac.ui.js:96-100`) |
-| Deuda del lote | Sí | Sí | No | No | `lote.service.ts:51-62`, `:344-348`, `:415-420` | `canSeeDeuda` (`rbac.ui.js:111-113`, `LoteVerCard.jsx:308`, `TablaLotes.jsx:292`) |
-| Filtro `deudor` | Sí | Sí | No (400) | No (400) | `lote.service.ts:228-232` | `canUseDeudorFilter` (`rbac.ui.js:103-107`, `FilterBarLotes.jsx:29`) |
+| Lotes `NO_DISPONIBLE` | Sí | Sí | No (lista sin ellos, detalle 404) | Sí | `lote.service.ts:217-219`, `:394` | Filtro de estado sin `NO_DISPONIBLE` (`rbac.ui.js:97-101`) |
+| Deuda del lote | Sí | Sí | No | No | `lote.service.ts:51-62`, `:344-348`, `:415-420` | `canSeeDeuda` (`rbac.ui.js:112-114`, `LoteVerCard.jsx:308`, `TablaLotes.jsx:292`) |
+| Filtro `deudor` | Sí | Sí | No (400) | No (400) | `lote.service.ts:228-232` | `canUseDeudorFilter` (`rbac.ui.js:104-108`, `FilterBarLotes.jsx:29`) |
 | Ventas y reservas embebidas en el lote | Sí | Sí | No | No | `lote.service.ts:51-62` | No se muestran a esos roles |
 | Documento del propietario e inquilino | Sí | Sí | No (se mantienen nombre y razón social) | Sí | `lote.service.ts:65-82` | Muestra lo que llega |
 | Titular de prioridades del lote | Sí | Sí | Solo las propias (las ajenas llegan como `{ id }`) | Sí | `lote.service.ts:85-89` | Muestra lo que llega |
@@ -53,11 +53,11 @@ El backend filtra estos campos en la respuesta. La pantalla los oculta con la mi
 |---|---|---|---|---|---|---|---|---|
 | Listar lotes | `GET /lotes` | Sí | Sí | Sí (sin `NO_DISPONIBLE`, campos filtrados) | Sí (campos filtrados) | Todos ven tablero y mapa | Sí | `lote.routes.ts:12-15`, `lote.service.ts:217-219`, `:344-348` |
 | Ver lote | `GET /lotes/:id` | Sí | Sí | Sí (`NO_DISPONIBLE` responde 404) | Sí (campos filtrados) | Todos ven "Ver" | Sí | `lote.routes.ts:20-23`, `lote.service.ts:394`, `TablaLotes.jsx:420` |
-| Crear lote | `POST /lotes` | Sí | Sí | No | No | "+ Agregar Lote" solo ADMIN | No (D4) | `lote.routes.ts:28-31`, `TablaLotes.jsx:266`, `:552` |
+| Crear lote | `POST /lotes` | Sí | Sí | No | No | "+ Agregar Lote" para ADMIN y GESTOR (`LOT_CREATE`) | Sí (D4) | `lote.routes.ts:28-31`, `rbac.ui.js:61`, `TablaLotes.jsx:421`, `:553` |
 | Editar lote | `PUT /lotes/:id` | Sí | Sí | No | Sí (solo subestado, superficie y archivos) | ADMIN y GESTOR editan todo. TECNICO solo subestado y superficie. INMO no ve Editar | Sí | `lote.routes.ts:36-39`, `lote.service.ts:535-551`, `LoteEditarCard.jsx:171`, `LoteSidePanel.jsx:248-253` |
-| Eliminar lote | `DELETE /lotes/:id` | Sí | No | No | No | "Eliminar Lote" para ADMIN y GESTOR | No (D3) | `lote.routes.ts:45-48`, `rbac.js:92`, `TablaLotes.jsx:718` |
-| Aplicar promoción | `POST /lotes/:id/promociones/aplicar` | Sí | Sí | No | No | ADMIN y GESTOR (`LOT_PROMO`) | Sí | `lote.routes.ts:53-56`, `rbac.ui.js:64`, `TablaLotes.jsx:723` |
-| Quitar promoción | `POST /lotes/:id/promociones/quitar` | Sí | Sí | No | No | ADMIN y GESTOR (`LOT_PROMO`) | Sí | `lote.routes.ts:62-65`, `rbac.ui.js:64`, `TablaLotes.jsx:723` |
+| Eliminar lote | `DELETE /lotes/:id` | Sí | No | No | No | "Eliminar Lote" solo ADMIN | Sí (D3) | `lote.routes.ts:45-48`, `rbac.js:92`, `rbac.ui.js:64`, `TablaLotes.jsx:719` |
+| Aplicar promoción | `POST /lotes/:id/promociones/aplicar` | Sí | Sí | No | No | ADMIN y GESTOR (`LOT_PROMO`) | Sí | `lote.routes.ts:53-56`, `rbac.ui.js:65`, `TablaLotes.jsx:724` |
+| Quitar promoción | `POST /lotes/:id/promociones/quitar` | Sí | Sí | No | No | ADMIN y GESTOR (`LOT_PROMO`) | Sí | `lote.routes.ts:62-65`, `rbac.ui.js:65`, `TablaLotes.jsx:724` |
 | Ver promoción activa | `GET /lotes/:id/promociones/activa` | Sí | Sí | Sí (`NO_DISPONIBLE` responde sin promoción) | Sí | Todos ven el precio con promoción | Sí | `lote.routes.ts:70-73`, `promocion.service.ts:155` |
 
 ## Reservas
@@ -68,7 +68,7 @@ El backend filtra estos campos en la respuesta. La pantalla los oculta con la mi
 | Ver reserva | `GET /reservas/:id` | Sí | Sí | Sí, solo propias | No | "Ver Reserva" para ADMIN, GESTOR e INMO | Sí | `reserva.routes.ts:23-26`, `reserva.service.ts:177-183`, `TablaReservas.jsx:316` |
 | Reservas de una inmobiliaria | `GET /reservas/inmob/:id` | Sí | Sí | Sí, solo su id | No | Ninguna pantalla lo usa | Sin pantalla | `reserva.routes.ts:31-34`, `reserva.service.ts:192-197` |
 | Crear reserva | `POST /reservas` | Sí | Sí | Sí (con su inmobiliaria, no sobre `NO_DISPONIBLE` ni prioridad del Club) | No | ADMIN, GESTOR e INMO (tabla y "Reservar" del mapa) | Sí | `reserva.routes.ts:39-42`, `reserva.service.ts:226`, `:271-293`, `:321-327`, `Reservas.jsx:629`, `LoteSidePanel.jsx:239` |
-| Editar reserva | `PUT /reservas/:id` | Sí | Sí | No | No | "Editar Reserva" para ADMIN, GESTOR e INMO | No (D1) | `reserva.routes.ts:47-50`, `rbac.js:115`, `TablaReservas.jsx:321-325`, `ReservaEditarCard.jsx:216-219` |
+| Editar reserva | `PUT /reservas/:id` | Sí | Sí | No | No | "Editar Reserva" (tabla y detalle) solo ADMIN y GESTOR | Sí (D1) | `reserva.routes.ts:47-50`, `rbac.js:115`, `TablaReservas.jsx:321-325`, `ReservaVerCard.jsx:163`, `Reservas.jsx:641` |
 | Eliminar reserva | `PATCH /reservas/:id/eliminar` | Sí | Sí | Sí, solo propias | No | "Eliminar Reserva" solo ADMIN y GESTOR | No (D2) | `reserva.routes.ts:56-59`, `reserva.service.ts:714-716`, `Reservas.jsx:137`, `:626` |
 | Reactivar reserva | `PATCH /reservas/:id/reactivar` | Sí | Sí | Sí, solo propias | No | "Reactivar Reserva" solo ADMIN y GESTOR | No (D2) | `reserva.routes.ts:65-68`, `reserva.service.ts:808-810`, `Reservas.jsx:627` |
 | Ver ofertas | `GET /reservas/:id/ofertas` | Sí | Sí | Sí, solo propias | No | "Ver Ofertas" para ADMIN, GESTOR e INMO | Sí | `reserva.routes.ts:75-78`, `reserva.service.ts:868-870`, `TablaReservas.jsx:326-330` |
@@ -85,8 +85,8 @@ El backend filtra estos campos en la respuesta. La pantalla los oculta con la mi
 | Cancelar prioridad | `PATCH /prioridades/:id/cancelar` | Sí | Sí | Sí, solo propias | No | Desde Editar Prioridad (ADMIN, GESTOR e INMO) | Sí | `prioridad.routes.ts:64-67`, `prioridad.service.ts:613-619`, `PrioridadEditarCard.jsx:332` |
 | Finalizar prioridad | `PATCH /prioridades/:id/finalizar` | Sí | Sí | Sí, solo propias | No | Desde Editar Prioridad (ADMIN, GESTOR e INMO) | Sí | `prioridad.routes.ts:75-78`, `prioridad.service.ts:656-662`, `PrioridadEditarCard.jsx:330` |
 | Expirar vencidas (manual) | `POST /prioridades/jobs/expire` | Sí | Sí | No | No | Ninguna pantalla tiene el botón (existe en la capa API) | Sin pantalla | `prioridad.routes.ts:86-89`, `lib/api/prioridades.js:256-258` |
-| Eliminar prioridad | `PATCH /prioridades/:id/eliminar` | Sí | Sí | Sí, solo propias | No | "Eliminar Prioridad" solo ADMIN | No (D5) | `prioridad.routes.ts:96-99`, `prioridad.service.ts:412`, `rbac.js:84`, `TablaPrioridades.jsx:210` |
-| Reactivar prioridad | `PATCH /prioridades/:id/reactivar` | Sí | Sí | Sí, solo propias | No | "Reactivar Prioridad" solo ADMIN | No (D5) | `prioridad.routes.ts:107-110`, `prioridad.service.ts:504`, `rbac.js:84`, `TablaPrioridades.jsx:210-219` |
+| Eliminar prioridad | `PATCH /prioridades/:id/eliminar` | Sí | Sí | Sí, solo propias | No | "Eliminar Prioridad" para ADMIN y GESTOR. INMO no lo ve, por decisión | No (D5) | `prioridad.routes.ts:96-99`, `prioridad.service.ts:412`, `rbac.js:84`, `:106`, `TablaPrioridades.jsx:210` |
+| Reactivar prioridad | `PATCH /prioridades/:id/reactivar` | Sí | Sí | Sí, solo propias | No | "Reactivar Prioridad" para ADMIN y GESTOR. INMO no lo ve, por decisión | No (D5) | `prioridad.routes.ts:107-110`, `prioridad.service.ts:504`, `rbac.js:84`, `:106`, `TablaPrioridades.jsx:210-219` |
 
 ## Ventas y pagos
 
@@ -95,7 +95,7 @@ El backend filtra estos campos en la respuesta. La pantalla los oculta con la mi
 | Listar ventas | `GET /ventas` | Sí | Sí | No | No | ADMIN y GESTOR | Sí | `ventas.routes.ts:19-22`, `rbac.js:68`, `:93` |
 | Ventas de una inmobiliaria | `GET /ventas/inmobiliaria/:id` | Sí | Sí | Sí, solo su id | No | INMO no tiene el módulo Ventas | No (D8) | `ventas.routes.ts:27-30`, `venta.service.ts:169-174`, `rbac.js:111-122` |
 | Ver venta | `GET /ventas/:id` | Sí | Sí | No | No | "Ver" para ADMIN y GESTOR | Sí | `ventas.routes.ts:36-39`, `TablaVentas.jsx:219` |
-| Registrar venta | `POST /ventas` | Sí | Sí | No | No | ADMIN y GESTOR (tabla de ventas y tablero de lotes) | Sí | `ventas.routes.ts:44-47`, `Ventas.jsx:609`, `TablaLotes.jsx:422` |
+| Registrar venta | `POST /ventas` | Sí | Sí | No | No | ADMIN y GESTOR (tabla de ventas y tablero de lotes) | Sí | `ventas.routes.ts:44-47`, `Ventas.jsx:609`, `TablaLotes.jsx:423` |
 | Editar venta | `PUT /ventas/:id` | Sí | Sí | No | No | ADMIN y GESTOR | Sí | `ventas.routes.ts:52-55`, `TablaVentas.jsx:221` |
 | Eliminar venta | `PATCH /ventas/:id/eliminar` | Sí | Sí | No | No | ADMIN y GESTOR | Sí | `ventas.routes.ts:62-65`, `TablaVentas.jsx:223` |
 | Reactivar venta | `PATCH /ventas/:id/reactivar` | Sí | Sí | No | No | ADMIN y GESTOR | Sí | `ventas.routes.ts:72-75`, `Ventas.jsx:177` |
@@ -113,9 +113,9 @@ El backend filtra estos campos en la respuesta. La pantalla los oculta con la mi
 |---|---|---|---|---|---|---|---|---|
 | Listar personas | `GET /personas` | Sí | Sí | Sí (solo Mis clientes, sin eliminadas) | Sí (sin eliminadas) | Todos. INMO solo "Ver Mis Clientes" | Sí | `persona.routes.ts:13-16`, `persona.service.ts:404-415`, `:451-458`, `Sidebar.jsx:77-86` |
 | Buscar por CUIL | `GET /personas/cuil/:cuil` | Sí | Sí | No | Sí | Ninguna pantalla lo usa (existe en la capa API) | Sin pantalla | `persona.routes.ts:23-26`, `lib/api/personas.js:149` |
-| Ver persona | `GET /personas/:id` | Sí | Sí | No | Sí | Todos abren el detalle. Para INMO la API responde 403 y la pantalla usa los datos de la lista | No (D6) | `persona.routes.ts:32-35`, `PersonaVerCard.jsx:61-73` |
+| Ver persona | `GET /personas/:id` | Sí | Sí | No | Sí | ADMIN, GESTOR y TECNICO abren el detalle desde la API. Para INMO el frontend no pide el detalle y usa los datos de la lista | Sí (D6) | `persona.routes.ts:32-35`, `PersonaVerCard.jsx:56-63` |
 | Crear persona | `POST /personas` | Sí | Sí | Sí (queda asignada a su inmobiliaria) | No | ADMIN, GESTOR e INMO | Sí | `persona.routes.ts:43-46`, `persona.service.ts:611-618`, `Personas.jsx:323` |
-| Editar persona | `PUT /personas/:id` | Sí | Sí | No | No | ADMIN y GESTOR (`PEOPLE_EDIT`) | Sí | `persona.routes.ts:52-55`, `Personas.jsx:127`, `PersonaVerCard.jsx:425` |
+| Editar persona | `PUT /personas/:id` | Sí | Sí | No | No | ADMIN y GESTOR (`PEOPLE_EDIT`) | Sí | `persona.routes.ts:52-55`, `Personas.jsx:127`, `PersonaVerCard.jsx:434` |
 | Desactivar persona | `PATCH /personas/:id/desactivar` | Sí | Sí | No | No | ADMIN y GESTOR (`PEOPLE_DELETE`) | Sí | `persona.routes.ts:62-65`, `Personas.jsx:128` |
 | Reactivar persona | `PATCH /personas/:id/reactivar` | Sí | Sí | No | No | ADMIN y GESTOR (`PEOPLE_DELETE`) | Sí | `persona.routes.ts:71-74`, `Personas.jsx:128` |
 | Borrado definitivo | `DELETE /personas/:id` | Sí | No | No | No | Solo ADMIN | Sí | `persona.routes.ts:80-83`, `Personas.jsx:322` |
@@ -159,7 +159,7 @@ La política por tipo es `canUserAccessArchivo` (`file.auth.utils.ts:89`): TECNI
 | Subir archivo | `POST /files` | Sí | Sí | No | Sí (solo `PLANO` e `IMAGEN`) | ADMIN, GESTOR y TECNICO | Sí | `files.routes.ts:99-102`, `file.controller.ts:91-92`, `LoteVerCard.jsx:312-315`, `Ventas.jsx:180` |
 | Sustituir archivo | `POST /files/:id/sustituir` | Sí | Sí | No | Sí (solo `PLANO` e `IMAGEN`) | ADMIN, GESTOR y TECNICO | Sí | `files.routes.ts:90-93`, `DocumentoVerCard.jsx:408` |
 | Aprobar plano | `PATCH /files/:id/aprobaciones` | Sí | Sí | No | Sí (solo Comisión, no Municipio) | Comisión: ADMIN, GESTOR y TECNICO. Municipio: ADMIN y GESTOR | Sí | `files.routes.ts:81-84`, `file.auth.utils.ts:121-129`, `DocumentoVerCard.jsx:93-94` |
-| Eliminar archivo | `DELETE /files/:id` | Sí | Sí | No | No | ADMIN y GESTOR | Sí | `files.routes.ts:108-111`, `rbac.ui.js:125-127`, `LoteVerCard.jsx:316-319`, `LoteEditarCard.jsx:749` |
+| Eliminar archivo | `DELETE /files/:id` | Sí | Sí | No | No | ADMIN y GESTOR | Sí | `files.routes.ts:108-111`, `rbac.ui.js:126-128`, `LoteVerCard.jsx:316-319`, `LoteEditarCard.jsx:749` |
 | Restaurar archivo | `POST /files/:id/restore` | Sí | Sí | No | No | ADMIN y GESTOR | Sí | `files.routes.ts:65-68`, `DocumentoVerCard.jsx:69-70` |
 | Purgar archivo | `DELETE /files/:id/purge` | Sí | No | No | No | Solo ADMIN | Sí | `files.routes.ts:73-76`, `DocumentoVerCard.jsx:71` |
 
@@ -190,20 +190,20 @@ No hay pantalla de ABM. El listado de fracciones se usa en el alta de lote y en 
 | Listar ubicaciones | `GET /ubicaciones` | Sí | Sí | No | Sí | Ninguna pantalla lo usa | Sin pantalla | `ubicacion.routes.ts:13-16` |
 | Ver ubicación | `GET /ubicaciones/:id` | Sí | Sí | No | Sí | Ninguna pantalla lo usa | Sin pantalla | `ubicacion.routes.ts:21-24` |
 
-## Diferencias a decidir
+## Diferencias y decisiones
 
-Casos donde backend y pantalla no coinciden. En cada uno hay que elegir una opción y completar "Decisión".
+Casos donde backend y pantalla no coincidían en el relevamiento. Las columnas Backend y Pantalla describen lo relevado; "Decisión" registra la opción elegida por el equipo.
 
 | # | Caso | Backend | Pantalla | Opciones | Decisión |
 |---|---|---|---|---|---|
-| D1 | Editar reserva (INMOBILIARIA) | `PUT /reservas/:id` solo ADMIN y GESTOR (`reserva.routes.ts:47-50`). `updateReserva` tiene ramas para INMOBILIARIA (`reserva.service.ts:520`, `:569`) que nunca se ejecutan. | INMO tiene `RES_EDIT` y ve "Editar Reserva" (`rbac.js:115`, `TablaReservas.jsx:321-325`). El editor la limita a pasar a Cancelada (`ReservaEditarCard.jsx:216-219`). Al guardar, la API responde 403. | A: el backend acepta a INMOBILIARIA en `PUT`, solo sobre reservas propias y solo para cancelar. B: se quita `RES_EDIT` a INMOBILIARIA y no ve el botón. | B: se quita el botón "Editar Reserva" a INMOBILIARIA. |
-| D2 | Eliminar y reactivar reserva (INMOBILIARIA) | `PATCH /reservas/:id/eliminar` y `/reactivar` aceptan INMOBILIARIA sobre reservas propias (`reserva.routes.ts:56-68`, `reserva.service.ts:714-716`, `:808-810`). | INMO no tiene `RES_DELETE`, así que no ve Eliminar ni Reactivar (`rbac.js:115`, `Reservas.jsx:137`, `:626-627`). | A: se da `RES_DELETE` a INMOBILIARIA y ve los botones sobre sus reservas. B: se saca a INMOBILIARIA de las dos rutas. | Se mantiene el frontend actual (INMOBILIARIA no elimina ni reactiva reservas). El permiso del backend queda registrado en el backlog. |
-| D3 | Eliminar lote (GESTOR) | `DELETE /lotes/:id` solo ADMIN (`lote.routes.ts:45-48`). | GESTOR tiene `LOT_DELETE` y ve "Eliminar Lote" (`rbac.js:92`, `TablaLotes.jsx:718`). La API responde 403. | A: el backend acepta también a GESTOR. B: se quita `LOT_DELETE` a GESTOR y no ve el botón. | B: se quita "Eliminar Lote" a GESTOR. |
-| D4 | Crear lote (GESTOR) | `POST /lotes` acepta ADMIN y GESTOR (`lote.routes.ts:28-31`). GESTOR tiene `LOT_CREATE` (`rbac.js:91`). | "+ Agregar Lote" se muestra si el rol contiene "admin" (`TablaLotes.jsx:266`, `:552`): GESTOR no lo ve. | A: el botón usa `LOT_CREATE` y GESTOR lo ve. B: el backend acepta solo ADMIN y se quita `LOT_CREATE` a GESTOR. | A: GESTOR ve "+ Agregar Lote" (usa `LOT_CREATE`). |
-| D5 | Eliminar y reactivar prioridad (GESTOR e INMOBILIARIA) | `PATCH /prioridades/:id/eliminar` y `/reactivar` aceptan ADMIN, GESTOR e INMOBILIARIA (propias) (`prioridad.routes.ts:96-110`, `prioridad.service.ts:412`, `:504`). | Los botones dependen de `PRIORITY_DELETE`, que solo tiene ADMIN (`rbac.js:84`, `:106`, `:119`, `TablaPrioridades.jsx:210`). | A: se da `PRIORITY_DELETE` a GESTOR y a INMOBILIARIA (o solo a GESTOR). B: el backend acepta solo ADMIN. | A, solo GESTOR: GESTOR ve eliminar y reactivar prioridad. INMOBILIARIA no. |
-| D6 | Ver detalle de persona (INMOBILIARIA) | `GET /personas/:id` acepta ADMIN, GESTOR y TECNICO (`persona.routes.ts:32-35`). | El detalle llama a ese endpoint, recibe 403 y muestra los datos de la fila de la lista (`PersonaVerCard.jsx:61-73`). | A: el backend acepta a INMOBILIARIA en `GET /personas/:id`, solo para sus clientes. B: para INMOBILIARIA la pantalla no pide el detalle y usa solo la lista. | Se mantiene el comportamiento actual: el detalle se muestra correctamente con los datos de la lista. |
-| D7 | Ver grupo familiar (TECNICO) | `GET /personas/:id/grupo-familiar` acepta ADMIN, GESTOR y TECNICO (`persona.routes.ts:89-92`). | La acción Grupo familiar solo se muestra a ADMIN y GESTOR (`Personas.jsx:324`). | A: se muestra a TECNICO en solo lectura. B: se saca a TECNICO de la ruta. | B: el frontend no se lo muestra a TECNICO. El ajuste de la ruta del backend queda registrado en el backlog. |
-| D8 | Ventas de su inmobiliaria (INMOBILIARIA) | `GET /ventas/inmobiliaria/:id` acepta INMOBILIARIA con su propio id (`ventas.routes.ts:27-30`, `venta.service.ts:169-174`). | INMO no tiene el módulo Ventas (`rbac.js:111-122`). | A: se agrega una vista de ventas propias para INMOBILIARIA. B: se saca a INMOBILIARIA de la ruta. | Fuera del alcance actual: es una funcionalidad nueva, registrada en el backlog. |
+| D1 | Editar reserva (INMOBILIARIA) | `PUT /reservas/:id` solo ADMIN y GESTOR (`reserva.routes.ts:47-50`). `updateReserva` tiene ramas para INMOBILIARIA (`reserva.service.ts:520`, `:569`) que nunca se ejecutan. | INMO tiene `RES_EDIT` y ve "Editar Reserva" (`rbac.js:115`, `TablaReservas.jsx:321-325`). El editor la limita a pasar a Cancelada (`ReservaEditarCard.jsx:216-219`). Al guardar, la API responde 403. | A: el backend acepta a INMOBILIARIA en `PUT`, solo sobre reservas propias y solo para cancelar. B: se quita `RES_EDIT` a INMOBILIARIA y no ve el botón. | B. INMOBILIARIA no edita reservas; el frontend no le muestra la acción (PR #362). |
+| D2 | Eliminar y reactivar reserva (INMOBILIARIA) | `PATCH /reservas/:id/eliminar` y `/reactivar` aceptan INMOBILIARIA sobre reservas propias (`reserva.routes.ts:56-68`, `reserva.service.ts:714-716`, `:808-810`). | INMO no tiene `RES_DELETE`, así que no ve Eliminar ni Reactivar (`rbac.js:115`, `Reservas.jsx:137`, `:626-627`). | A: se da `RES_DELETE` a INMOBILIARIA y ve los botones sobre sus reservas. B: se saca a INMOBILIARIA de las dos rutas. | B (por frontend). INMOBILIARIA no elimina ni reactiva reservas: el frontend no le ofrece la acción. El backend conserva el permiso sobre reservas propias. |
+| D3 | Eliminar lote (GESTOR) | `DELETE /lotes/:id` solo ADMIN (`lote.routes.ts:45-48`). | GESTOR tiene `LOT_DELETE` y ve "Eliminar Lote" (`rbac.js:92`, `TablaLotes.jsx:718`). La API responde 403. | A: el backend acepta también a GESTOR. B: se quita `LOT_DELETE` a GESTOR y no ve el botón. | B. GESTOR no elimina lotes; el frontend no le muestra la acción (PR #362). |
+| D4 | Crear lote (GESTOR) | `POST /lotes` acepta ADMIN y GESTOR (`lote.routes.ts:28-31`). GESTOR tiene `LOT_CREATE` (`rbac.js:91`). | "+ Agregar Lote" se muestra si el rol contiene "admin" (`TablaLotes.jsx:266`, `:552`): GESTOR no lo ve. | A: el botón usa `LOT_CREATE` y GESTOR lo ve. B: el backend acepta solo ADMIN y se quita `LOT_CREATE` a GESTOR. | A. GESTOR crea lotes; el frontend le muestra "+ Agregar Lote" (PR #362). |
+| D5 | Eliminar y reactivar prioridad (GESTOR e INMOBILIARIA) | `PATCH /prioridades/:id/eliminar` y `/reactivar` aceptan ADMIN, GESTOR e INMOBILIARIA (propias) (`prioridad.routes.ts:96-110`, `prioridad.service.ts:412`, `:504`). | Los botones dependen de `PRIORITY_DELETE`, que solo tiene ADMIN (`rbac.js:84`, `:106`, `:119`, `TablaPrioridades.jsx:210`). | A: se da `PRIORITY_DELETE` a GESTOR y a INMOBILIARIA (o solo a GESTOR). B: el backend acepta solo ADMIN. | A. ADMINISTRADOR y GESTOR eliminan y reactivan prioridades; INMOBILIARIA no: el frontend no le ofrece la acción (PR #362). El backend conserva el permiso sobre prioridades propias. |
+| D6 | Ver detalle de persona (INMOBILIARIA) | `GET /personas/:id` acepta ADMIN, GESTOR y TECNICO (`persona.routes.ts:32-35`). | El detalle llama a ese endpoint, recibe 403 y muestra los datos de la fila de la lista (`PersonaVerCard.jsx:61-73`). | A: el backend acepta a INMOBILIARIA en `GET /personas/:id`, solo para sus clientes. B: para INMOBILIARIA la pantalla no pide el detalle y usa solo la lista. | B. Para INMOBILIARIA el frontend no pide el detalle y usa los datos de la lista (PR #362). |
+| D7 | Ver grupo familiar (TECNICO) | `GET /personas/:id/grupo-familiar` acepta ADMIN, GESTOR y TECNICO (`persona.routes.ts:89-92`). | La acción Grupo familiar solo se muestra a ADMIN y GESTOR (`Personas.jsx:324`). | A: se muestra a TECNICO en solo lectura. B: se saca a TECNICO de la ruta. | B (por frontend). TECNICO no ve el grupo familiar: el frontend no le ofrece la acción. El backend conserva el permiso de lectura. |
+| D8 | Ventas de su inmobiliaria (INMOBILIARIA) | `GET /ventas/inmobiliaria/:id` acepta INMOBILIARIA con su propio id (`ventas.routes.ts:27-30`, `venta.service.ts:169-174`). | INMO no tiene el módulo Ventas (`rbac.js:111-122`). | A: se agrega una vista de ventas propias para INMOBILIARIA. B: se saca a INMOBILIARIA de la ruta. | Fuera del alcance de esta entrega: es una funcionalidad nueva. |
 
 ## Notas
 

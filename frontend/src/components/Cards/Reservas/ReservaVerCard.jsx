@@ -160,7 +160,7 @@ export default function ReservaVerCard({
           <h2 className="cclf-card__title">{`Reserva N° ${res?.numero ?? res?.id ?? "—"}`}</h2>
 
           <div className="cclf-card__actions">
-            {!fromSidePanel && canEditByEstadoOperativo(res) && (
+            {!fromSidePanel && onEdit && canEditByEstadoOperativo(res) && (
               <button
                 type="button"
                 className="cclf-tab thin"

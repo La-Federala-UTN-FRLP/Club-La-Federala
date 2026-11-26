@@ -19,6 +19,7 @@ import PrioridadCrearCard from "../components/Cards/Prioridades/PrioridadCrearCa
 import { getAllLotes, getLoteById, deleteLote } from "../lib/api/lotes";
 import { getReservaActivaByLoteId } from "../lib/api/reservas";
 import ReservaVerCard from "../components/Cards/Reservas/ReservaVerCard.jsx";
+import { can, PERMISSIONS } from "../lib/auth/rbac";
 
 /**
  * Dashboard
@@ -491,11 +492,11 @@ export default function Dashboard() {
           setOpenReservaVer(false);
           setReservaSel(null);
         }}
-        onEdit={(reserva) => {
+        onEdit={can(user, PERMISSIONS.RES_EDIT) ? (reserva) => {
           setOpenReservaVer(false);
           // Redirigir a la página de reservas para editar
           navigate(`/reservas`);
-        }}
+        } : null}
       />
 
       <ReservaCrearCard
