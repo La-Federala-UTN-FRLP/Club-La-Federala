@@ -116,6 +116,7 @@ export const reservaTxMock = {
     },
     lote: {
         update: jest.fn(),
+        updateMany: jest.fn(),
     },
 };
 

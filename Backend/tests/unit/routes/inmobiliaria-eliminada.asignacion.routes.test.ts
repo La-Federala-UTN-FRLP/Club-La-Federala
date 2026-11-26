@@ -97,7 +97,7 @@ describe('Reserva — alta con inmobiliaria', () => {
         fechaReserva: '2026-12-01T00:00:00.000Z', fechaFinReserva: '2026-12-31T00:00:00.000Z',
         loteId: 10, clienteId: 20, numero: 'R-0001', ofertaInicial: 1000, inmobiliariaId: BAJA,
     };
-    let tx: { reserva: { create: Mock }; ofertaReserva: { create: Mock } };
+    let tx: { reserva: { create: Mock }; ofertaReserva: { create: Mock }; lote: { updateMany: Mock } };
 
     beforeEach(() => {
         prisma.lote.findUnique.mockResolvedValue({ id: 10, estado: 'DISPONIBLE' });
@@ -106,6 +106,8 @@ describe('Reserva — alta con inmobiliaria', () => {
         tx = {
             reserva: { create: jest.fn(async ({ data }) => ({ id: 1, ...data })) },
             ofertaReserva: { create: jest.fn(async () => ({ id: 1 })) },
+            // El alta marca el lote RESERVADO dentro de la transacción (bug QA 18)
+            lote: { updateMany: jest.fn(async () => ({ count: 1 })) },
         };
         prisma.$transaction.mockImplementation((fn: (t: unknown) => unknown) => fn(tx));
     });
