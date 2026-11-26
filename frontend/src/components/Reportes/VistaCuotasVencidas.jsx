@@ -11,13 +11,15 @@
 // tramo se muestran tal como los manda el backend. Lo único derivado es el ancho de los
 // segmentos de la barra de antigüedad, que es escala de dibujo y no un dato informado.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import { Alert, Form } from "react-bootstrap";
 import FiltrosReporte from "./FiltrosReporte";
+import BotonExportar from "./BotonExportar";
 import TarjetaKpi from "./TarjetaKpi";
 import TarjetaTabla from "./TarjetaTabla";
 import TablaReportes from "./TablaReportes";
+import { ErrorReporte, IndicadorCarga, ResultadoReporte } from "./EstadosReporte";
 import { InsigniaTramo } from "./Insignias";
 import {
   etiquetaCuotaDePlan,
@@ -26,9 +28,12 @@ import {
   fmtMontoMoneda,
   plural,
   sufijoTramo,
+  TEXTO_VACIO,
 } from "./etiquetas";
-import { getCuotasVencidas, getFraccionesReporte } from "../../lib/api/reportes";
-import { parseApiError } from "../../lib/http/errors";
+import useCatalogoFracciones from "./useCatalogoFracciones";
+import useReporte from "./useReporte";
+import useExportarReporte from "./useExportarReporte";
+import { getCuotasVencidas } from "../../lib/api/reportes";
 import { fmtFechaCalendario } from "../../lib/fechas";
 
 // Los dos valores del enum `Moneda`. USD va primero porque es el que viene elegido: un selector
@@ -41,6 +46,12 @@ const BORRADOR_INICIAL = { moneda: "USD", fraccion: "" };
 
 /** Rótulo exacto que pide CCLF-37 para la columna del saldo: incluye recargos sin desglosar. */
 const TITULO_SALDO = "Saldo (incluye recargos)";
+
+// Los rótulos de los dos estados de carga y el fallback del mensaje de error, como constantes de
+// módulo igual que el resto de los textos.
+const TEXTO_CARGANDO = "Cargando cuotas vencidas…";
+const TEXTO_ACTUALIZANDO = "Actualizando cuotas vencidas…";
+const MENSAJE_ERROR = "No se pudo cargar el reporte de cuotas vencidas";
 
 /**
  * Selector de moneda: un segmented control de dos opciones.
@@ -214,75 +225,55 @@ export default function VistaCuotasVencidas() {
   // `borrador` es lo que se ve en los filtros; `aplicados` es lo que se consultó. Arranca en
   // null: la moneda es obligatoria y hay una elegida, pero el reporte se pide cuando la persona
   // lo pide, así que abrir la pestaña no dispara ninguna consulta.
-  const [borrador, setBorrador] = useState(BORRADOR_INICIAL);
-  const [aplicados, setAplicados] = useState(null);
+  const {
+    borrador,
+    cambiarCampo,
+    aplicados,
+    datos,
+    cargando,
+    error,
+    desactualizado,
+    generar,
+    reintentar,
+  } = useReporte({
+    fetcher: getCuotasVencidas,
+    mensajeError: MENSAJE_ERROR,
+    filtrosIniciales: BORRADOR_INICIAL,
+  });
 
-  const [datos, setDatos] = useState(null);
-  const [cargando, setCargando] = useState(false);
-  const [error, setError] = useState(null);
+  const { fracciones, errorFracciones } = useCatalogoFracciones();
 
-  const [fracciones, setFracciones] = useState([]);
-  const [errorFracciones, setErrorFracciones] = useState(null);
-
-  // Catálogo del filtro de fracción: se pide una vez y no depende de los filtros.
-  useEffect(() => {
-    let cancelado = false;
-    getFraccionesReporte()
-      .then((lista) => {
-        if (!cancelado) setFracciones(lista);
-      })
-      .catch((err) => {
-        if (!cancelado) {
-          setErrorFracciones(parseApiError(err, "No se pudieron cargar las fracciones"));
-        }
-      });
-    return () => {
-      cancelado = true;
-    };
-  }, []);
-
-  // Carga del reporte: solo cuando hay filtros aplicados, y una vez por cada Generar.
-  // `cancelado` descarta la respuesta si los filtros cambian antes de que llegue.
-  useEffect(() => {
-    if (aplicados === null) return undefined;
-
-    let cancelado = false;
-    setCargando(true);
-    setError(null);
-    getCuotasVencidas(aplicados)
-      .then((data) => {
-        if (!cancelado) setDatos(data);
-      })
-      .catch((err) => {
-        if (!cancelado) {
-          setDatos(null);
-          setError(parseApiError(err, "No se pudo cargar el reporte de cuotas vencidas"));
-        }
-      })
-      .finally(() => {
-        if (!cancelado) setCargando(false);
-      });
-    return () => {
-      cancelado = true;
-    };
-  }, [aplicados]);
+  const { exportar, descargando, puedeExportar, motivoDeshabilitado } = useExportarReporte({
+    ruta: "cuotas-vencidas",
+    aplicados,
+    datos,
+    cargando,
+  });
 
   // La moneda de la respuesta, que es la que manda en pantalla. Mientras no hay datos no hay
   // moneda que mostrar, y las columnas tampoco se usan.
   const moneda = datos?.moneda;
   const columnas = useMemo(() => columnasDe(moneda), [moneda]);
 
-  const cambiarFraccion = (e) => setBorrador((prev) => ({ ...prev, fraccion: e.target.value }));
+  const cambiarFraccion = (e) => cambiarCampo("fraccion", e.target.value);
 
-  const cambiarMoneda = (valor) => setBorrador((prev) => ({ ...prev, moneda: valor }));
-
-  // Objeto nuevo en cada clic a propósito: con la misma referencia React descarta el setState y
-  // el efecto no vuelve a correr, así que Generar no consultaría de nuevo con los mismos filtros.
-  const generar = () => setAplicados({ ...borrador });
+  const cambiarMoneda = (valor) => cambiarCampo("moneda", valor);
 
   return (
     <div className="reporte-cuotas">
-      <FiltrosReporte onGenerar={generar} cargando={cargando}>
+      <FiltrosReporte
+        onGenerar={generar}
+        cargando={cargando}
+        desactualizado={desactualizado}
+        acciones={
+          <BotonExportar
+            onClick={exportar}
+            deshabilitado={!puedeExportar}
+            descargando={descargando}
+            motivo={motivoDeshabilitado}
+          />
+        }
+      >
         <Form.Group className="reporte-filtro reporte-filtro--moneda">
           {/* `as="span"`: un radiogroup no es un control etiquetable, así que el rótulo se
               asocia con aria-labelledby y no con un <label for>, que no apuntaría a nada. */}
@@ -326,17 +317,13 @@ export default function VistaCuotasVencidas() {
         <p className="reporte-sin-consulta">Elegí la moneda y pulsá Generar</p>
       )}
 
-      {cargando && (
-        <div className="reportes-cargando">
-          <div className="spinner-border" role="status" />
-          <span className="ms-2">Cargando cuotas vencidas…</span>
-        </div>
-      )}
+      {/* La primera consulta no tiene nada que atenuar, así que el indicador va solo. */}
+      {cargando && !datos && <IndicadorCarga texto={TEXTO_CARGANDO} />}
 
-      {!cargando && error && <Alert variant="danger">{error}</Alert>}
+      {!cargando && error && <ErrorReporte mensaje={error} onReintentar={reintentar} />}
 
-      {!cargando && !error && datos && (
-        <>
+      {datos && !error && (
+        <ResultadoReporte actualizando={cargando} textoActualizando={TEXTO_ACTUALIZANDO}>
           <p className="reportes-corte">Datos al corte del {fmtFechaCalendario(datos.corte)}</p>
 
           <div className="reporte-cuotas-resumen">
@@ -362,10 +349,10 @@ export default function VistaCuotasVencidas() {
               filas={datos.filas ?? []}
               gridTemplate={GRID_TEMPLATE}
               filaKey={(fila) => fila.cuotaId}
-              vacio="No hay cuotas vencidas para estos filtros"
+              vacio={TEXTO_VACIO}
             />
           </TarjetaTabla>
-        </>
+        </ResultadoReporte>
       )}
     </div>
   );

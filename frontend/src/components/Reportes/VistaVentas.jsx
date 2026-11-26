@@ -10,17 +10,21 @@
 // es la diferencia de cantidades enteras del rótulo "+N vs. anterior" y el ancho de las barras,
 // que es escala de dibujo y no un dato informado. Los montos de distintas monedas no se suman.
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Alert, Form } from "react-bootstrap";
 import FiltrosReporte from "./FiltrosReporte";
+import BotonExportar from "./BotonExportar";
 import TarjetaTabla from "./TarjetaTabla";
 import TablaReportes from "./TablaReportes";
+import { ErrorReporte, IndicadorCarga, ResultadoReporte } from "./EstadosReporte";
 import { InsigniaVenta } from "./Insignias";
-import { etiquetaLote, fmtMontoMoneda } from "./etiquetas";
+import { etiquetaLote, fmtMontoMoneda, TEXTO_VACIO } from "./etiquetas";
 import { DIAS_PERIODO_DEFAULT, validarPeriodo } from "./periodo";
-import { getVentas, getFraccionesReporte } from "../../lib/api/reportes";
-import { parseApiError } from "../../lib/http/errors";
+import useCatalogoFracciones from "./useCatalogoFracciones";
+import useReporte from "./useReporte";
+import useExportarReporte from "./useExportarReporte";
+import { getVentas } from "../../lib/api/reportes";
 import { fmtFechaCalendario, hoyNegocio, sumarDias } from "../../lib/fechas";
 
 // Las tres tarjetas del reporte, en el orden del contrato. `aumentoEsBueno` decide el color del
@@ -227,61 +231,43 @@ function borradorInicial() {
   return { desde: sumarDias(hasta, -(DIAS_PERIODO_DEFAULT - 1)), hasta, fraccion: "" };
 }
 
+// Los rótulos de los dos estados de carga y el fallback del mensaje de error. Van como
+// constantes de módulo, igual que el resto de los textos; `MENSAJE_ERROR` además entra en las
+// dependencias del efecto de `useReporte`, y así queda claro que ahí nunca cambia.
+const TEXTO_CARGANDO = "Cargando ventas…";
+const TEXTO_ACTUALIZANDO = "Actualizando ventas…";
+const MENSAJE_ERROR = "No se pudo cargar el reporte de ventas";
+
 export default function VistaVentas() {
   // `borrador` es lo que se ve en los campos; `aplicados` es lo que se consultó. Arranca en null
   // porque el período es obligatorio: sin un Generar no hay consulta que tenga sentido hacer.
-  const [borrador, setBorrador] = useState(borradorInicial);
-  const [aplicados, setAplicados] = useState(null);
+  //
+  // `borradorInicial` se pasa como función y no como objeto: `useState` trata una función como
+  // inicializador diferido, así que la fecha de hoy se calcula una vez y no en cada render.
+  const {
+    borrador,
+    cambiarCampo,
+    aplicados,
+    datos,
+    cargando,
+    error,
+    desactualizado,
+    generar,
+    reintentar,
+  } = useReporte({
+    fetcher: getVentas,
+    mensajeError: MENSAJE_ERROR,
+    filtrosIniciales: borradorInicial,
+  });
 
-  const [datos, setDatos] = useState(null);
-  const [cargando, setCargando] = useState(false);
-  const [error, setError] = useState(null);
+  const { fracciones, errorFracciones } = useCatalogoFracciones();
 
-  const [fracciones, setFracciones] = useState([]);
-  const [errorFracciones, setErrorFracciones] = useState(null);
-
-  // Catálogo del filtro de fracción: se pide una vez y no depende de los filtros.
-  useEffect(() => {
-    let cancelado = false;
-    getFraccionesReporte()
-      .then((lista) => {
-        if (!cancelado) setFracciones(lista);
-      })
-      .catch((err) => {
-        if (!cancelado) {
-          setErrorFracciones(parseApiError(err, "No se pudieron cargar las fracciones"));
-        }
-      });
-    return () => {
-      cancelado = true;
-    };
-  }, []);
-
-  // Carga del reporte: solo cuando hay filtros aplicados, y una vez por cada Generar.
-  // `cancelado` descarta la respuesta si los filtros cambian antes de que llegue.
-  useEffect(() => {
-    if (aplicados === null) return undefined;
-
-    let cancelado = false;
-    setCargando(true);
-    setError(null);
-    getVentas(aplicados)
-      .then((data) => {
-        if (!cancelado) setDatos(data);
-      })
-      .catch((err) => {
-        if (!cancelado) {
-          setDatos(null);
-          setError(parseApiError(err, "No se pudo cargar el reporte de ventas"));
-        }
-      })
-      .finally(() => {
-        if (!cancelado) setCargando(false);
-      });
-    return () => {
-      cancelado = true;
-    };
-  }, [aplicados]);
+  const { exportar, descargando, puedeExportar, motivoDeshabilitado } = useExportarReporte({
+    ruta: "ventas",
+    aplicados,
+    datos,
+    cargando,
+  });
 
   const tarjetas = datos?.tarjetas;
 
@@ -295,16 +281,11 @@ export default function VistaVentas() {
     return Math.max(0, ...cantidades);
   }, [tarjetas]);
 
-  const cambiarFiltro = (campo) => (e) =>
-    setBorrador((prev) => ({ ...prev, [campo]: e.target.value }));
+  const cambiarFiltro = (campo) => (e) => cambiarCampo(campo, e.target.value);
 
   // Mientras el período no sirva, el botón queda deshabilitado y la tarjeta dice por qué, en
   // lugar de dejar que el backend conteste un 400 con un mensaje más seco.
   const motivo = validarPeriodo(borrador);
-
-  // Objeto nuevo en cada clic a propósito: con la misma referencia React descarta el setState y
-  // el efecto no vuelve a correr, así que Generar no consultaría de nuevo con los mismos filtros.
-  const generar = () => setAplicados({ ...borrador });
 
   const cantidadFilas = datos?.filas?.length ?? 0;
   const detalleTabla = `${cantidadFilas} ${cantidadFilas === 1 ? "venta" : "ventas"} · todas las monedas`;
@@ -316,6 +297,15 @@ export default function VistaVentas() {
         cargando={cargando}
         deshabilitado={motivo !== null}
         motivo={motivo ?? ""}
+        desactualizado={desactualizado}
+        acciones={
+          <BotonExportar
+            onClick={exportar}
+            deshabilitado={!puedeExportar}
+            descargando={descargando}
+            motivo={motivoDeshabilitado}
+          />
+        }
       >
         <Form.Group className="reporte-filtro">
           <Form.Label htmlFor="ven-desde">Desde</Form.Label>
@@ -367,17 +357,13 @@ export default function VistaVentas() {
         <p className="reporte-sin-consulta">Elegí un período y pulsá Generar</p>
       )}
 
-      {cargando && (
-        <div className="reportes-cargando">
-          <div className="spinner-border" role="status" />
-          <span className="ms-2">Cargando ventas…</span>
-        </div>
-      )}
+      {/* La primera consulta no tiene nada que atenuar, así que el indicador va solo. */}
+      {cargando && !datos && <IndicadorCarga texto={TEXTO_CARGANDO} />}
 
-      {!cargando && error && <Alert variant="danger">{error}</Alert>}
+      {!cargando && error && <ErrorReporte mensaje={error} onReintentar={reintentar} />}
 
-      {!cargando && !error && datos && (
-        <>
+      {datos && !error && (
+        <ResultadoReporte actualizando={cargando} textoActualizando={TEXTO_ACTUALIZANDO}>
           <p className="reportes-corte">Datos al corte del {fmtFechaCalendario(datos.corte)}</p>
 
           <div className="reporte-kpis">
@@ -403,10 +389,10 @@ export default function VistaVentas() {
               filas={datos.filas ?? []}
               gridTemplate={GRID_TEMPLATE}
               filaKey={(fila) => fila.ventaId}
-              vacio="No hay registros para estos filtros"
+              vacio={TEXTO_VACIO}
             />
           </TarjetaTabla>
-        </>
+        </ResultadoReporte>
       )}
     </div>
   );

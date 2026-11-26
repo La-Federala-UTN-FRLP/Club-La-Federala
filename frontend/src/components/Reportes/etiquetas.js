@@ -90,6 +90,27 @@ export const VARIANTE_ESTADO_VENTA = {
 /** Rótulo del botón que dispara la consulta. Compartido por los tres reportes. */
 export const BOTON_GENERAR = "Generar reporte";
 
+/**
+ * Texto cuando la consulta no devolvió ninguna fila. Es el mismo en los tres reportes: lo que
+ * pasó es que el universo filtrado está vacío, y de qué universo se trata ya lo dice el título
+ * de la tabla.
+ */
+export const TEXTO_VACIO = "No hay registros para estos filtros";
+
+/** Rótulo del botón que baja el .xlsx. Compartido por el botón y por el aviso que lo nombra. */
+export const BOTON_EXPORTAR = "Exportar a Excel";
+
+/**
+ * Aviso de que los filtros cambiaron después de generar.
+ *
+ * Dice las dos cosas a la vez a propósito: que lo que está en pantalla es la consulta anterior,
+ * y que la exportación baja eso mismo y no los filtros nuevos. Se arma con los rótulos de los
+ * dos botones para que el aviso no pueda terminar nombrando un botón que se llama distinto.
+ */
+export const TEXTO_DESACTUALIZADO =
+  `Los filtros cambiaron. Lo que ves, y lo que baja «${BOTON_EXPORTAR}», sigue siendo la ` +
+  `última consulta. Pulsá «${BOTON_GENERAR}» para actualizar.`;
+
 // Montos de los reportes. `currencyDisplay: "code"` da "USD 85.000,00" y "ARS 38.500.000,00";
 // el default de es-AR para USD es el símbolo "US$", que se confunde con pesos. Los dos
 // formateadores se arman una sola vez, al cargar el módulo.

@@ -70,6 +70,11 @@
   --reporte-tramo-largo: #a8321e;
   --reporte-tramo-desconocido: var(--reporte-delta-igual-bg);
 
+  /* Verde del ícono del botón de exportar. Es el mismo valor que ya usa la barra de escrituras
+     firmadas, pero con nombre propio: son dos cosas sin relación y no tienen que moverse
+     juntas si una cambia. */
+  --reporte-excel-icono: #1d7a4f;
+
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -478,9 +483,10 @@
   padding-right: 36px;
 }
 
-/* `margin-left: auto` empuja el botón al borde derecho de la tarjeta.
-   Va con `.reportes-panel` delante para ganarle a `.btn-primary` de Bootstrap, que define su
-   fondo y su sombra de foco con una sola clase y se carga después que esta hoja. */
+/* Va con `.reportes-panel` delante para ganarle a `.btn-primary` de Bootstrap, que define su
+   fondo y su sombra de foco con una sola clase y se carga después que esta hoja.
+   El `margin-left: auto` que lo empujaba a la derecha se mudó al grupo de acciones, más abajo:
+   desde 39.5 el botón no está solo en esa punta de la tarjeta. */
 .reportes-panel .reporte-filtros-card__boton {
   height: var(--reporte-alto-control);
   padding: 0 20px;
@@ -493,8 +499,28 @@
   font-weight: 600;
 }
 
-.reportes-panel .reporte-filtros-card__boton {
-  margin-left: auto;
+/* `.btn:hover` y `.btn:focus-visible` de Bootstrap empatan en especificidad (0,2,0) con la regla
+   de arriba y se cargan después que esta hoja, así que sin estas dos reglas el hover pinta el
+   botón con el azul de Bootstrap (#0b5ed7, medido en el navegador) en lugar del del boceto, y el
+   anillo de foco queda a criterio de Bootstrap. Con la pseudoclase sumada al prefijo, ganan.
+   tokens.css no tiene ningún token de hover ni una variante oscura de la acción primaria, así
+   que el estado se nota oscureciendo ese mismo color con un filtro, sin inventar un segundo
+   azul que después nadie sabría de dónde salió. */
+.reportes-panel .reporte-filtros-card__boton:hover:not(:disabled) {
+  color: var(--color-text-light);
+  background: var(--color-action-primary);
+  border: 0;
+  box-shadow: none;
+  filter: brightness(0.92);
+}
+
+.reportes-panel .reporte-filtros-card__boton:focus-visible {
+  color: var(--color-text-light);
+  background: var(--color-action-primary);
+  border: 0;
+  box-shadow: none;
+  outline: 2px solid var(--color-action-primary);
+  outline-offset: 2px;
 }
 
 .reportes-panel .reporte-filtros-card__boton:disabled {
@@ -507,6 +533,27 @@
   margin: 0;
   color: var(--reportes-texto-suave);
   font-size: 0.8125rem;
+}
+
+/* Los filtros cambiaron después de generar. Ocupa el ancho entero igual que el motivo, para
+   caer debajo de los campos, y usa los colores del aviso que ya existen en la hoja. */
+.reporte-filtros-card__desactualizado {
+  display: flex;
+  flex: 0 0 100%;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  color: var(--reporte-aviso-texto);
+  background: var(--reporte-aviso-fondo);
+  border: 1px solid var(--reporte-aviso-borde);
+  border-radius: var(--reporte-radio-control);
+  font-size: 13px;
+}
+
+.reporte-filtros-card__desactualizado-icono {
+  flex: 0 0 auto;
+  stroke: var(--reporte-aviso-icono);
 }
 
 /* Tarjetas de KPI */
@@ -1043,4 +1090,126 @@
   .reporte-cuotas-resumen {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* ------------------------------------------------------------------------ */
+/* Estados de un reporte (39.5): el error con su Reintentar y el resultado  */
+/* que se actualiza sin desaparecer. El indicador de carga reusa            */
+/* `.reportes-cargando`, que ya existía: acá solo se le cambia la medida    */
+/* cuando va superpuesto.                                                   */
+/* ------------------------------------------------------------------------ */
+
+/* El mensaje y el botón en la misma fila; si no entran, el botón baja al renglón siguiente.
+   `.alert` de Bootstrap no define display, gap ni alineación, así que no hay nada que pisar. */
+.reporte-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* El mensaje se queda con el sobrante: con una base en rem el botón no se le pega cuando el
+   texto es corto ni lo aplasta cuando es largo. */
+.reporte-error__mensaje {
+  flex: 1 1 12rem;
+}
+
+/* Ancla del aviso superpuesto: sin esto, el `position: absolute` de abajo iría a buscar el
+   primer antepasado posicionado, que está fuera de la vista. */
+.reporte-resultado {
+  position: relative;
+}
+
+/* Atenuado y sin interacción mientras se vuelve a consultar. No se oculta: el dato anterior
+   sigue siendo legible, y es justamente el que se está reemplazando. `pointer-events: none`
+   evita que alguien pulse el enlace de una fila que está por cambiar. */
+.reporte-resultado__contenido--actualizando {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* Encima del resultado y sin ocupar lugar en el flujo: así la pantalla no salta y no hay que
+   scrollear para enterarse de que está cargando. No recibe clics: es un cartel, no un control. */
+.reporte-resultado__aviso {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  justify-content: center;
+  padding: var(--space-2) 0;
+  pointer-events: none;
+}
+
+/* `.reportes-cargando` reserva 30vh para cuando es lo único que hay en pantalla. Superpuesto no
+   tiene nada que reservar, y la pastilla se recorta al texto para dejar ver el dato de atrás. */
+.reporte-resultado__aviso .reportes-cargando {
+  min-height: 0;
+  padding: var(--space-2) var(--space-4);
+  background: var(--reportes-superficie);
+  border: 1px solid var(--reportes-borde);
+  border-radius: var(--reporte-radio-control);
+  box-shadow: var(--elev-1);
+}
+
+/* ------------------------------------------------------------------------ */
+/* Botón "Exportar a Excel" (39.5) y el grupo de acciones de la tarjeta de  */
+/* filtros, que lo deja a la izquierda de "Generar reporte".                */
+/* ------------------------------------------------------------------------ */
+
+/* Las dos acciones juntas. El `margin-left: auto` estaba en el botón Generar, cuando era el
+   único: ahora vive acá y empuja al grupo entero al borde derecho de la tarjeta. */
+.reporte-filtros-card__acciones {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+/* Un <button> propio, sin `.btn` de Bootstrap: define sus cuatro estados en lugar de pelearle la
+   especificidad a `.btn:hover` y `.btn:focus-visible`, que empatan con las reglas de esta hoja.
+   Lleva `.reportes-panel` delante por la misma convención que el botón Generar. */
+.reportes-panel .reporte-exportar {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--reporte-alto-control);
+  padding: 0 var(--space-4);
+  color: var(--reporte-texto-fuerte);
+  background: var(--color-text-light);
+  border: 1px solid var(--reporte-borde-control);
+  border-radius: var(--reporte-radio-control);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* El verde es del ícono y no del texto: el botón es secundario, y el color solo señala de qué
+   tipo de archivo se trata. */
+.reporte-exportar__icono {
+  flex: 0 0 auto;
+  stroke: var(--reporte-excel-icono);
+}
+
+/* Al pasar el mouse el fondo no cambia —el boceto no define uno— y se marca con el borde. */
+.reportes-panel .reporte-exportar:hover:not(:disabled) {
+  border-color: var(--reporte-texto-suave);
+}
+
+.reportes-panel .reporte-exportar:focus-visible {
+  outline: 2px solid var(--color-action-primary);
+  outline-offset: 2px;
+}
+
+/* Deshabilitado atenúa el texto y el ícono por separado, no el botón entero: con `opacity` sobre
+   todo el botón el borde también se iría, y quedaría una pastilla flotando sin contorno. */
+.reportes-panel .reporte-exportar:disabled {
+  color: var(--reporte-texto-suave);
+  border-color: var(--reporte-borde-control);
+  cursor: not-allowed;
+}
+
+.reportes-panel .reporte-exportar:disabled .reporte-exportar__icono {
+  opacity: 0.5;
 }

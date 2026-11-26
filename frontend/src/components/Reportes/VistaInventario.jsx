@@ -5,20 +5,25 @@
 // Los filtros se aplican con el botón, no en vivo: cada consulta es un GET al backend y
 // el contrato recalcula los totales sobre el mismo universo filtrado.
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Alert, Button, Form } from "react-bootstrap";
+import { Alert, Form } from "react-bootstrap";
+import BotonExportar from "./BotonExportar";
+import FiltrosReporte from "./FiltrosReporte";
 import TablaReportes from "./TablaReportes";
+import { ErrorReporte, IndicadorCarga, ResultadoReporte } from "./EstadosReporte";
 import { InsigniaEstado, InsigniaSubestado } from "./Insignias";
 import {
-  BOTON_GENERAR,
   etiquetaEstado,
   etiquetaLote,
   etiquetaSubestado,
   fmtPrecioUsd,
+  TEXTO_VACIO,
 } from "./etiquetas";
-import { getInventario, getFraccionesReporte } from "../../lib/api/reportes";
-import { parseApiError } from "../../lib/http/errors";
+import useCatalogoFracciones from "./useCatalogoFracciones";
+import useExportarReporte from "./useExportarReporte";
+import useReporte from "./useReporte";
+import { getInventario } from "../../lib/api/reportes";
 import { fmtFechaCalendario } from "../../lib/fechas";
 
 // Enum EstadoLote del backend menos dos valores, porque filtrar por ellos solo daría listas
@@ -37,6 +42,12 @@ const ESTADOS = [
 const SUBESTADOS = ["CONSTRUIDO", "NO_CONSTRUIDO", "EN_CONSTRUCCION"];
 
 const SIN_FILTROS = { fraccion: "", estado: "", subestado: "" };
+
+// Los rótulos de los dos estados de carga y el fallback del mensaje de error, como constantes de
+// módulo igual que el resto de los textos.
+const TEXTO_CARGANDO = "Cargando inventario…";
+const TEXTO_ACTUALIZANDO = "Actualizando inventario…";
+const MENSAJE_ERROR = "No se pudo cargar el reporte de inventario";
 
 const columnas = [
   {
@@ -104,57 +115,34 @@ function Resumen({ titulo, items }) {
 }
 
 export default function VistaInventario() {
-  // `borrador` es lo que se ve en los selects; `aplicados` es lo que se consultó.
-  const [borrador, setBorrador] = useState(SIN_FILTROS);
-  const [aplicados, setAplicados] = useState(SIN_FILTROS);
+  // `borrador` es lo que se ve en los selects; `aplicados` es lo que se consultó. A diferencia de
+  // los otros dos reportes, acá sí hay algo razonable que mostrar sin que nadie pida nada —el
+  // inventario completo—, así que la consulta sale al montar y `aplicados` nunca es null.
+  const {
+    borrador,
+    cambiarCampo,
+    aplicados,
+    datos,
+    cargando,
+    error,
+    desactualizado,
+    generar,
+    reintentar,
+  } = useReporte({
+    fetcher: getInventario,
+    mensajeError: MENSAJE_ERROR,
+    filtrosIniciales: SIN_FILTROS,
+    consultarAlMontar: true,
+  });
 
-  const [datos, setDatos] = useState(null);
-  const [cargando, setCargando] = useState(true);
-  const [error, setError] = useState(null);
+  const { fracciones, errorFracciones } = useCatalogoFracciones();
 
-  const [fracciones, setFracciones] = useState([]);
-  const [errorFracciones, setErrorFracciones] = useState(null);
-
-  // Catálogo del filtro de fracción: se pide una vez y no depende de los filtros.
-  useEffect(() => {
-    let cancelado = false;
-    getFraccionesReporte()
-      .then((lista) => {
-        if (!cancelado) setFracciones(lista);
-      })
-      .catch((err) => {
-        if (!cancelado) {
-          setErrorFracciones(parseApiError(err, "No se pudieron cargar las fracciones"));
-        }
-      });
-    return () => {
-      cancelado = true;
-    };
-  }, []);
-
-  // Carga del reporte: al montar sin filtros y después cada vez que se aplican.
-  // `cancelado` descarta la respuesta si los filtros cambian antes de que llegue.
-  useEffect(() => {
-    let cancelado = false;
-    setCargando(true);
-    setError(null);
-    getInventario(aplicados)
-      .then((data) => {
-        if (!cancelado) setDatos(data);
-      })
-      .catch((err) => {
-        if (!cancelado) {
-          setDatos(null);
-          setError(parseApiError(err, "No se pudo cargar el reporte de inventario"));
-        }
-      })
-      .finally(() => {
-        if (!cancelado) setCargando(false);
-      });
-    return () => {
-      cancelado = true;
-    };
-  }, [aplicados]);
+  const { exportar, descargando, puedeExportar, motivoDeshabilitado } = useExportarReporte({
+    ruta: "inventario",
+    aplicados,
+    datos,
+    cargando,
+  });
 
   const totales = datos?.totales;
 
@@ -164,20 +152,23 @@ export default function VistaInventario() {
     [totales]
   );
 
-  const cambiarFiltro = (campo) => (e) =>
-    setBorrador((prev) => ({ ...prev, [campo]: e.target.value }));
-
-  // Objeto nuevo en cada clic a propósito: con la misma referencia React descarta el setState
-  // y el efecto no vuelve a correr, así que Generar no consultaba de nuevo con los mismos
-  // filtros. Cada clic es una consulta, que es lo que el botón promete.
-  const aplicarFiltros = (e) => {
-    e.preventDefault();
-    setAplicados({ ...borrador });
-  };
+  const cambiarFiltro = (campo) => (e) => cambiarCampo(campo, e.target.value);
 
   return (
     <div className="reportes-inventario">
-      <form className="reporte-filtros-card" onSubmit={aplicarFiltros}>
+      <FiltrosReporte
+        onGenerar={generar}
+        cargando={cargando}
+        desactualizado={desactualizado}
+        acciones={
+          <BotonExportar
+            onClick={exportar}
+            deshabilitado={!puedeExportar}
+            descargando={descargando}
+            motivo={motivoDeshabilitado}
+          />
+        }
+      >
         <Form.Group className="reporte-filtro">
           <Form.Label htmlFor="inv-fraccion">Fracción</Form.Label>
           <Form.Select
@@ -222,16 +213,7 @@ export default function VistaInventario() {
             ))}
           </Form.Select>
         </Form.Group>
-
-        <Button
-          type="submit"
-          variant="primary"
-          className="reporte-filtros-card__boton"
-          disabled={cargando}
-        >
-          {BOTON_GENERAR}
-        </Button>
-      </form>
+      </FiltrosReporte>
 
       {errorFracciones && (
         <Alert variant="warning" className="reportes-aviso">
@@ -239,17 +221,13 @@ export default function VistaInventario() {
         </Alert>
       )}
 
-      {cargando && (
-        <div className="reportes-cargando">
-          <div className="spinner-border" role="status" />
-          <span className="ms-2">Cargando inventario…</span>
-        </div>
-      )}
+      {/* La primera consulta no tiene nada que atenuar, así que el indicador va solo. */}
+      {cargando && !datos && <IndicadorCarga texto={TEXTO_CARGANDO} />}
 
-      {!cargando && error && <Alert variant="danger">{error}</Alert>}
+      {!cargando && error && <ErrorReporte mensaje={error} onReintentar={reintentar} />}
 
-      {!cargando && !error && datos && (
-        <>
+      {datos && !error && (
+        <ResultadoReporte actualizando={cargando} textoActualizando={TEXTO_ACTUALIZANDO}>
           <p className="reportes-corte">Datos al {fmtFechaCalendario(datos.corte)}</p>
 
           <div className="reportes-kpis">
@@ -294,9 +272,9 @@ export default function VistaInventario() {
             filas={datos.filas ?? []}
             gridTemplate={GRID_TEMPLATE}
             filaKey={(fila) => fila.loteId}
-            vacio="No hay lotes que coincidan con los filtros."
+            vacio={TEXTO_VACIO}
           />
-        </>
+        </ResultadoReporte>
       )}
     </div>
   );
