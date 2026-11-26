@@ -2429,7 +2429,7 @@ QA (#298) encontró que INMOBILIARIA, en Personas → "Ver persona" de un client
 - La lista llegaba vacía porque el listado de INMOBILIARIA no incluía la relación `Reserva` (`toPersona` devolvía `reservas: []`). Desde D6 (AI-032), el detalle de INMOBILIARIA usa los datos de la lista y no llama a `GET /personas/:id`.
 - Para ADMINISTRADOR, `GET /personas/:id` devolvía las 8 reservas.
 
-Decisión del líder del proyecto: INMOBILIARIA ve en el detalle de su cliente solo las reservas que el cliente hizo con su inmobiliaria, con la cantidad correcta. Propietario e Inquilino no cambian. ADMINISTRADOR, GESTOR y TECNICO no cambian. Se autorizó tocar el backend.
+Decisión del equipo: INMOBILIARIA ve en el detalle de su cliente solo las reservas que el cliente hizo con su inmobiliaria, con la cantidad correcta. ADMINISTRADOR, GESTOR y TECNICO no cambian.
 
 Bug QA 17: en el mismo detalle, INMOBILIARIA veía las secciones Propietario e Inquilino (lotes propios y alquilados) siempre en 0, porque "Mis clientes" no incluye propietarios ni inquilinos. Decisión del equipo: ocultarlas para INMOBILIARIA en el frontend. La sección Reservas se mantiene (Ventas ya no se mostraba, porque INMOBILIARIA no tiene `SALE_VIEW`), y ADMINISTRADOR, GESTOR y TECNICO no cambian.
 
@@ -2464,11 +2464,11 @@ Para el bug QA 17, con un cambio solo de frontend: no dibujar Propietario ni Inq
 
 #### Validación humana
 
-Se probó en el entorno QA local. Con qa.inmo.a, el detalle de ClienteA muestra solo las secciones Reservas; Reservas indica 7 y lista las reservas hechas con su inmobiliaria, coincidiendo con el listado. Ya no aparecen Propietario ni Inquilino. Con qa.admin, la misma persona muestra las cuatro secciones con los totales de todas las inmobiliarias, sin cambios. Se verificó que el test unitario nuevo falla sin el filtro por inmobiliaria y pasa con el cambio. Lint sin problemas nuevos, build, typecheck y tests del backend en verde.
+Se probó en el entorno QA local. Con qa.inmo.a, el detalle de ClienteA muestra solo la sección Reservas; Reservas indica 7 y lista las reservas hechas con su inmobiliaria, coincidiendo con el listado. Ya no aparecen Propietario ni Inquilino. Con qa.admin, la misma persona muestra las cuatro secciones con los totales de todas las inmobiliarias, sin cambios. Se verificó que el test unitario nuevo falla sin el filtro por inmobiliaria y pasa con el cambio. Lint sin problemas nuevos, build, typecheck y tests del backend en verde.
 
 #### Decisión adoptada
 
-Se mantiene el filtro en el backend: para INMOBILIARIA, el backend devuelve solo las reservas y ventas que esa persona hizo con su inmobiliaria, con contadores coherentes con el listado (bug QA 16). ADMINISTRADOR y GESTOR siguen viendo todas. Además, el equipo decidió ocultar en el frontend las secciones Propietario e Inquilino para INMOBILIARIA (bug QA 17): "Mis clientes" no incluye propietarios ni inquilinos, por lo que esas secciones siempre aparecían en 0 y no aportaban información. La sección Reservas se mantiene visible; Ventas no se muestra porque la inmobiliaria no tiene permiso para ver ventas.
+Se mantiene el filtro en el backend: para INMOBILIARIA, el detalle de una persona trae solo las reservas que esa persona hizo con su inmobiliaria, con un contador coherente con el listado (bug QA 16); el mismo filtro se aplica al conteo de ventas. ADMINISTRADOR y GESTOR siguen viendo todas. Además, el equipo decidió ocultar en el frontend las secciones Propietario e Inquilino para INMOBILIARIA (bug QA 17): "Mis clientes" no incluye propietarios ni inquilinos, por lo que esas secciones siempre aparecían en 0 y no aportaban información. En pantalla, la inmobiliaria ve solo la sección Reservas; Ventas no se muestra porque no tiene permiso para ver ventas.
 
 #### Resultado
 

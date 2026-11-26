@@ -75,7 +75,7 @@ Reportes;Ver ventas por período;GET /reportes/ventas;Sí;Sí;No;No;ADMIN y GEST
 Reportes;Exportar ventas;GET /reportes/ventas.xlsx;Sí;Sí;No;No;ADMIN y GESTOR;Sí;reportes.routes.ts:40-44
 Reportes;Ver cuotas vencidas;GET /reportes/cuotas-vencidas;Sí;Sí;No;No;ADMIN y GESTOR;Sí;reportes.routes.ts:47-51
 Reportes;Exportar cuotas vencidas;GET /reportes/cuotas-vencidas.xlsx;Sí;Sí;No;No;ADMIN y GESTOR;Sí;reportes.routes.ts:54-58
-Fracciones y ubicaciones;Listar fracciones;GET /fracciones;Sí;Sí;No;Sí;Alta de lote (solo ADMIN) y Reportes (ADMIN y GESTOR);Sí;fraccion.routes.ts:10-13, LoteCrearCard.jsx:133, lib/api/reportes.js:184
+Fracciones y ubicaciones;Listar fracciones;GET /fracciones;Sí;Sí;No;Sí;Alta de lote (solo ADMIN y GESTOR) y Reportes (ADMIN y GESTOR);Sí;fraccion.routes.ts:10-13, LoteCrearCard.jsx:133, lib/api/reportes.js:184
 Fracciones y ubicaciones;Ver fracción;GET /fracciones/:id;Sí;Sí;No;Sí;Ninguna pantalla lo usa;Sin pantalla;fraccion.routes.ts:18-21
 Fracciones y ubicaciones;Crear fracción;POST /fracciones;Sí;Sí;No;No;Sin pantalla;Sin pantalla;fraccion.routes.ts:27-30
 Fracciones y ubicaciones;Editar fracción;PUT /fracciones/:id;Sí;Sí;No;No;Sin pantalla;Sin pantalla;fraccion.routes.ts:36-39
