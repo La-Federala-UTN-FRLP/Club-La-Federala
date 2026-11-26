@@ -37,10 +37,10 @@ Ventas y pagos;Registrar recargo;POST /ventas/:ventaId/pagos/recargo;Sí;Sí;No;
 Ventas y pagos;Registrar pago;POST /ventas/:ventaId/pagos;Sí;Sí;No;No;ADMIN y GESTOR (SALE_EDIT);Sí;ventas.routes.ts:100-103, VentaPagosPage.jsx:446-629
 Ventas y pagos;Reemplazar plan de pagos;POST /ventas/:ventaId/pagos/plan/reemplazar;Sí;Sí;No;No;ADMIN y GESTOR (SALE_EDIT);Sí;ventas.routes.ts:109-112, VentaPagosPage.jsx:446-629
 Ventas y pagos;Crear plan de pagos;POST /ventas/:ventaId/pagos/plan;Sí;Sí;No;No;ADMIN y GESTOR (SALE_EDIT);Sí;ventas.routes.ts:118-121, VentaPagosPage.jsx:446-629
-Personas;Listar personas;GET /personas;Sí;Sí;Sí (solo Mis clientes, sin eliminadas);Sí (sin eliminadas);"Todos. INMO solo ""Ver Mis Clientes""";Sí;persona.routes.ts:13-16, persona.service.ts:404-415, :451-458, Sidebar.jsx:77-86
+Personas;Listar personas;GET /personas;Sí;Sí;Sí (solo Mis clientes, sin eliminadas);Sí (sin eliminadas);"Todos. INMO solo ""Ver Mis Clientes""";Sí;persona.routes.ts:13-16, persona.service.ts:404-415, :461-468, Sidebar.jsx:77-86
 Personas;Buscar por CUIL;GET /personas/cuil/:cuil;Sí;Sí;No;Sí;Ninguna pantalla lo usa (existe en la capa API);Sin pantalla;persona.routes.ts:23-26, lib/api/personas.js:149
-Personas;Ver persona;GET /personas/:id;Sí;Sí;No;Sí;ADMIN, GESTOR y TECNICO abren el detalle desde la API. Para INMO el frontend no pide el detalle y usa los datos de la lista;Sí (D6);persona.routes.ts:32-35, PersonaVerCard.jsx:56-63
-Personas;Crear persona;POST /personas;Sí;Sí;Sí (queda asignada a su inmobiliaria);No;ADMIN, GESTOR e INMO;Sí;persona.routes.ts:43-46, persona.service.ts:611-618, Personas.jsx:323
+Personas;Ver persona;GET /personas/:id;Sí;Sí;No;Sí;ADMIN, GESTOR y TECNICO abren el detalle desde la API. Para INMO el frontend no pide el detalle, usa los datos de la lista y no muestra Propietario ni Inquilino;Sí (D6);persona.routes.ts:32-35, PersonaVerCard.jsx:56-63, :398-400
+Personas;Crear persona;POST /personas;Sí;Sí;Sí (queda asignada a su inmobiliaria);No;ADMIN, GESTOR e INMO;Sí;persona.routes.ts:43-46, persona.service.ts:621-628, Personas.jsx:323
 Personas;Editar persona;PUT /personas/:id;Sí;Sí;No;No;ADMIN y GESTOR (PEOPLE_EDIT);Sí;persona.routes.ts:52-55, Personas.jsx:127, PersonaVerCard.jsx:434
 Personas;Desactivar persona;PATCH /personas/:id/desactivar;Sí;Sí;No;No;ADMIN y GESTOR (PEOPLE_DELETE);Sí;persona.routes.ts:62-65, Personas.jsx:128
 Personas;Reactivar persona;PATCH /personas/:id/reactivar;Sí;Sí;No;No;ADMIN y GESTOR (PEOPLE_DELETE);Sí;persona.routes.ts:71-74, Personas.jsx:128
@@ -75,7 +75,7 @@ Reportes;Ver ventas por período;GET /reportes/ventas;Sí;Sí;No;No;ADMIN y GEST
 Reportes;Exportar ventas;GET /reportes/ventas.xlsx;Sí;Sí;No;No;ADMIN y GESTOR;Sí;reportes.routes.ts:40-44
 Reportes;Ver cuotas vencidas;GET /reportes/cuotas-vencidas;Sí;Sí;No;No;ADMIN y GESTOR;Sí;reportes.routes.ts:47-51
 Reportes;Exportar cuotas vencidas;GET /reportes/cuotas-vencidas.xlsx;Sí;Sí;No;No;ADMIN y GESTOR;Sí;reportes.routes.ts:54-58
-Fracciones y ubicaciones;Listar fracciones;GET /fracciones;Sí;Sí;No;Sí;Alta de lote (solo ADMIN) y Reportes (ADMIN y GESTOR);Sí;fraccion.routes.ts:10-13, LoteCrearCard.jsx:133, lib/api/reportes.js:184
+Fracciones y ubicaciones;Listar fracciones;GET /fracciones;Sí;Sí;No;Sí;Alta de lote (solo ADMIN y GESTOR) y Reportes (ADMIN y GESTOR);Sí;fraccion.routes.ts:10-13, LoteCrearCard.jsx:133, lib/api/reportes.js:184
 Fracciones y ubicaciones;Ver fracción;GET /fracciones/:id;Sí;Sí;No;Sí;Ninguna pantalla lo usa;Sin pantalla;fraccion.routes.ts:18-21
 Fracciones y ubicaciones;Crear fracción;POST /fracciones;Sí;Sí;No;No;Sin pantalla;Sin pantalla;fraccion.routes.ts:27-30
 Fracciones y ubicaciones;Editar fracción;PUT /fracciones/:id;Sí;Sí;No;No;Sin pantalla;Sin pantalla;fraccion.routes.ts:36-39
