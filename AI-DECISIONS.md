@@ -2381,12 +2381,12 @@ Implementar las cinco decisiones (D1, D3, D4, D5 y D6) con cambios mínimos y so
 
 #### Validación humana
 
-- Las decisiones D1, D3, D4 y D5 las tomó el equipo a partir de la matriz RBAC (`docs/architecture/matriz-rbac.md`), mediante una encuesta en el grupo.
+- Las decisiones D1, D3, D4, D5 y D6 las tomó el equipo a partir de la matriz RBAC (`docs/architecture/matriz-rbac.md`), mediante una encuesta en el grupo.
 - Revisión del diff: cambios solo de frontend, sin backend, OpenAPI ni Prisma. Antes de aplicar se revisó dónde se usa cada permiso, para no cambiar otras pantallas sin querer.
 - Se aceptó el ajuste propuesto por la IA para D1: el botón "Editar Reserva" también aparecía dentro del detalle de la reserva y en el tablero, sin depender de ningún permiso; ahora solo se muestra con `RES_EDIT`.
 - `npm run build` OK; lint de los archivos tocados igual que en `main`; `git diff --check` limpio.
 - Prueba manual en la base QA con qa.admin, qa.gestor y qa.inmo.a: la inmobiliaria ya no ve "Editar Reserva" (ni en la tabla ni en el detalle) ni eliminar prioridad; el gestor ve "+ Agregar Lote" y eliminar prioridad, y ya no ve "Eliminar Lote"; el administrador no cambia. La inmobiliaria sigue creando reservas, viendo ofertas y editando sus prioridades.
-- D6: PENDIENTE
+- D6: prueba manual con qa.inmo.a: el detalle de persona se muestra completo con los datos de la lista, sin pedido a GET /personas/:id ni errores en la consola; con qa.admin el pedido sigue respondiendo 200.
 
 #### Decisión adoptada
 
@@ -2465,6 +2465,78 @@ El contrato documenta lo que hace el código hoy: 6 operaciones, sin el resumen 
 - Especificación y contratos de Reportes + IA (CCLF-37), V4
 - `AI-DECISIONS.md`
 
+### AI-034 — Reservas del cliente para la inmobiliaria en el detalle de persona
+
+**Fecha:** 2026-11-25
+**Área:** Backend y Frontend / Personas / Autorización por tenant
+**Herramientas:** Claude Code
+
+#### Problema
+
+QA (#298) encontró que INMOBILIARIA, en Personas → "Ver persona" de un cliente suyo (en la base QA, ClienteA QA), veía "Reservas (8)" y, al abrir la sección, "Sin reservas":
+
+- La cantidad salía de `_count`, que en el listado (`GET /personas`, view `MIS_CLIENTES`) contaba las reservas y las ventas del cliente con **todas** las inmobiliarias: un dato de actividad ajena.
+- La lista llegaba vacía porque el listado de INMOBILIARIA no incluía la relación `Reserva` (`toPersona` devolvía `reservas: []`). Desde D6 (AI-032), el detalle de INMOBILIARIA usa los datos de la lista y no llama a `GET /personas/:id`.
+- Para ADMINISTRADOR, `GET /personas/:id` devolvía las 8 reservas.
+
+Decisión del equipo: INMOBILIARIA ve en el detalle de su cliente solo las reservas que el cliente hizo con su inmobiliaria, con la cantidad correcta. ADMINISTRADOR, GESTOR y TECNICO no cambian.
+
+Bug QA 17: en el mismo detalle, INMOBILIARIA veía las secciones Propietario e Inquilino (lotes propios y alquilados) siempre en 0, porque "Mis clientes" no incluye propietarios ni inquilinos. Decisión del equipo: ocultarlas para INMOBILIARIA en el frontend. La sección Reservas se mantiene (Ventas ya no se mostraba, porque INMOBILIARIA no tiene `SALE_VIEW`), y ADMINISTRADOR, GESTOR y TECNICO no cambian.
+
+#### Prompt / intención
+
+Corregir el listado de personas para INMOBILIARIA con un cambio mínimo en el backend:
+- Incluir las reservas del cliente filtradas por la inmobiliaria del usuario.
+- Contar solo las reservas y ventas de esa inmobiliaria.
+
+No cambiar la respuesta para los otros roles ni el contrato OpenAPI. Agregar un test de regresión.
+
+Para el bug QA 17, con un cambio solo de frontend: no dibujar Propietario ni Inquilino en el detalle de persona para INMOBILIARIA, usando el chequeo de rol que ya tiene `PersonaVerCard.jsx`.
+
+#### Propuesta generada por IA
+
+- **Backend** (`Backend/src/services/persona.service.ts`, `getAllPersonas`, rama de INMOBILIARIA):
+  - `_count.Reserva` y `_count.Venta` cuentan solo las de `inmobiliariaId` del usuario.
+  - El listado incluye `Reserva` filtrada por la misma inmobiliaria, con el formato del detalle (`id`, `numero`, `createdAt`, `loteId`; las 10 más recientes).
+  - Las cantidades de lotes propios y alquileres no cambian. Las ramas de ADMINISTRADOR, GESTOR y TECNICO no se tocan.
+  - También se filtra la cantidad de ventas porque se expone y es el mismo dato ajeno, aunque INMOBILIARIA no tiene acceso al módulo Ventas.
+- **OpenAPI:** sin cambios. El schema `Persona` no declara `_count` ni `reservas`, y la respuesta ya traía las dos claves; solo cambia su contenido para INMOBILIARIA. Se mantienen las 84 operaciones más `/health` y la paridad.
+- **Frontend, reservas (bug QA 16):** sin cambios de código. `lib/api/personas.js` ya pasa `_count` y `reservas` como llegan, y `PersonaVerCard.jsx` usa `_count.Reserva` para la cantidad y `reservas` para la lista. "Ver Reserva" llama a `GET /reservas/:id`, que acepta las reservas propias de INMOBILIARIA.
+- **Frontend, Propietario e Inquilino (bug QA 17):** en `PersonaVerCard.jsx`, `accordionsConfig` arma las cuatro secciones de "Asociaciones" y, si `isInmobiliaria` (el chequeo que ya usa el componente), quita Propietario e Inquilino, que no se dibujan. De lo que queda, Ventas tampoco se dibuja, porque `AssociationAccordion` no muestra una sección sin permiso e INMOBILIARIA no tiene `SALE_VIEW`. En pantalla, INMOBILIARIA ve solo Reservas. ADMINISTRADOR, GESTOR y TECNICO siguen viendo las cuatro. La columna opcional "Lotes" de la tabla de personas no se toca, porque no aparece para INMOBILIARIA.
+- **Test** (`Backend/tests/unit/services/persona.reservas-inmobiliaria.test.ts`, Prisma mockeado):
+  - INMOBILIARIA A filtra la lista y el conteo de reservas y ventas por su inmobiliaria.
+  - INMOBILIARIA B usa su propio id.
+  - La respuesta trae esas reservas con su cantidad.
+  - La consulta de ADMINISTRADOR no cambia.
+
+  El test verifica la consulta que recibe Prisma; el filtrado en la base lo hace Prisma. Se descartó un test de integración contra PostgreSQL para esta entrega.
+- **Docs** (`docs/architecture/matriz-rbac.md` y su CSV): fila "Asociaciones en el detalle de persona" en "Campos visibles por rol" (INMOBILIARIA ve los datos de la persona y Reservas con su inmobiliaria, sin Propietario, Inquilino ni Ventas), fila "Ver persona" actualizada y referencias de línea corregidas.
+
+#### Validación humana
+
+Se probó en el entorno QA local. Con qa.inmo.a, el detalle de ClienteA muestra solo la sección Reservas; Reservas indica 7 y lista las reservas hechas con su inmobiliaria, coincidiendo con el listado. Ya no aparecen Propietario ni Inquilino. Con qa.admin, la misma persona muestra las cuatro secciones con los totales de todas las inmobiliarias, sin cambios. Se verificó que el test unitario nuevo falla sin el filtro por inmobiliaria y pasa con el cambio. Lint sin problemas nuevos, build, typecheck y tests del backend en verde.
+
+#### Decisión adoptada
+
+Se mantiene el filtro en el backend: para INMOBILIARIA, el detalle de una persona trae solo las reservas que esa persona hizo con su inmobiliaria, con un contador coherente con el listado (bug QA 16); el mismo filtro se aplica al conteo de ventas. ADMINISTRADOR y GESTOR siguen viendo todas. Además, el equipo decidió ocultar en el frontend las secciones Propietario e Inquilino para INMOBILIARIA (bug QA 17): "Mis clientes" no incluye propietarios ni inquilinos, por lo que esas secciones siempre aparecían en 0 y no aportaban información. En pantalla, la inmobiliaria ve solo la sección Reservas; Ventas no se muestra porque no tiene permiso para ver ventas.
+
+#### Resultado
+
+- Backend: `npm run typecheck` OK, `npm test` PASS (98 suites, 3496 tests, incluida la paridad OpenAPI) y `npm run build` OK.
+- El test nuevo falla con el `persona.service.ts` anterior (3 de 5 casos: los que verifican la consulta de INMOBILIARIA) y pasa con el cambio.
+- Frontend: `npm run build` OK. `npm run lint`: el único archivo tocado (`PersonaVerCard.jsx`) tiene los mismos hallazgos que en `main`, comparados regla por regla.
+- `git diff --check` limpio. El CSV de la matriz conserva 83 filas y 10 columnas.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/services/persona.service.ts` (`getAllPersonas`, rama de INMOBILIARIA)
+- `Backend/tests/unit/services/persona.reservas-inmobiliaria.test.ts`
+- `Backend/documents/documentacionApi.yaml` (schema `Persona`; sin cambios)
+- `frontend/src/components/Cards/Personas/PersonaVerCard.jsx` (secciones de "Asociaciones" por rol, bug QA 17)
+- `frontend/src/lib/api/personas.js` (pasa `_count` y `reservas`; sin cambios)
+- `docs/architecture/matriz-rbac.md` y `docs/qa/resultados/matriz-rbac.csv`
+- Refs #298
+- `AI-DECISIONS.md`
 
 ### AI-035 — Estados de pantalla y exportación a Excel en los tres reportes (frontend)
 
@@ -2553,6 +2625,8 @@ Observado, fuera del alcance: la venta 37593 figura como "Cancelada" sin fecha d
 - `frontend/src/components/sidebar/Sidebar.jsx` y `frontend/src/components/sidebar/SidebarItem.jsx`
 - Especificación y contratos de Reportes + IA (CCLF-37), V4
 - `AI-DECISIONS.md`
+
+
 
 ## Plantilla para entradas nuevas
 
