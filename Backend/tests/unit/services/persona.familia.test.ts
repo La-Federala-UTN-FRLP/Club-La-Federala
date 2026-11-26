@@ -150,10 +150,12 @@ describe('invariantes del helper central (assertJefeDeFamiliaAsignable)', () => 
 });
 
 describe('PUT /personas no modifica el jefe de familia', () => {
-    test('jefeDeFamiliaId en el update se ignora: no hay reasignación, segundo jefe ni ciclo', async () => {
+    // La ruta rechaza jefeDeFamiliaId con 400 (bug QA 14; ver personas.contracts.routes.test.ts).
+    // Defensa en profundidad: aunque llegara al service, no se aplica.
+    test('jefeDeFamiliaId que llegue al service no se aplica: no hay reasignación, segundo jefe ni ciclo', async () => {
         prisma.persona.update.mockImplementation(async ({ where }: { where: { id: number } }) => personaRow(where.id));
 
-        await updatePersona(1, { nombre: 'Titular', jefeDeFamiliaId: 2 });
+        await updatePersona(1, { nombre: 'Titular', jefeDeFamiliaId: 2 } as never);
 
         const { data } = prisma.persona.update.mock.calls[0][0];
         expect(data).not.toHaveProperty('jefeDeFamiliaId');

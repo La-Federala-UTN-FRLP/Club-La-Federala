@@ -515,28 +515,38 @@ describe('updatedLote — TECNICO', () => {
         expect(prismaMock.lote.update.mock.calls[0][0].data.archivos).toEqual(archivos);
     });
 
-    test('payload mixto conserva permitidos y descarta frente/fondo/precio', async () => {
+    test('subestado y superficie juntos → se aplican los dos', async () => {
         stubLoteActual();
         prismaMock.lote.update.mockResolvedValue(buildPrismaLote());
-        await updatedLote(
-            1,
-            {
-                subestado: 'Construido',
-                superficie: 520,
-                frente: 18,
-                fondo: 40,
-                precio: 200000,
-                descripcion: 'no',
-            },
-            'TECNICO',
-        );
+        await updatedLote(1, { subestado: 'Construido', superficie: 520 }, 'TECNICO');
         const data = prismaMock.lote.update.mock.calls[0][0].data;
         expect(data.subestado).toBe('CONSTRUIDO');
         expect(data.superficie).toBe(520);
-        expect(data.frente).toBeUndefined();
-        expect(data.fondo).toBeUndefined();
-        expect(data.precio).toBeUndefined();
-        expect(data.descripcion).toBeUndefined();
+    });
+
+    // Bugs QA 7 y 8: antes el payload mixto respondía 200 y descartaba en silencio lo no permitido.
+    test('payload mixto (permitidos + precio/descripcion) → 403 que nombra los campos, sin consultar ni actualizar', async () => {
+        const mixto = { subestado: 'Construido', superficie: 520, precio: 200000, descripcion: 'no' };
+        await expect(updatedLote(1, mixto, 'TECNICO')).rejects.toThrow(/Campos no permitidos: precio, descripcion/);
+        await expectStatus(() => updatedLote(1, mixto, 'TECNICO'), 403);
+        expect(prismaMock.lote.findUnique).not.toHaveBeenCalled();
+        expect(prismaMock.lote.update).not.toHaveBeenCalled();
+    });
+
+    test.each(['deuda', 'precio', 'estado', 'tipo', 'propietarioId'])('subestado + %s → 403', async (campo) => {
+        await expectStatus(() => updatedLote(1, { subestado: 'Construido', [campo]: 1 }, 'TECNICO'), 403);
+        expect(prismaMock.lote.update).not.toHaveBeenCalled();
+    });
+
+    test.each(['ADMINISTRADOR', 'GESTOR'])('%s: el payload mixto sigue aplicándose completo', async (rol) => {
+        stubLoteActual();
+        prismaMock.lote.update.mockResolvedValue(buildPrismaLote());
+        await updatedLote(1, { subestado: 'Construido', superficie: 520, precio: 200000, descripcion: 'sí' }, rol);
+        const data = prismaMock.lote.update.mock.calls[0][0].data;
+        expect(data.subestado).toBe('CONSTRUIDO');
+        expect(data.superficie).toBe(520);
+        expect(data.precio).toBe(200000);
+        expect(data.descripcion).toBe('sí');
     });
 
     test('sin campos permitidos lanza 403', async () => {

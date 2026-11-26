@@ -109,7 +109,6 @@ async actualizarPersona(req: Request, res: Response, next: NextFunction) {
       if (validatedData.razonSocial !== undefined) updateData.razonSocial = validatedData.razonSocial;
       if (validatedData.telefono !== undefined) updateData.telefono = validatedData.telefono;
       if (validatedData.email !== undefined) updateData.email = validatedData.email;
-      if (validatedData.jefeDeFamiliaId !== undefined) updateData.jefeDeFamiliaId = validatedData.jefeDeFamiliaId;
       if (validatedData.estado !== undefined) updateData.estado = validatedData.estado;
       if (validatedData.inmobiliariaId !== undefined) updateData.inmobiliariaId = validatedData.inmobiliariaId;
 

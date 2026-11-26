@@ -11,7 +11,7 @@ import { assertInmobiliariaAsignable, assertInmobiliariaOperativa } from '../uti
 // familia. No hay familias anidadas: un miembro no puede ser titular, un titular con miembros no
 // puede pasar a ser miembro, y nadie es su propio jefe. Estas reglas valen en todo camino que asigne
 // un jefe de familia (alta de persona con jefeDeFamiliaId y alta de miembro familiar). PUT /personas
-// no modifica el jefe de familia.
+// no modifica el jefe de familia: si recibe jefeDeFamiliaId responde 400 (updatePersonaSchema).
 export const MENSAJE_JEFE_INEXISTENTE = 'El jefe de familia especificado no existe';
 export const MENSAJE_JEFE_PROPIO = 'Una persona no puede ser su propio jefe de familia';
 export const MENSAJE_JEFE_ES_MIEMBRO = 'El titular indicado ya es miembro de otro grupo familiar';
@@ -126,7 +126,6 @@ export interface UpdatePersonaDto {
   razonSocial?: string;
   telefono?: number;
   email?: string;
-  jefeDeFamiliaId?: number;
   estadoOperativo?: 'OPERATIVO' | 'ELIMINADO';
   inmobiliariaId?: number | null;
 }

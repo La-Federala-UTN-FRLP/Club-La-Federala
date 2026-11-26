@@ -271,7 +271,7 @@ Una familia tiene un único titular y N miembros directos; una persona pertenece
 - un miembro no puede ser titular: agregarle miembros (`POST /personas/:id/grupo-familiar/miembros`) o elegirlo como `jefeDeFamiliaId` al crear una persona responde `409`;
 - un titular con miembros no puede pasar a ser miembro, y nadie es su propio jefe (regla del helper central `assertJefeDeFamiliaAsignable`);
 - un `jefeDeFamiliaId` inexistente responde `400`;
-- `PUT /personas/:id` no modifica el grupo familiar (`jefeDeFamiliaId` se ignora), así que ninguna persona existente pasa a ser miembro;
+- `PUT /personas/:id` no modifica el grupo familiar: enviar `jefeDeFamiliaId` responde `400` (el grupo se gestiona con `/personas/:id/grupo-familiar/miembros`), así que ninguna persona existente pasa a ser miembro;
 - el borrado de un titular con miembros responde `409`; un miembro se puede borrar si pasa los guards comerciales.
 
 El miembro nuevo hereda la inmobiliaria del titular; si está `ELIMINADO`, `409` (D1).

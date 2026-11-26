@@ -79,9 +79,9 @@ const CAMPOS: CampoId[] = [
     campo('inmobiliaria.create userId', createInmobiliariaSchema, inmobBase, 'userId'),
     campo('inmobiliaria.update userId', updateInmobiliariaSchema, { nombre: 'Inmo' }, 'userId'),
     // Persona: la nulabilidad actual se preserva (jefeDeFamiliaId no acepta null; inmobiliariaId sí).
+    // persona.update ya no acepta jefeDeFamiliaId con ningún valor (bug QA 14): se prueba aparte, al final.
     campo('persona.create jefeDeFamiliaId', createPersonaSchema, personaBase, 'jefeDeFamiliaId'),
     campo('persona.create inmobiliariaId', createPersonaSchema, personaBase, 'inmobiliariaId', { nullable: true }),
-    campo('persona.update jefeDeFamiliaId', updatePersonaSchema, { nombre: 'Ana' }, 'jefeDeFamiliaId'),
     campo('persona.update inmobiliariaId', updatePersonaSchema, { nombre: 'Ana' }, 'inmobiliariaId', { nullable: true }),
     // Venta (#252): la política compartida no cambia su contrato; reservaId era la excepción (z.number()).
     campo('venta.create loteId', createVentaSchema, ventaBase, 'loteId'),
@@ -142,4 +142,20 @@ describe.each(CAMPOS)('$nombre', (c) => {
             expect(result.success && c.leer(result.data)).toBeNull();
         });
     }
+});
+
+// Bug QA 14: PUT /personas/:id aceptaba jefeDeFamiliaId, respondía 200 y lo ignoraba. El grupo
+// familiar se gestiona solo con /personas/:id/grupo-familiar/miembros: cualquier valor es un 400.
+describe('persona.update jefeDeFamiliaId (no se acepta)', () => {
+    test.each([1, '1', 2147483647, null, true, ''])('rechaza %p con el error en el campo', (valor) => {
+        const result = updatePersonaSchema.safeParse({ nombre: 'Ana', jefeDeFamiliaId: valor });
+        expect(result.success).toBe(false);
+        expect(result.error?.issues.some((i) => i.path[0] === 'jefeDeFamiliaId' && /grupo-familiar\/miembros/.test(i.message))).toBe(true);
+    });
+
+    test('sin jefeDeFamiliaId el update sigue siendo válido', () => {
+        const result = updatePersonaSchema.safeParse({ nombre: 'Ana' });
+        expect(result.success).toBe(true);
+        expect(result.data).not.toHaveProperty('jefeDeFamiliaId');
+    });
 });
