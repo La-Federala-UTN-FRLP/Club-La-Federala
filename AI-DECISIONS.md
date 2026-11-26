@@ -2381,12 +2381,12 @@ Implementar las cinco decisiones (D1, D3, D4, D5 y D6) con cambios mínimos y so
 
 #### Validación humana
 
-- Las decisiones D1, D3, D4 y D5 las tomó el equipo a partir de la matriz RBAC (`docs/architecture/matriz-rbac.md`), mediante una encuesta en el grupo.
+- Las decisiones D1, D3, D4, D5 y D6 las tomó el equipo a partir de la matriz RBAC (`docs/architecture/matriz-rbac.md`), mediante una encuesta en el grupo.
 - Revisión del diff: cambios solo de frontend, sin backend, OpenAPI ni Prisma. Antes de aplicar se revisó dónde se usa cada permiso, para no cambiar otras pantallas sin querer.
 - Se aceptó el ajuste propuesto por la IA para D1: el botón "Editar Reserva" también aparecía dentro del detalle de la reserva y en el tablero, sin depender de ningún permiso; ahora solo se muestra con `RES_EDIT`.
 - `npm run build` OK; lint de los archivos tocados igual que en `main`; `git diff --check` limpio.
 - Prueba manual en la base QA con qa.admin, qa.gestor y qa.inmo.a: la inmobiliaria ya no ve "Editar Reserva" (ni en la tabla ni en el detalle) ni eliminar prioridad; el gestor ve "+ Agregar Lote" y eliminar prioridad, y ya no ve "Eliminar Lote"; el administrador no cambia. La inmobiliaria sigue creando reservas, viendo ofertas y editando sus prioridades.
-- D6: PENDIENTE
+- D6: prueba manual con qa.inmo.a: el detalle de persona se muestra completo con los datos de la lista, sin pedido a GET /personas/:id ni errores en la consola; con qa.admin el pedido sigue respondiendo 200.
 
 #### Decisión adoptada
 
@@ -2444,8 +2444,8 @@ Completar el contrato de las 6 operaciones siguiendo el estilo del YAML, con los
 
 #### Validación humana
 
-- PENDIENTE: decidir el status HTTP de `AI_UNAVAILABLE`. La especificación V4 dice 502 y el pedido de la tarea 38.7 decía 503. Por ahora el YAML no fija status; se documenta junto con `POST /reportes/resumen`.
-- PENDIENTE: revisión del diff del YAML en la PR.
+- Status HTTP de `AI_UNAVAILABLE`: la especificación V4 (vigente) dice 502 y el pedido de la tarea 38.7 decía 503. Se adopta 502, que es el contrato vigente. El YAML todavía no lo fija: se documenta junto con `POST /reportes/resumen` (40.3). El frontend decide por `code`, no por el status. Decisión tomada en la revisión cruzada, a confirmar por la autora.
+- Revisión del diff del YAML: hecha en la PR por Agus (revisión cruzada). Se verificaron a mano los ejemplos contra las reglas de cálculo (totales, tramos, orden, ARS fuera de las tarjetas USD) y los campos nulos del schema.
 
 #### Decisión adoptada
 
@@ -2464,6 +2464,168 @@ El contrato documenta lo que hace el código hoy: 6 operaciones, sin el resumen 
 - `Backend/tests/unit/openapi/` (paridad y contrato; sin cambios)
 - Especificación y contratos de Reportes + IA (CCLF-37), V4
 - `AI-DECISIONS.md`
+
+### AI-034 — Reservas del cliente para la inmobiliaria en el detalle de persona
+
+**Fecha:** 2026-11-25
+**Área:** Backend y Frontend / Personas / Autorización por tenant
+**Herramientas:** Claude Code
+
+#### Problema
+
+QA (#298) encontró que INMOBILIARIA, en Personas → "Ver persona" de un cliente suyo (en la base QA, ClienteA QA), veía "Reservas (8)" y, al abrir la sección, "Sin reservas":
+
+- La cantidad salía de `_count`, que en el listado (`GET /personas`, view `MIS_CLIENTES`) contaba las reservas y las ventas del cliente con **todas** las inmobiliarias: un dato de actividad ajena.
+- La lista llegaba vacía porque el listado de INMOBILIARIA no incluía la relación `Reserva` (`toPersona` devolvía `reservas: []`). Desde D6 (AI-032), el detalle de INMOBILIARIA usa los datos de la lista y no llama a `GET /personas/:id`.
+- Para ADMINISTRADOR, `GET /personas/:id` devolvía las 8 reservas.
+
+Decisión del equipo: INMOBILIARIA ve en el detalle de su cliente solo las reservas que el cliente hizo con su inmobiliaria, con la cantidad correcta. ADMINISTRADOR, GESTOR y TECNICO no cambian.
+
+Bug QA 17: en el mismo detalle, INMOBILIARIA veía las secciones Propietario e Inquilino (lotes propios y alquilados) siempre en 0, porque "Mis clientes" no incluye propietarios ni inquilinos. Decisión del equipo: ocultarlas para INMOBILIARIA en el frontend. La sección Reservas se mantiene (Ventas ya no se mostraba, porque INMOBILIARIA no tiene `SALE_VIEW`), y ADMINISTRADOR, GESTOR y TECNICO no cambian.
+
+#### Prompt / intención
+
+Corregir el listado de personas para INMOBILIARIA con un cambio mínimo en el backend:
+- Incluir las reservas del cliente filtradas por la inmobiliaria del usuario.
+- Contar solo las reservas y ventas de esa inmobiliaria.
+
+No cambiar la respuesta para los otros roles ni el contrato OpenAPI. Agregar un test de regresión.
+
+Para el bug QA 17, con un cambio solo de frontend: no dibujar Propietario ni Inquilino en el detalle de persona para INMOBILIARIA, usando el chequeo de rol que ya tiene `PersonaVerCard.jsx`.
+
+#### Propuesta generada por IA
+
+- **Backend** (`Backend/src/services/persona.service.ts`, `getAllPersonas`, rama de INMOBILIARIA):
+  - `_count.Reserva` y `_count.Venta` cuentan solo las de `inmobiliariaId` del usuario.
+  - El listado incluye `Reserva` filtrada por la misma inmobiliaria, con el formato del detalle (`id`, `numero`, `createdAt`, `loteId`; las 10 más recientes).
+  - Las cantidades de lotes propios y alquileres no cambian. Las ramas de ADMINISTRADOR, GESTOR y TECNICO no se tocan.
+  - También se filtra la cantidad de ventas porque se expone y es el mismo dato ajeno, aunque INMOBILIARIA no tiene acceso al módulo Ventas.
+- **OpenAPI:** sin cambios. El schema `Persona` no declara `_count` ni `reservas`, y la respuesta ya traía las dos claves; solo cambia su contenido para INMOBILIARIA. Se mantienen las 84 operaciones más `/health` y la paridad.
+- **Frontend, reservas (bug QA 16):** sin cambios de código. `lib/api/personas.js` ya pasa `_count` y `reservas` como llegan, y `PersonaVerCard.jsx` usa `_count.Reserva` para la cantidad y `reservas` para la lista. "Ver Reserva" llama a `GET /reservas/:id`, que acepta las reservas propias de INMOBILIARIA.
+- **Frontend, Propietario e Inquilino (bug QA 17):** en `PersonaVerCard.jsx`, `accordionsConfig` arma las cuatro secciones de "Asociaciones" y, si `isInmobiliaria` (el chequeo que ya usa el componente), quita Propietario e Inquilino, que no se dibujan. De lo que queda, Ventas tampoco se dibuja, porque `AssociationAccordion` no muestra una sección sin permiso e INMOBILIARIA no tiene `SALE_VIEW`. En pantalla, INMOBILIARIA ve solo Reservas. ADMINISTRADOR, GESTOR y TECNICO siguen viendo las cuatro. La columna opcional "Lotes" de la tabla de personas no se toca, porque no aparece para INMOBILIARIA.
+- **Test** (`Backend/tests/unit/services/persona.reservas-inmobiliaria.test.ts`, Prisma mockeado):
+  - INMOBILIARIA A filtra la lista y el conteo de reservas y ventas por su inmobiliaria.
+  - INMOBILIARIA B usa su propio id.
+  - La respuesta trae esas reservas con su cantidad.
+  - La consulta de ADMINISTRADOR no cambia.
+
+  El test verifica la consulta que recibe Prisma; el filtrado en la base lo hace Prisma. Se descartó un test de integración contra PostgreSQL para esta entrega.
+- **Docs** (`docs/architecture/matriz-rbac.md` y su CSV): fila "Asociaciones en el detalle de persona" en "Campos visibles por rol" (INMOBILIARIA ve los datos de la persona y Reservas con su inmobiliaria, sin Propietario, Inquilino ni Ventas), fila "Ver persona" actualizada y referencias de línea corregidas.
+
+#### Validación humana
+
+Se probó en el entorno QA local. Con qa.inmo.a, el detalle de ClienteA muestra solo la sección Reservas; Reservas indica 7 y lista las reservas hechas con su inmobiliaria, coincidiendo con el listado. Ya no aparecen Propietario ni Inquilino. Con qa.admin, la misma persona muestra las cuatro secciones con los totales de todas las inmobiliarias, sin cambios. Se verificó que el test unitario nuevo falla sin el filtro por inmobiliaria y pasa con el cambio. Lint sin problemas nuevos, build, typecheck y tests del backend en verde.
+
+#### Decisión adoptada
+
+Se mantiene el filtro en el backend: para INMOBILIARIA, el detalle de una persona trae solo las reservas que esa persona hizo con su inmobiliaria, con un contador coherente con el listado (bug QA 16); el mismo filtro se aplica al conteo de ventas. ADMINISTRADOR y GESTOR siguen viendo todas. Además, el equipo decidió ocultar en el frontend las secciones Propietario e Inquilino para INMOBILIARIA (bug QA 17): "Mis clientes" no incluye propietarios ni inquilinos, por lo que esas secciones siempre aparecían en 0 y no aportaban información. En pantalla, la inmobiliaria ve solo la sección Reservas; Ventas no se muestra porque no tiene permiso para ver ventas.
+
+#### Resultado
+
+- Backend: `npm run typecheck` OK, `npm test` PASS (98 suites, 3496 tests, incluida la paridad OpenAPI) y `npm run build` OK.
+- El test nuevo falla con el `persona.service.ts` anterior (3 de 5 casos: los que verifican la consulta de INMOBILIARIA) y pasa con el cambio.
+- Frontend: `npm run build` OK. `npm run lint`: el único archivo tocado (`PersonaVerCard.jsx`) tiene los mismos hallazgos que en `main`, comparados regla por regla.
+- `git diff --check` limpio. El CSV de la matriz conserva 83 filas y 10 columnas.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/services/persona.service.ts` (`getAllPersonas`, rama de INMOBILIARIA)
+- `Backend/tests/unit/services/persona.reservas-inmobiliaria.test.ts`
+- `Backend/documents/documentacionApi.yaml` (schema `Persona`; sin cambios)
+- `frontend/src/components/Cards/Personas/PersonaVerCard.jsx` (secciones de "Asociaciones" por rol, bug QA 17)
+- `frontend/src/lib/api/personas.js` (pasa `_count` y `reservas`; sin cambios)
+- `docs/architecture/matriz-rbac.md` y `docs/qa/resultados/matriz-rbac.csv`
+- Refs #298
+- `AI-DECISIONS.md`
+
+### AI-035 — Estados de pantalla y exportación a Excel en los tres reportes (frontend)
+
+**Fecha:** 2026-11-26  
+**Área:** Frontend / Reportes (tarea 39.5)  
+**Herramientas:** Claude Code (implementación) y Claude (planificación, revisión y verificación en el navegador)  
+
+#### Problema
+
+Los tres reportes (Inventario, Ventas por período y Cuotas vencidas) mostraban datos, pero no resolvían los estados que pide la especificación (CCLF-37, V4) ni permitían exportar:
+
+- Sin mensaje de error ni forma de reintentar.
+- Sin estado vacío con los filtros visibles.
+- Sin marca de resultado desactualizado cuando se cambia un filtro sin volver a generar.
+- Sin exportación a Excel: el submenú "Descargar Reporte" estaba deshabilitado.
+- Cada vista repetía su propio código de carga y de filtros.
+
+La exportación tenía que cumplir REP-A5: el archivo debe tener las mismas filas y totales que la pantalla, con los mismos filtros, corte y permisos.
+
+#### Prompt / intención
+
+Trabajo en etapas chicas: lectura del código sin escribir, hooks y componentes compartidos, migración de Ventas y Cuotas vencidas con la exportación, ajustes de interacción, migración del Inventario y esta entrada. Después de cada etapa la IA se detenía y reportaba (`git diff --stat`, fragmentos del código, lint y build), y una persona aprobaba antes de la siguiente. La IA tenía prohibido hacer `git add`, `git commit` y `git push`.
+
+Reglas dadas: respetar el contrato de CCLF-37; la pantalla nunca recalcula cifras que calculó el backend; exportar siempre los filtros aplicados y no los que se están editando; usar solo tokens de color existentes; dejar el lint con el mismo número de problemas.
+
+#### Propuesta generada por IA
+
+- `useReporte`: un hook con el filtro en edición, el filtro aplicado, los datos, la carga, el error, la marca de desactualizado y las acciones `generar` y `reintentar`. Lo usan los tres reportes.
+- `useCatalogoFracciones` para el selector de fracciones, que estaba repetido.
+- `IndicadorCarga`, `ErrorReporte` (mensaje y botón "Reintentar") y `ResultadoReporte` (atenúa el resultado anterior mientras se vuelve a generar).
+- `exportarReporte` en `lib/api/reportes.js`: descarga el `.xlsx`, muestra el mensaje del backend si responde un error en JSON, valida el tipo de contenido y toma el nombre del archivo de `Content-Disposition`.
+- `useExportarReporte`, `BotonExportar` y `descargarBlob`: botón con cuatro estados, que exporta siempre los filtros aplicados.
+- Se quitó el ítem deshabilitado "Descargar Reporte" del menú lateral.
+- El Inventario pasó al mismo esquema: carga al entrar y comparte filtros, estados y exportación.
+
+#### Validación humana
+
+- El Inventario no se postergó: era el único reporte que quedaba sin estados ni exportación y habría dejado tres pantallas con comportamientos distintos.
+- "Exportar a Excel" queda deshabilitado mientras la pantalla está cargando, para no exportar con datos viejos.
+- Se verificó en el código de react-bootstrap que el toast ya declara `role="alert"`; por eso no se agregó otro anuncio accesible para el error de exportación.
+- Se midió en el navegador que el hover de Bootstrap pisaba el color del botón "Generar reporte" (rgb(11,94,215)). Se corrigió con una regla explícita y se volvió a medir.
+- Doble clic: la protección solo cubría la petición en vuelo, y como el backend responde rápido un doble clic descargaba dos archivos. Se agregó una traba mínima de 1 segundo. Verificado el 26/11 con dos clics separados por 150 ms: una petición y una descarga. Un segundo clic pasado ese segundo es una exportación nueva, y se decidió dejarlo así.
+- Con `VITE_REPORTES_MOCK=true` el botón de exportar queda deshabilitado ("No disponible con datos simulados"): no se simula una exportación. Sin la variable, el cliente usa la API real, así que el mock no puede llegar a staging por olvido.
+- Se quitó "Descargar Reporte" del menú en lugar de reemplazarlo: la exportación vive dentro de cada reporte.
+- Al quitar ese ítem, el menú flotante de Reportes quedó corrido hacia arriba: `SidebarItem.jsx` centraba el menú suponiendo una altura fija de 200 px, y con una sola opción mide 104 px. Se pasó a medir la altura real del menú. Es un defecto previo que afectaba a todos los módulos con pocas opciones.
+- La migración de Ventas y Cuotas dejó el botón "Generar reporte" del Inventario sin alineación a la derecha. Se detectó al migrar el Inventario y quedó corregido con la migración.
+- El Inventario conserva su `TarjetaKpi` local y las clases `reportes-kpi*`, que duplican a `reporte-kpi*`. No se migraron para no ampliar el cambio; queda como deuda.
+
+#### Decisión adoptada
+
+Los tres reportes comparten el mismo hook y los mismos estados. La exportación usa siempre los filtros aplicados, el mismo endpoint y los mismos permisos que la vista. La pantalla muestra lo que devuelve el backend, sin recalcular. El único color nuevo es el del ícono de Excel (`--reporte-excel-icono`).
+
+#### Resultado
+
+Verificado en el navegador con el backend real:
+- El Inventario carga al entrar (47 lotes, 17 ofrecibles). Con Fracción 3: 39 lotes y 16 ofrecibles.
+- La marca de desactualizado aparece al cambiar un filtro y desaparece al generar (Ventas e Inventario).
+- Contrastes medidos: aviso 8,43, "Exportar a Excel" 14,84, "Generar reporte" 7,89.
+- Doble clic: una petición y una descarga.
+- Menú flotante del sidebar centrado con su ícono en los 6 módulos (de 1 a 4 opciones, de 104 a 234 px de alto): diferencia de 0 px.
+
+REP-A5 (archivo contra pantalla):
+- Ventas por período (27/10 al 25/11): el archivo tiene las mismas filas y totales que la pantalla. Con el filtro de fracción, el archivo registra `Filtro: Fracción 3` en la hoja Parámetros.
+- Cuotas vencidas en USD: 6 filas, saldo 213.833,34, 2 ventas.
+- Cuotas vencidas en ARS: 11 cuotas en 3 ventas, saldo 130.842,66, tramos 272,00 / 272,00 / 130.298,66; igual a la pantalla.
+- Inventario sin filtro: 47 filas, 17 ofrecibles, y los totales por estado, fracción y subestado suman 47.
+- Inventario con Fracción 3: 39 filas, todas de esa fracción, 16 ofrecibles, totales por estado y subestado que suman 39, y `Filtro: Fracción 3` en la hoja Parámetros; coincide con la pantalla.
+- Los nombres de archivo salen con el formato del contrato en los tres reportes.
+
+Lint con el mismo número de problemas que antes (163: 113 errores y 50 advertencias) y build correcto.
+
+No verificado:
+- El error con "Reintentar" con el backend caído.
+- La atenuación del resultado anterior al volver a generar (el backend responde demasiado rápido para verla).
+- El comportamiento a 768 px.
+- Lotes sin número o sin precio con datos reales: la base actual no tiene ninguno, solo hay ejemplos del contrato.
+- El menú flotante en una ventana baja, donde entra en juego el límite contra el borde del viewport.
+
+Observado, fuera del alcance: la venta 37593 figura como "Cancelada" sin fecha de cancelación, por eso el reporte la cuenta como iniciada y no como cancelada (origen probable: `cancelActivesOnNoDisponible`). También hay un lote "Disponible" con precio 0 en la base.
+
+#### Evidencia / archivos relacionados
+
+- `frontend/src/components/Reportes/` (`useReporte.js`, `useCatalogoFracciones.js`, `EstadosReporte.jsx`, `useExportarReporte.js`, `BotonExportar.jsx`, `FiltrosReporte.jsx`, `VistaInventario.jsx`, `VistaVentas.jsx`, `VistaCuotasVencidas.jsx`)
+- `frontend/src/lib/api/reportes.js` y `frontend/src/lib/descargas.js`
+- `frontend/src/pages/Reportes.css`
+- `frontend/src/components/sidebar/Sidebar.jsx` y `frontend/src/components/sidebar/SidebarItem.jsx`
+- Especificación y contratos de Reportes + IA (CCLF-37), V4
+- `AI-DECISIONS.md`
+
 
 
 ## Plantilla para entradas nuevas

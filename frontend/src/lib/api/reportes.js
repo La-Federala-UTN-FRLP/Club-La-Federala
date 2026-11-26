@@ -16,6 +16,10 @@ const BASE = "/reportes";
 // queda como código muerto y no entra al bundle.
 const USE_MOCK = import.meta.env.VITE_REPORTES_MOCK === "true";
 
+// Si la pantalla está con datos simulados. Lo necesita el botón de exportar, que no puede
+// inventar un .xlsx. Se borra junto con el mock en 39.6.
+export const REPORTES_EN_MOCK = USE_MOCK;
+
 /** Arma "?a=1&b=2" omitiendo los parámetros undefined, null o vacíos. */
 function buildQuery(params = {}) {
   const qs = new URLSearchParams();
@@ -25,6 +29,21 @@ function buildQuery(params = {}) {
   }
   const s = qs.toString();
   return s ? `?${s}` : "";
+}
+
+/**
+ * Error de una respuesta que no es 2xx, con la forma que esperan `parseApiError` y las vistas:
+ * el mensaje del backend si vino uno, y el status y el cuerpo colgados del Error.
+ *
+ * @param {object} data - Cuerpo ya parseado, o `{}` si no era JSON
+ * @param {number} status
+ * @param {string} fallbackMsg - Mensaje cuando el cuerpo no trae `message`
+ */
+function errorDeRespuesta(data, status, fallbackMsg) {
+  const err = new Error(data?.message || fallbackMsg);
+  err.statusCode = status;
+  err.response = data;
+  return err;
 }
 
 /**
@@ -44,12 +63,7 @@ async function getReporte(path, params, mockFn, fallbackMsg) {
   const res = await http(`${BASE}${path}${buildQuery(params)}`, { method: "GET" });
   const data = await res.json().catch(() => ({}));
 
-  if (!res.ok) {
-    const err = new Error(data?.message || fallbackMsg);
-    err.statusCode = res.status;
-    err.response = data;
-    throw err;
-  }
+  if (!res.ok) throw errorDeRespuesta(data, res.status, fallbackMsg);
 
   return data?.data ?? data;
 }
@@ -161,6 +175,50 @@ export function getCuotasVencidas({ moneda, fraccion } = {}) {
     "getCuotasVencidas",
     "Error al obtener el reporte de cuotas vencidas"
   );
+}
+
+// Lo que tiene que decir el `Content-Type` de un .xlsx. Se busca por fragmento y no por igualdad
+// porque la cabecera puede venir con charset o con otros parámetros pegados.
+const TIPO_XLSX = "spreadsheetml.sheet";
+
+// El backend valida el nombre contra /^[A-Za-z0-9._-]+\.xlsx$/ antes de escribir la cabecera, así
+// que no hay comillas internas, ni espacios, ni `filename*=`: esta regex alcanza y, por estricta,
+// no se queda con nada que no sea un nombre de archivo esperable.
+const NOMBRE_EN_DISPOSITION = /filename="?([A-Za-z0-9._-]+\.xlsx)"?/;
+
+/**
+ * Exporta un reporte a Excel. Mismos parámetros, validaciones y roles que su gemelo JSON: el
+ * backend arma el archivo con el mismo service, así que las filas coinciden con las de la vista.
+ *
+ * Con el mock no se exporta nada: simular un .xlsx necesitaría una librería nueva, y un archivo
+ * inventado por el frontend no probaría que coincide con la pantalla.
+ *
+ * @param {"inventario"|"ventas"|"cuotas-vencidas"} ruta
+ * @param {object} filtros - Los filtros aplicados, tal cual; `buildQuery` saltea los vacíos
+ * @returns {Promise<{blob: Blob, nombre: string|null}>} `nombre` es el del backend, o null si la
+ *   cabecera no llegó o no se pudo leer: quien llama pone el suyo.
+ */
+export async function exportarReporte(ruta, filtros = {}) {
+  if (USE_MOCK) throw new Error("La exportación no está disponible con datos simulados");
+
+  const res = await http(`${BASE}/${ruta}.xlsx${buildQuery(filtros)}`, { method: "GET" });
+
+  // Un error nunca viene en binario: ante validación fallida, sin token o sin rol, el backend
+  // responde el JSON de error. Por eso se mira `res.ok` antes de tocar el cuerpo como archivo.
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw errorDeRespuesta(data, res.status, "Error al exportar el reporte");
+  }
+
+  // Un 200 que no es un libro de Excel (un proxy devolviendo HTML, por ejemplo) no se baja como
+  // si lo fuera: se abriría roto y parecería un archivo corrupto en lugar de un problema de red.
+  if (!(res.headers.get("Content-Type") ?? "").includes(TIPO_XLSX)) {
+    throw new Error("La respuesta no es un archivo de Excel");
+  }
+
+  const nombre = NOMBRE_EN_DISPOSITION.exec(res.headers.get("Content-Disposition") ?? "")?.[1];
+
+  return { blob: await res.blob(), nombre: nombre ?? null };
 }
 
 /**

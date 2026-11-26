@@ -347,7 +347,7 @@ export default function PersonaVerCard({
     const canViewReservas = can(user, PERMISSIONS.RES_VIEW);
     const canViewVentas = can(user, PERMISSIONS.SALE_VIEW);
 
-    return [
+    const secciones = [
       {
         title: "PROPIETARIO",
         count: countLotesPropios,
@@ -393,10 +393,15 @@ export default function PersonaVerCard({
         canView: canViewVentas
       }
     ];
+    // INMOBILIARIA (bug QA 17): "Mis clientes" no incluye propietarios ni inquilinos, así que
+    // esas secciones siempre daban 0. Solo ve Reservas con su inmobiliaria (Ventas no se dibuja: no tiene SALE_VIEW).
+    return isInmobiliaria
+      ? secciones.filter((s) => s.title !== "PROPIETARIO" && s.title !== "INQUILINO")
+      : secciones;
   }, [
     countLotesPropios, countLotesAlquilados, countReservas, countVentas,
     lotesPropios, lotesAlquilados, reservas, ventas,
-    user
+    user, isInmobiliaria
   ]);
 
   if (!open) return null;

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { HugeiconsIcon } from '@hugeicons/react';
 import HoverCard from './HoverCard';
@@ -43,33 +43,51 @@ export default function SidebarItem({
 
   const active = isActive || (path && location.pathname.startsWith(path));
 
-  // Calcular posición del hover card
-  useEffect(() => {
+  // Posición del hover card: centrado verticalmente con su ítem.
+  //
+  // La altura se MIDE, no se estima: depende de cuántas opciones tenga el módulo, y antes había
+  // una constante de 200px. Un módulo con una sola opción mide bastante menos, así que su card
+  // quedaba corrido hacia arriba la mitad de esa diferencia.
+  //
+  // `useLayoutEffect` y no `useEffect`: el card se monta con la posición de la vez anterior, y
+  // medirlo y corregirlo antes de que el navegador pinte evita que se vea un cuadro en el lugar
+  // viejo.
+  useLayoutEffect(() => {
     const updatePosition = () => {
-      if (showHoverCard && itemRef.current) {
-        const rect = itemRef.current.getBoundingClientRect();
-        const viewportHeight = window.innerHeight;
-        const cardEstimatedHeight = 200; // Altura estimada del card
-        
-        // Calcular posición vertical: centrar con el ítem
-        let top = rect.top + (rect.height / 2) - (cardEstimatedHeight / 2);
-        
-        // Si el card se sale por abajo, reposicionarlo
-        if (top + cardEstimatedHeight > viewportHeight - 10) {
-          top = viewportHeight - cardEstimatedHeight - 10;
-        }
-        
-        // Si el card se sale por arriba, reposicionarlo
-        if (top < 10) {
-          top = 10;
-        }
-        
-        // Posicionar a la derecha del sidebar con separación de 10-12px
-        setHoverCardPosition({
-          top: Math.max(10, top),
-          left: rect.right + 11, // 11px de separación del sidebar
-        });
+      if (!showHoverCard || !itemRef.current) return;
+
+      const rect = itemRef.current.getBoundingClientRect();
+
+      // HoverCard no reenvía su ref, así que el card se busca dentro del wrapper que sí la tiene
+      // (sirve para las dos ramas de render, la del ítem habilitado y la del deshabilitado).
+      // `offsetHeight` ignora el `transform` de la animación de entrada, que no cambia la altura.
+      // Si el card todavía no está en el DOM queda en 0 y la tarjeta arranca centrada en el
+      // ícono: una posición provisoria razonable, no un salto a una esquina, que la siguiente
+      // medición corrige.
+      const card = hoverCardRef.current?.querySelector('.hover-card');
+      const cardHeight = card ? card.offsetHeight : 0;
+      const viewportHeight = window.innerHeight;
+
+      let top = rect.top + rect.height / 2 - cardHeight / 2;
+
+      // Si el card se sale por abajo, reposicionarlo
+      if (top + cardHeight > viewportHeight - 10) {
+        top = viewportHeight - cardHeight - 10;
       }
+
+      // Si el card se sale por arriba, reposicionarlo
+      if (top < 10) {
+        top = 10;
+      }
+
+      // Posicionar a la derecha del sidebar con separación de 10-12px
+      const left = rect.right + 11; // 11px de separación del sidebar
+
+      // Solo si cambió: devolver el mismo objeto hace que React descarte el setState, así una
+      // medición que da lo mismo no dispara otro render.
+      setHoverCardPosition((prev) =>
+        prev.top === top && prev.left === left ? prev : { top, left }
+      );
     };
 
     updatePosition();

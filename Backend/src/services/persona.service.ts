@@ -413,6 +413,9 @@ export async function getAllPersonas(
     const effectiveIncludeInactive = false;
     // INMOBILIARIA no puede filtrar por estadoOperativo específico, solo ve operativas
     const where = buildWhereClause(effectiveView, user, q, effectiveIncludeInactive);
+    // Reservas y ventas del cliente: solo las de la inmobiliaria del usuario. Las de otras
+    // inmobiliarias son actividad ajena: no se listan ni se cuentan.
+    const deSuInmobiliaria = { where: { inmobiliariaId: user.inmobiliariaId } };
 
     const personas = await prisma.persona.findMany({
       where,
@@ -420,14 +423,14 @@ export async function getAllPersonas(
       take: limit,
       include: {
         user: { select: { id: true, username: true, email: true, role: true, createdAt: true } },
-        _count: { 
-          select: { 
-            lotesPropios: true, 
+        _count: {
+          select: {
+            lotesPropios: true,
             lotesAlquilados: true,
             alquileres: true,
-            Reserva: true, 
-            Venta: true
-          } 
+            Reserva: deSuInmobiliaria,
+            Venta: deSuInmobiliaria,
+          }
         },
         alquileres: {
           where: { estado: 'ACTIVO' },
@@ -436,6 +439,13 @@ export async function getAllPersonas(
         jefeDeFamilia: { select: { id: true, nombre: true, apellido: true, identificadorValor: true } },
         miembrosFamilia: { select: { id: true, nombre: true, apellido: true, identificadorValor: true } },
         inmobiliaria: { select: { id: true, nombre: true } },
+        // Mismo formato que el detalle (getPersonaById), solo las de su inmobiliaria.
+        Reserva: {
+          ...deSuInmobiliaria,
+          select: { id: true, numero: true, createdAt: true, loteId: true },
+          take: 10,
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
 
