@@ -55,7 +55,7 @@ export async function login(data: LoginRequest): Promise<LoginResponse> {
     ...(inmobiliariaId != null && { inmobiliariaId }),
   };
 
-  const token = jwt.sign(payload, JWT_SECRET, { expiresIn: EXPIRES_IN } as SignOptions);
+  const token = jwt.sign(payload, JWT_SECRET, { algorithm: 'HS256', expiresIn: EXPIRES_IN } as SignOptions);
   
   // 4. Retornar sin password, pero incluyendo inmobiliariaId e inmobiliariaNombre
   const { password: _, inmobiliaria, ...userWithoutPassword } = user;

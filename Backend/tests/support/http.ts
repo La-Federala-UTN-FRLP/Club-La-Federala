@@ -62,7 +62,8 @@ export function useTestWebEnv(options: TestWebEnvOptions = {}): void {
 
 /** Firma un JWT válido con los claims dados, sin registrar identidad en la "DB" de test. */
 export function signTestToken(claims: Record<string, unknown>, options: jwt.SignOptions = {}): string {
-    return jwt.sign(claims, JWT_SECRET, options);
+    // Tokens ordinarios de test siguen el contrato del emisor real (HS256 con expiración).
+    return jwt.sign(claims, JWT_SECRET, { ...(claims.exp == null ? { expiresIn: '1h' as const } : {}), ...options });
 }
 
 export function bearer(token: string): { Authorization: string } {

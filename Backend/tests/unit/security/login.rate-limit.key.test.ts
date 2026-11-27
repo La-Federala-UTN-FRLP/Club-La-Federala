@@ -76,6 +76,16 @@ describe('loginClientKey — Render', () => {
 });
 
 describe('loginClientKey — fuera de Render', () => {
+    test('runtime no Render: rotar headers reenviados conserva el bucket del socket', () => {
+        for (const suffix of [10, 11, 12]) {
+            const r = req({ headers: {
+                'cf-connecting-ip': `203.0.113.${suffix}`,
+                'x-forwarded-for': `198.51.100.${suffix}, 10.0.0.2`,
+                forwarded: `for=198.51.100.${suffix}`,
+            }, socketIp: PROXY_IP });
+            expect(loginClientKey(r, LOCAL)).toBe(PROXY_IP);
+        }
+    });
     test('usa req.ip e ignora CF-Connecting-IP y X-Forwarded-For', () => {
         const r = req({ headers: { 'cf-connecting-ip': '203.0.113.10', 'x-forwarded-for': '198.51.100.9' }, ip: '192.0.2.4' });
         expect(loginClientKey(r, LOCAL)).toBe('192.0.2.4');

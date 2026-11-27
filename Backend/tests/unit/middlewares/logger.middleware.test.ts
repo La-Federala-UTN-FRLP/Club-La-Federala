@@ -49,6 +49,23 @@ describe('createRequestLogger', () => {
 
         expect(log).not.toHaveBeenCalled();
     });
+
+    test('rutas anidadas registran plantilla y los paths desconocidos no se copian', async () => {
+        const log = jest.fn();
+        const a = express();
+        a.use(createRequestLogger({ enabled: true, log }));
+        const router = express.Router();
+        router.get('/lookup/:identifier', (_req, res) => res.sendStatus(200));
+        a.use('/api/records', router);
+
+        await request(a).get('/api/records/lookup/sensitive-fixture?q=private-query');
+        await request(a).get('/unknown/sensitive-fixture');
+
+        expect(log.mock.calls[0][0]).toContain('GET /api/records/lookup/:identifier 200');
+        expect(log.mock.calls[1][0]).toContain('GET <unmatched> 404');
+        expect(JSON.stringify(log.mock.calls)).not.toContain('sensitive-fixture');
+        expect(JSON.stringify(log.mock.calls)).not.toContain('private-query');
+    });
 });
 
 describe('logger de la app en NODE_ENV=test', () => {

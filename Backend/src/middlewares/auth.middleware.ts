@@ -45,7 +45,7 @@ import { errorCodeForStatus } from './error.middleware';
    // 2. Verificar firma y expiración
    let decoded: any;
    try {
-       decoded = jwt.verify(token, getWebEnv().jwtSecret);
+       decoded = jwt.verify(token, getWebEnv().jwtSecret, { algorithms: ['HS256'] });
    } catch (error: any) {
        // Solo el tipo de error: sin mensaje (puede citar el header de un token malformado), stack, token ni headers.
        console.warn(`[AUTH] ${error?.name}`);
@@ -55,6 +55,10 @@ import { errorCodeForStatus } from './error.middleware';
        return sendAuthError(res, 401, 'Token inválido');
    }
 
+   // El emisor de login siempre fija vencimiento. No aceptar credenciales sin ese límite.
+   if (typeof decoded !== 'object' || decoded === null || !Number.isFinite(decoded.exp)) {
+       return sendAuthError(res, 401, 'Token inválido');
+   }
    const userId = userIdFromToken(decoded);
    if (userId == null) {
        return sendAuthError(res, 401, 'Token inválido');
