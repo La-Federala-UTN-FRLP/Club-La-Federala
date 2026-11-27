@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { Prisma } from '../generated/prisma';
 import { safeErrorForLog } from '../utils/safeErrorLog';
+import { AiUnavailableError } from '../services/aiSummary.errors';
 
 const MULTER_INPUT_ERRORS: ReadonlySet<string> = new Set([
   'LIMIT_UNEXPECTED_FILE',
@@ -97,6 +98,12 @@ export function handleError(err: unknown, _req: Request, res: Response, _next: N
       code: 'BAD_REQUEST',
       message: 'Error al parsear el JSON. Verifica el formato de la solicitud.'
     });
+  }
+
+  // IA no disponible (resumen de Reportes): 502 con code propio y mensaje público. El servicio ya
+  // registró el detalle técnico en forma segura; acá no se vuelve a loguear.
+  if (err instanceof AiUnavailableError) {
+    return res.status(err.status).json({ success: false, code: err.code, message: err.message });
   }
 
   // Manejar errores de Prisma (clase del cliente generado: la que realmente lanza la app)
