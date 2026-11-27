@@ -108,6 +108,9 @@ describe('login — credenciales válidas (regresión)', () => {
         expect(bcrypt.compare).toHaveBeenCalledTimes(1);
         expect(result.user).toEqual(expect.objectContaining({ id: 3, role: 'INMOBILIARIA', inmobiliariaId: 5, inmobiliariaNombre: 'Inmo Sur' }));
         expect(result.user).not.toHaveProperty('password');
+        const decoded = jwt.decode(result.token, { complete: true })!;
+        expect(decoded.header.alg).toBe('HS256');
+        expect((decoded.payload as jwt.JwtPayload).exp).toBeGreaterThan((decoded.payload as jwt.JwtPayload).iat!);
         expect(jwt.verify(result.token, 'unit-test-jwt-secret')).toEqual(
             expect.objectContaining({ sub: 3, email: 'inmo@mail.com', role: 'INMOBILIARIA', inmobiliariaId: 5 }),
         );
