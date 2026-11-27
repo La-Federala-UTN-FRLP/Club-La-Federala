@@ -3087,14 +3087,36 @@ Auditar JWT, RBAC, tenant, CORS y rate limiting; implementar correcciones acotad
 
 Explicitar HS256 en emisión y verificación, exigir exp finito, registrar plantillas de ruta y probar las fronteras HTTP con fixtures sintéticos. Mantener la identidad y autorización vigentes desde DB; documentar por separado las limitaciones de IP y del store en memoria.
 
+**Actualización P1 (2026-11-27):** preparar un helper puro exclusivo del login con modo explícito
+`legacy|cloud-run-direct`, `legacy` predeterminado, candidato derecho XFF condicionado a H1 y
+bucket constante `unverified` separado. Clasificar XFF duplicados como ambiguos, no cambiar
+globalmente `trust proxy` y retirar IP/subred/key del log del limiter. Las solicitudes legítimas
+clasificadas `unverified` impiden aprobar la activación; sin H1, el candidato puede ser manipulable.
+
 #### Validación humana
 
-El coordinador autorizó auditoría, correcciones y commits locales. No aprobó todavía el código, C1, C3 ni exposición pública. C2 se aprobó por separado para reutilizar Firebase existente. La revisión cruzada de T1 queda propuesta para Nicolas, con contraste QA de Justina.
+**Estado histórico de preparación T1, antes de integrar #375:** El coordinador autorizó auditoría, correcciones y commits locales. No aprobó todavía el código, C1, C3 ni exposición pública. C2 se aprobó por separado para reutilizar Firebase existente. La revisión cruzada de T1 queda propuesta para Nicolas, con contraste QA de Justina.
+
+**Actualización P1 (2026-11-27):** el coordinador autorizó implementación, pruebas y commits locales;
+revisó el patch favorablemente con observaciones y autorizó ajustes documentales/de verificación.
+Esto no acredita H1 ni aprueba C1, publicación, despliegue, instrumentación o activación. La PR #375
+fue integrada por el equipo en `16a278b60556bb027b90d76556656686224bb063`; el estado histórico
+anterior de T1 no se traslada al nuevo experimento, cuya revisión/publicación siguen pendientes.
 
 #### Decisión adoptada
 
-Preparado en fix/g4-security sobre el canónico 7f5597b, con implementación revisable en 7ec446c. La aceptación JWT se endurece; se preservan rutas y roles, sin prometer compatibilidad con tokens fuera de la nueva política. Se corrigió la descripción de localhost explícito en FRONTEND_URL, sin cambiar CORS runtime.
+**Estado histórico de preparación T1, antes de integrar #375:** Preparado en fix/g4-security sobre el canónico 7f5597b, con implementación revisable en 7ec446c. La aceptación JWT se endurece; se preservan rutas y roles, sin prometer compatibilidad con tokens fuera de la nueva política. Se corrigió la descripción de localhost explícito en FRONTEND_URL, sin cambiar CORS runtime.
 Build, typecheck y 103 suites/3789 pruebas locales pasaron. No se ejecutó QA staging. C1 permanece bloqueado por identidad IP/topología, alcance operativo del rate limit y evidencia de plataforma. No se cambió trust proxy, IAM ni infraestructura. El código todavía no está integrado ni aprobado humanamente.
+
+**Actualización P1 (2026-11-27):** implementación local `13ce4e700a0a0a87b00ba63a1cbd5e2d6446a67d`
+en `fix/g4-login-client-ip`, desde `058a648a5d8d0f4456b43fdfaeab35e0a0449735`; documentación
+en `7f0b8a60491297bad6ea24d7a0891ecf53611182`. Build/typecheck en Node v24.22.3 PASS;
+105 suites/3837 pruebas PASS, 0 fallidas y 0 omitidas, con 82 focalizadas incluidas y L01–L21 locales.
+No se observaron regresiones en esa selección; no hubo invocaciones ni modificaciones de staging.
+Se conserva la política de 10 fallos/15min, MemoryStore y 429. H1 sigue sin acreditarse, el fallback
+no acredita identidad y el estado en memoria no es persistente ni agregado entre procesos/revisiones.
+No se acepta por inferencia ese riesgo operativo. C1 BLOQUEADO, C3 pendiente y T5 no iniciado.
+Este seguimiento amplía AI-042 sin crear/reservar numeración nueva; PR #373/G5 no se modifica.
 
 #### Evidencia / archivos relacionados
 
@@ -3102,6 +3124,9 @@ Build, typecheck y 103 suites/3789 pruebas locales pasaron. No se ejecutó QA st
 - Backend/src/middlewares/auth.middleware.ts, logger.middleware.ts; Backend/src/services/auth.service.ts.
 - Pruebas JWT, rutas montadas, CORS, logger y fixtures; docs/cloud/g4/t1-security.md, propuestos en la rama T1.
 - Refs #290 y #302; no se cierran por esta preparación.
+- Seguimiento P1: Backend/src/utils/loginClientIp.ts, loginRateLimit.middleware.ts, config/env.ts y pruebas asociadas.
+- docs/cloud/g4/c1-login-ip-experiment.md y docs/cloud/g4/ai/C1-IP.md; revisión previa a publicación, no prueba de ingreso real.
+
 
 ### AI-043 — Preparación Hosting y transporte HTTP del frontend para G4
 

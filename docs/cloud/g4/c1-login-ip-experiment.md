@@ -34,6 +34,9 @@ Se admiten IPv4/IPv6 válidas y whitespace HTTP SP/HTAB. Se rechazan sufijos con
 zone ID, formato inválido y controles. Arrays y duplicación observada en `rawHeaders` son ambiguos.
 Node puede combinar duplicados en `headers`; la comprobación no asume que siempre sean arrays.
 Esto detecta lo recibido por Node, no reconstruye duplicados ya combinados por intermediarios.
+**Los XFF duplicados se consideran ambiguos, aunque Node los combine en un string. Si una
+solicitud legítima del camino previsto queda clasificada como `unverified`, no se puede aprobar
+la activación: se debe detener la validación y revisar el contrato y la topología.**
 
 `ipKeyGenerator(...,56)` normaliza IPv4-mapped y agrupa IPv6 por /56. Los candidatos usan un
 namespace propio; ausentes/inválidos/ambiguos usan el bucket constante `unverified`, separado.
@@ -109,7 +112,9 @@ schema, lockfile o dependencias. Las advertencias LF/CRLF de Git no son errores 
 
 La evidencia local prueba determinismo, aislamiento del cambio y política bajo entradas
 sintéticas. No demuestra que un cliente remoto no pueda controlar el sufijo: esa garantía
-depende de H1. El modo no debe activarse en una topología distinta o implícitamente por Run.
+depende de H1. **H1 no ha sido acreditada: sin esa garantía, el emisor podría manipular la IP
+candidata.** Las pruebas locales no subsanan esta falta. El modo no debe activarse en una
+topología distinta o implícitamente por Run.
 
 La selección humana de A es una propuesta de trabajo. No se aceptaron definitivamente NAT,
 agrupamiento /56, estado efímero, separación por proceso/revisión, sobrepasos transitorios ni
@@ -134,8 +139,11 @@ No se realiza push/PR, merge, cierre de issues ni cambio de Projects en P1.
 ## Gobernanza AI y fuentes
 
 AI-001–AI-045 estaban ocupados al consultar main; PR #373 de G5 permanece fuera del alcance.
-El [borrador AI sin número reservado](ai/C1-IP.md) complementa AI-042 y requiere consolidación
-coordinada antes de publicar una PR; el registro central no se modifica concurrentemente.
+El seguimiento P1 se consolida en la entrada existente AI-042 de [AI-DECISIONS.md](../../../AI-DECISIONS.md),
+sin asignar identificadores nuevos ni modificar la rama de G5. La [referencia de seguimiento](ai/C1-IP.md)
+no es una entrada oficial adicional y no contiene un identificador provisional. Los registros históricos
+y la aprobación de P1 se distinguen de H1, activación y C1 pendientes. Reconsultar main/G5 antes de
+publicar y resolver cualquier conflicto del registro mediante revisión, sin sobrescribir cambios ajenos.
 
 - [Runtime Cloud Run](https://docs.cloud.google.com/run/docs/container-contract).
 - [Muestra oficial Google](https://github.com/GoogleCloudPlatform/nodejs-docs-samples/pull/3586/files).
