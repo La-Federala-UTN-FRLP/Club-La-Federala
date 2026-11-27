@@ -8,7 +8,12 @@ export const aplicarPromocionSchema = z.object({
   precioPromocional: numeroDelBody('El precio promocional debe ser un número').pipe(
     z.number()
       .positive('El precio promocional debe ser positivo')
-      .min(0.01, 'El precio promocional debe ser mayor a cero'),
+      .min(0.01, 'El precio promocional debe ser mayor a cero')
+      // La columna es Decimal(12,2): con más decimales Postgres redondea (999.995 → 1000.00).
+      // Tolerancia para la representación binaria (0.07 * 100 = 7.000000000000001).
+      .refine((v) => Math.abs(Math.round(v * 100) - v * 100) < 1e-6, {
+        message: 'El precio promocional puede tener hasta 2 decimales',
+      }),
   ),
   fin: z
     .union([

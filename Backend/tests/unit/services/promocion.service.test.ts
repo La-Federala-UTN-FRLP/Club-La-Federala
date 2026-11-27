@@ -44,7 +44,7 @@ describe('aplicarPromocion — precio promocional (bug QA 20)', () => {
 
         expect(promocion).toEqual(expect.objectContaining({ id: 1, precioAnterior: PRECIO_ACTUAL, precioPromocional: 999.99 }));
         expect(mockTx.lote.updateMany).toHaveBeenCalledWith({
-            where: { id: 5, estado: 'DISPONIBLE' },
+            where: { id: 5, estado: 'DISPONIBLE', precio: PRECIO_ACTUAL },
             data: { estado: 'EN_PROMOCION', precio: 999.99 },
         });
     });
@@ -77,6 +77,26 @@ describe('aplicarPromocion — concurrencia', () => {
         await expect(aplicarPromocion(5, { precioPromocional: 800 })).rejects.toMatchObject({
             statusCode: 409,
             message: expect.stringMatching(/ya no está disponible para aplicar la promoción/),
+        });
+        expect(mockTx.promocion.create).not.toHaveBeenCalled();
+    });
+
+    // Revisión de la PR 368: la comparación con el precio promocional se hizo sobre el precio leído
+    // fuera de la transacción; el updateMany lo exige en el where para no aplicar sobre otro precio.
+    test('el update condicionado exige el precio leído además del estado', async () => {
+        await aplicarPromocion(5, { precioPromocional: 800 });
+
+        expect(mockTx.lote.updateMany).toHaveBeenCalledWith(
+            expect.objectContaining({ where: { id: 5, estado: 'DISPONIBLE', precio: PRECIO_ACTUAL } }),
+        );
+    });
+
+    test('si el precio del lote se editó en paralelo (count 0) → 409 con el mensaje de concurrencia, sin crear la promoción', async () => {
+        mockTx.lote.updateMany.mockResolvedValue({ count: 0 });
+
+        await expect(aplicarPromocion(5, { precioPromocional: 800 })).rejects.toMatchObject({
+            statusCode: 409,
+            message: 'El lote ya no está disponible para aplicar la promoción: otra operación lo modificó. Volvé a intentarlo.',
         });
         expect(mockTx.promocion.create).not.toHaveBeenCalled();
     });

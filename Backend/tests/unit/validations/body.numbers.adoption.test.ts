@@ -155,7 +155,7 @@ const CAMPOS: CampoNumerico[] = [
     // --- Promoción ---
     campo('promocion precioPromocional', aplicarPromocionSchema, {}, 'precioPromocional', {
         validos: [[100, 100], [0.01, 0.01], ['100.5', 100.5]],
-        dominio: [0, '0', -1, 0.001, '0.001'],
+        dominio: [0, '0', -1, 0.001, '0.001', 999.995, '999.995'],
     }),
 ];
 

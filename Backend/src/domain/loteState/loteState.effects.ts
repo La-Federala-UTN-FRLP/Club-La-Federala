@@ -2,7 +2,7 @@
 // Side effects centralizados para cambios de estado de lote
 
 import prisma from '../../config/prisma';
-import { EstadoVenta, EstadoReserva, EstadoPrioridad } from '../../generated/prisma';
+import { EstadoVenta, EstadoReserva, EstadoPrioridad, type Prisma } from '../../generated/prisma';
 
 /**
  * Cancela todas las operaciones activas cuando un lote pasa a NO_DISPONIBLE
@@ -61,11 +61,16 @@ export async function finalizePrioridadActivaOnVenta(loteId: number): Promise<vo
 }
 
 /**
- * Finaliza la prioridad activa del lote cuando se crea una reserva (reserva consume prioridad)
+ * Finaliza la prioridad activa del lote cuando se crea una reserva (reserva consume prioridad).
+ * Recibe la transacción de createReserva: la prioridad queda FINALIZADA de forma atómica con la
+ * reserva (si algo falla, no queda una reserva creada con la prioridad activa).
  */
-export async function cancelPrioridadActivaOnReserva(loteId: number): Promise<void> {
+export async function cancelPrioridadActivaOnReserva(
+  loteId: number,
+  tx: Prisma.TransactionClient,
+): Promise<void> {
   // Escritura condicionada: si otra transición ya cerró la prioridad (p. ej. expiró), no se pisa.
-  await prisma.prioridad.updateMany({
+  await tx.prioridad.updateMany({
     where: { loteId: loteId, estado: EstadoPrioridad.ACTIVA },
     data: { estado: EstadoPrioridad.FINALIZADA },
   });

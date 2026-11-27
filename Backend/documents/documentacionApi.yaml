@@ -323,8 +323,9 @@ paths:
       description: >-
         El lote debe estar DISPONIBLE, tener precio y no tener otra promoción activa. Pasa a
         EN_PROMOCION con el precio promocional, que debe ser menor al precio actual del lote (si es
-        igual o mayor, 400). Si otra operación cambia el estado del lote mientras se aplica (por
-        ejemplo, otra promoción en paralelo), responde 409 sin crear la promoción.
+        igual o mayor, 400) y tener hasta 2 decimales (si no, 400). Si otra operación cambia el estado
+        o el precio del lote mientras se aplica (por ejemplo, otra promoción o una edición de precio
+        en paralelo), responde 409 sin crear la promoción.
       x-roles: [ADMINISTRADOR, GESTOR]
       security: [{ bearerAuth: [] }]
       requestBody:

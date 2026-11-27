@@ -11,8 +11,10 @@ jest.mock('../../../src/config/prisma', () => ({
 }));
 
 import prismaReal from '../../../src/config/prisma';
+import type { Prisma } from '../../../src/generated/prisma';
 import {
     cancelActivesOnNoDisponible,
+    cancelPrioridadActivaOnReserva,
     MOTIVO_CANCELACION_LOTE_NO_DISPONIBLE,
 } from '../../../src/domain/loteState/loteState.effects';
 
@@ -50,5 +52,20 @@ describe('cancelActivesOnNoDisponible', () => {
             where: { loteId: 4, estado: 'ACTIVA' },
             data: { estado: 'CANCELADA' },
         });
+    });
+});
+
+// Revisión de la PR 368: la reserva finaliza la prioridad dentro de su propia transacción.
+describe('cancelPrioridadActivaOnReserva', () => {
+    test('finaliza la prioridad ACTIVA con el tx recibido, no con el prisma global', async () => {
+        const tx = { prioridad: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } };
+
+        await cancelPrioridadActivaOnReserva(7, tx as unknown as Prisma.TransactionClient);
+
+        expect(tx.prioridad.updateMany).toHaveBeenCalledWith({
+            where: { loteId: 7, estado: 'ACTIVA' },
+            data: { estado: 'FINALIZADA' },
+        });
+        expect(prisma.prioridad.updateMany).not.toHaveBeenCalled();
     });
 });

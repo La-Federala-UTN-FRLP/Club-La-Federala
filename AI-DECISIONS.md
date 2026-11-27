@@ -2919,6 +2919,78 @@ Revisión del diff y una llamada real a Vertex AI con ADC y datos ficticios (eje
 - `AI-DECISIONS.md`
 
 
+### AI-040 — Ajustes de la revisión de la PR #368: prioridad atómica con la reserva, precio en el update de la promoción y 2 decimales
+
+**Fecha:** 2026-11-26
+**Área:** Backend / Reservas y Promociones / Concurrencia y validación
+**Herramientas:** Claude Code
+
+#### Problema
+
+Ajustes no bloqueantes pedidos en la revisión de la PR #368 (AI-037), Refs #299:
+
+- **Prioridad fuera de la transacción:** en `createReserva`, `cancelPrioridadActivaOnReserva` corría después del commit y con el prisma global. Si fallaba, quedaba la reserva creada con la prioridad del lote todavía ACTIVA.
+- **Precio leído fuera de la transacción:** en `aplicarPromocion`, el precio promocional se comparaba contra el precio leído antes de la transacción, y el `updateMany` condicionado solo exigía el estado DISPONIBLE. Una edición de precio en paralelo podía dejar aplicada una promoción que ya no era menor al precio vigente.
+- **Decimales de más:** `precioPromocional` aceptaba cualquier cantidad de decimales. La columna es `Decimal(12,2)`, así que 999.995 se guardaba redondeado a 1000.00, que además ya no es menor a un precio actual de 1000.
+
+#### Prompt / intención
+
+Cambios mínimos y sin migraciones, sin tocar otras reglas de reservas, prioridades ni promociones, con paridad OpenAPI:
+1. Pasarle `tx` a `cancelPrioridadActivaOnReserva` y llamarla dentro de la transacción de `createReserva`.
+2. Sumar `precio: lote.precio` al where del `updateMany` de `aplicarPromocion`, para que una edición de precio en paralelo responda 409 con el mensaje de concurrencia existente.
+3. Limitar `precioPromocional` a 2 decimales en el schema de validación, con un 400 claro.
+
+#### Propuesta generada por IA
+
+- **Reservas** (`Backend/src/domain/loteState/loteState.effects.ts`, `Backend/src/services/reserva.service.ts`):
+  - `cancelPrioridadActivaOnReserva(loteId, tx: Prisma.TransactionClient)` hace el `updateMany` con el `tx` recibido. El parámetro es obligatorio porque `createReserva` es el único llamador. La escritura condicionada (`estado: ACTIVA` → FINALIZADA) no cambia.
+  - En `createReserva` la llamada pasa a ser el paso 4 de la transacción, después de crear la reserva y la oferta inicial, y solo si el lote estaba CON_PRIORIDAD. Se borra el bloque posterior al commit. Si la finalización falla, se revierten el lote RESERVADO, la reserva y la oferta.
+- **Promociones, precio en el where** (`Backend/src/services/promocion.service.ts`): el where pasa a `{ id: loteId, estado: DISPONIBLE, precio: lote.precio }`. Si el precio cambió entre la lectura y el update, `count` es 0 y responde el 409 que ya existía ("El lote ya no está disponible para aplicar la promoción: otra operación lo modificó. Volvé a intentarlo.").
+- **Promociones, 2 decimales** (`Backend/src/validations/promocion.validation.ts`): `aplicarPromocionSchema` suma un `refine` sobre el número ya parseado, `Math.abs(Math.round(v * 100) - v * 100) < 1e-6`, con el mensaje "El precio promocional puede tener hasta 2 decimales". La tolerancia cubre la representación binaria (`0.07 * 100` da `7.000000000000001`). Se aplica a number y a string decimal, porque `numeroDelBody` entrega number en ambos casos.
+- **OpenAPI** (`Backend/documents/documentacionApi.yaml`): solo cambia la descripción de `aplicarPromocion` (hasta 2 decimales → 400; cambio de estado o de precio en paralelo → 409). No se toca el schema compartido `NumeroEntrada`. Mismo número de operaciones.
+- **Tests:**
+  - `reserva.service.test.ts`: con lote CON_PRIORIDAD, la prioridad se finaliza con `txMock`, dentro de la transacción y después de crear la oferta; si la finalización falla, el error sale del callback de la transacción (rollback).
+  - `loteState.effects.test.ts`: `cancelPrioridadActivaOnReserva` usa el `updateMany` del `tx` recibido y no el del prisma global.
+  - `promocion.service.test.ts`: el where del `updateMany` incluye el precio leído; con `count: 0` (precio editado en paralelo), 409 con el mensaje de concurrencia y sin crear la promoción.
+  - `promocion.validation.test.ts` (nuevo): 3 decimales (999.995, "999.995", 100.001, 0.015) → error en `precioPromocional` con el mensaje; hasta 2 decimales (999.99, "999.99", 100.5, 800, 0.07, 0.01) → OK.
+  - `promociones.errors.routes.test.ts`: `POST /api/lotes/:id/promociones/aplicar` con 999.995 → 400 sin llamar al service.
+  - `body.numbers.adoption.test.ts`: 999.995 y "999.995" se suman al dominio inválido de `precioPromocional`.
+
+#### Observaciones
+
+- Para correr la verificación hubo que hacer `npm install` en `Backend`: la dependencia `@google/genai` que trajo main (AI-039, #370) no estaba instalada localmente. No cambió `package.json` ni `package-lock.json`.
+
+#### Validación humana
+
+Se probó en el entorno QA local (seed:qa, build completo). Con qa.admin: reservar un lote con prioridad del Club deja el lote RESERVADO y la prioridad FINALIZADA en la misma transacción. Aplicar una promoción con 3 decimales (999.995) responde 400 con el mensaje de decimales; con 2 decimales se aplica. Editar el precio del lote y aplicar una promoción en paralelo: la edición se guarda y la promoción responde 409 con el mensaje de concurrencia, sin quedar calculada sobre el precio anterior. Typecheck, tests (incluida la paridad OpenAPI) y build en verde.
+
+#### Decisión adoptada
+
+Se aplican los tres ajustes de la revisión de la PR #368 (AI-037): la finalización de la prioridad del Club pasa a la misma transacción que la reserva; el update condicionado de la promoción exige también el precio leído, y el precio promocional admite hasta dos decimales. No cambian otras reglas de reservas, prioridades ni promociones.
+
+#### Resultado
+
+- Backend: `npm run typecheck` OK, `env -u NODE_ENV npm test` PASS (104 suites, 3595 tests, incluida la paridad OpenAPI) y `npm run build` OK.
+- Con el código anterior de `loteState.effects.ts`, `reserva.service.ts`, `promocion.service.ts` y `promocion.validation.ts`, los tests nuevos y actualizados fallan (12 casos) y con el cambio pasan.
+- OpenAPI: mismo número de operaciones; solo cambia la descripción de `aplicarPromocion`.
+
+#### Evidencia / archivos relacionados
+
+- AI-037 y revisión de la PR #368
+- `Backend/src/domain/loteState/loteState.effects.ts` (`cancelPrioridadActivaOnReserva`)
+- `Backend/src/services/reserva.service.ts` (`createReserva`)
+- `Backend/src/services/promocion.service.ts` (`aplicarPromocion`)
+- `Backend/src/validations/promocion.validation.ts` (`aplicarPromocionSchema`)
+- `Backend/documents/documentacionApi.yaml`
+- `Backend/tests/unit/services/reserva.service.test.ts`
+- `Backend/tests/unit/domain/loteState.effects.test.ts`
+- `Backend/tests/unit/services/promocion.service.test.ts`
+- `Backend/tests/unit/validations/promocion.validation.test.ts`
+- `Backend/tests/unit/routes/promociones.errors.routes.test.ts`
+- `Backend/tests/unit/validations/body.numbers.adoption.test.ts`
+- `AI-DECISIONS.md`
+
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.

@@ -675,7 +675,7 @@ describe('createReserva — transaction, oferta y side effects', () => {
         expect(cancelPrioridad).not.toHaveBeenCalled();
     });
 
-    test('si el lote era CON_PRIORIDAD también cancela la prioridad activa', async () => {
+    function stubCreateSobreLoteConPrioridad() {
         prismaMock.lote.findUnique.mockResolvedValue(buildLote({ estado: 'CON_PRIORIDAD' }));
         assertUnica.mockResolvedValue(undefined);
         prismaMock.prioridad.findFirst.mockResolvedValue(
@@ -686,13 +686,57 @@ describe('createReserva — transaction, oferta y side effects', () => {
             buildReservaRow({ loteEstadoAlCrear: 'CON_PRIORIDAD', inmobiliaria: null }),
         );
         txMock.ofertaReserva.create.mockResolvedValue({ id: 1 });
+    }
+
+    test('si el lote era CON_PRIORIDAD también cancela la prioridad activa', async () => {
+        stubCreateSobreLoteConPrioridad();
 
         await createReserva(buildCreateBody({ inmobiliariaId: null }), buildUser('ADMINISTRADOR'));
         expect(txMock.lote.updateMany).toHaveBeenCalledWith({
             where: { id: 3, estado: 'CON_PRIORIDAD' },
             data: { estado: 'RESERVADO' },
         });
-        expect(cancelPrioridad).toHaveBeenCalledWith(3);
+        expect(cancelPrioridad).toHaveBeenCalledWith(3, txMock);
+    });
+
+    // Revisión de la PR 368: la prioridad se finaliza con el tx, dentro de la transacción de la reserva.
+    test('la prioridad se finaliza con el tx dentro de la transaction, después de crear reserva y oferta', async () => {
+        stubCreateSobreLoteConPrioridad();
+        let llamadasAlCerrarLaTransaction = -1;
+        prismaMock.$transaction.mockImplementationOnce(async (cb: (tx: typeof txMock) => unknown) => {
+            const r = await cb(txMock);
+            llamadasAlCerrarLaTransaction = cancelPrioridad.mock.calls.length;
+            return r;
+        });
+
+        await createReserva(buildCreateBody({ inmobiliariaId: null }), buildUser('ADMINISTRADOR'));
+
+        expect(llamadasAlCerrarLaTransaction).toBe(1);
+        expect(cancelPrioridad).toHaveBeenCalledTimes(1);
+        expect(cancelPrioridad.mock.calls[0][1]).toBe(txMock);
+        expect(cancelPrioridad.mock.invocationCallOrder[0]).toBeGreaterThan(
+            txMock.ofertaReserva.create.mock.invocationCallOrder[0],
+        );
+    });
+
+    test('si falla la finalización de la prioridad, el error sale de la transaction (rollback de la reserva)', async () => {
+        stubCreateSobreLoteConPrioridad();
+        const falla = new Error('falla al finalizar la prioridad');
+        cancelPrioridad.mockRejectedValue(falla);
+        let errorDelCallback: unknown;
+        prismaMock.$transaction.mockImplementationOnce(async (cb: (tx: typeof txMock) => unknown) => {
+            try {
+                return await cb(txMock);
+            } catch (e) {
+                errorDelCallback = e;
+                throw e;
+            }
+        });
+
+        await expect(
+            createReserva(buildCreateBody({ inmobiliariaId: null }), buildUser('ADMINISTRADOR')),
+        ).rejects.toBe(falla);
+        expect(errorDelCallback).toBe(falla);
     });
 });
 

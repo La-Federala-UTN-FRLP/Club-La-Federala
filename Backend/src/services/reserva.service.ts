@@ -393,14 +393,14 @@ export async function createReserva(
             }
         });
 
+        // 4. La reserva consume la prioridad: se finaliza en la misma transacción, así una falla
+        // no deja la reserva creada con la prioridad activa.
+        if (estadoOriginalLote === EstadoLote.CON_PRIORIDAD) {
+          await cancelPrioridadActivaOnReserva(body.loteId, tx);
+        }
 
         return reserva;
     });
-
-    // 4. Side effects: el lote ya quedó RESERVADO dentro de la transacción
-    if (estadoOriginalLote === EstadoLote.CON_PRIORIDAD) {
-      await cancelPrioridadActivaOnReserva(body.loteId);
-    }
 
     return result;
   } catch (e) {
