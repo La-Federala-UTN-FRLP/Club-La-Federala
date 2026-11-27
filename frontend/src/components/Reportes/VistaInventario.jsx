@@ -8,6 +8,7 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Alert, Form } from "react-bootstrap";
+import AvisoFraccionesTruncadas from "./AvisoFraccionesTruncadas";
 import BotonExportar from "./BotonExportar";
 import FiltrosReporte from "./FiltrosReporte";
 import TablaReportes from "./TablaReportes";
@@ -135,7 +136,7 @@ export default function VistaInventario() {
     consultarAlMontar: true,
   });
 
-  const { fracciones, errorFracciones } = useCatalogoFracciones();
+  const { fracciones, errorFracciones, truncado, totalFracciones } = useCatalogoFracciones();
 
   const { exportar, descargando, puedeExportar, motivoDeshabilitado } = useExportarReporte({
     ruta: "inventario",
@@ -219,6 +220,10 @@ export default function VistaInventario() {
         <Alert variant="warning" className="reportes-aviso">
           {errorFracciones} Podés consultar el inventario sin filtrar por fracción.
         </Alert>
+      )}
+
+      {truncado && (
+        <AvisoFraccionesTruncadas cantidad={fracciones.length} total={totalFracciones} />
       )}
 
       {/* La primera consulta no tiene nada que atenuar, así que el indicador va solo. */}
