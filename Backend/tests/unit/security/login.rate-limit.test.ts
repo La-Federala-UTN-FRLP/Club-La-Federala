@@ -25,6 +25,7 @@ useTestWebEnv();
 const LIMITE = 10;
 const PASSWORD_OK = 'clave-correcta';
 const RENDER_ORIGINAL = process.env.RENDER;
+const MODE_ORIGINAL = process.env.LOGIN_CLIENT_IP_MODE;
 
 beforeEach(() => {
     // Login simulado: solo PASSWORD_OK es válida.
@@ -36,6 +37,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    if (MODE_ORIGINAL === undefined) delete process.env.LOGIN_CLIENT_IP_MODE;
+    else process.env.LOGIN_CLIENT_IP_MODE = MODE_ORIGINAL;
     if (RENDER_ORIGINAL === undefined) delete process.env.RENDER;
     else process.env.RENDER = RENDER_ORIGINAL;
 });
@@ -145,7 +148,7 @@ describe('log del 429', () => {
         process.env.RENDER = 'true';
     });
 
-    test('registra evento, ruta y key del cliente; nunca email, password ni Authorization', async () => {
+    test('registra solo evento y ruta fija; nunca IP/key, email, password ni Authorization', async () => {
         const cliente = { 'CF-Connecting-IP': '203.0.113.77', Authorization: 'Bearer token-que-no-debe-aparecer' };
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
         await agotarCupo(cliente);
@@ -155,11 +158,31 @@ describe('log del 429', () => {
 
         expect(res.status).toBe(429);
         const lineas = warn.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('[RATE_LIMIT]'));
-        expect(lineas).toEqual(['[RATE_LIMIT] 429 POST /api/auth/login key=203.0.113.77']);
+        expect(lineas).toEqual(['[RATE_LIMIT] 429 POST /api/auth/login']);
         const todo = JSON.stringify(warn.mock.calls);
-        for (const sensible of ['alguien@mail.com', 'password-secreta-123', 'token-que-no-debe-aparecer']) {
+        for (const sensible of ['203.0.113.77', 'key=', 'alguien@mail.com', 'password-secreta-123', 'token-que-no-debe-aparecer']) {
             expect(todo).not.toContain(sensible);
         }
         warn.mockRestore();
+    });
+});
+
+describe('explicit experimental mode on the actual app, synthetic H1 only', () => {
+    beforeEach(() => {
+        delete process.env.RENDER;
+        process.env.LOGIN_CLIENT_IP_MODE = 'cloud-run-direct';
+    });
+
+    test('candidate suffix limits login only; another client, health and protected API remain usable', async () => {
+        const a = { 'X-Forwarded-For': '192.0.2.1, 203.0.113.210' };
+        const b = { 'X-Forwarded-For': '203.0.113.211' };
+        await agotarCupo(a);
+        expect((await intentar({ 'X-Forwarded-For': 'different-prefix, 203.0.113.210' })).status).toBe(429);
+        expect((await intentar(b, PASSWORD_OK)).status).toBe(200);
+        expect((await request(app).get('/health').set(a)).status).toBe(200);
+        const api = await request(app).get('/api/lotes').set({ ...a, ...authHeader('ADMINISTRADOR') });
+        expect(api.status).toBe(200);
+        expect(api.headers).not.toHaveProperty('ratelimit');
+        expect(app.get('trust proxy')).toBe(false);
     });
 });

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import jwt from 'jsonwebtoken';
+import type { LoginClientIpMode } from '../utils/loginClientIp';
 
 // HS256 (algoritmo por defecto de jsonwebtoken) requiere una clave de al menos 256 bits
 // (RFC 7518 §3.2): 32 caracteres. Se exige solo en production para no romper entornos locales.
@@ -167,6 +168,9 @@ const webEnvSchema = z
         DATABASE_URL: requiredNonWhitespaceString('DATABASE_URL is required'),
         JWT_SECRET: requiredNonWhitespaceString('JWT_SECRET is required'),
         FRONTEND_URL: z.string().optional(),
+        // Opt-in experimental; ni NODE_ENV ni K_SERVICE seleccionan este modo.
+        LOGIN_CLIENT_IP_MODE: z.enum(['legacy', 'cloud-run-direct']).default('legacy'),
+        RENDER: z.string().optional(),
         PORT: portSchema,
         JWT_EXPIRES_IN: z
             .string()
@@ -183,6 +187,13 @@ const webEnvSchema = z
         GCS_BUCKET: z.string().optional(),
     })
     .superRefine((data, ctx) => {
+        if (data.LOGIN_CLIENT_IP_MODE === 'cloud-run-direct' && data.RENDER === 'true') {
+            ctx.addIssue({
+                code: 'custom',
+                message: 'LOGIN_CLIENT_IP_MODE cloud-run-direct is incompatible with RENDER=true',
+                path: ['LOGIN_CLIENT_IP_MODE'],
+            });
+        }
         const expiresInIssue = jwtExpiresInIssue(data.JWT_EXPIRES_IN);
         if (expiresInIssue) {
             ctx.addIssue({ code: 'custom', message: expiresInIssue, path: ['JWT_EXPIRES_IN'] });
@@ -217,6 +228,7 @@ export type WebEnv = {
     frontendUrl?: string;
     port: number;
     jwtExpiresIn: string;
+    loginClientIpMode: LoginClientIpMode;
     storageProvider: StorageProvider;
     // Los lee solo el adaptador de Supabase. Con gcs y la variable ausente quedan en ''.
     // La validación no crea ningún cliente.
@@ -256,6 +268,7 @@ function mapWebEnv(parsed: z.infer<typeof webEnvSchema>): WebEnv {
         frontendUrl: parsed.FRONTEND_URL?.trim() || undefined,
         port: parsed.PORT,
         jwtExpiresIn: parsed.JWT_EXPIRES_IN,
+        loginClientIpMode: parsed.LOGIN_CLIENT_IP_MODE,
     };
 
     if (parsed.STORAGE_PROVIDER === 'gcs') {
@@ -316,6 +329,8 @@ export function parseWebEnv(
         DATABASE_URL: pickEnv(source, 'DATABASE_URL'),
         JWT_SECRET: pickEnv(source, 'JWT_SECRET'),
         FRONTEND_URL: pickEnv(source, 'FRONTEND_URL'),
+        LOGIN_CLIENT_IP_MODE: pickEnv(source, 'LOGIN_CLIENT_IP_MODE'),
+        RENDER: pickEnv(source, 'RENDER'),
         PORT: pickEnv(source, 'PORT'),
         JWT_EXPIRES_IN: pickEnv(source, 'JWT_EXPIRES_IN'),
         STORAGE_PROVIDER: pickEnv(source, 'STORAGE_PROVIDER'),

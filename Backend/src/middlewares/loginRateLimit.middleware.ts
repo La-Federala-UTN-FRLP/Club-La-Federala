@@ -1,6 +1,7 @@
 import type { Request } from 'express';
 import { isIP } from 'node:net';
 import { rateLimit, ipKeyGenerator, type Options } from 'express-rate-limit';
+import { cloudRunDirectIpCandidate } from '../utils/loginClientIp';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rate limiting de POST /api/auth/login (solo esa ruta; no es un limiter global).
@@ -19,14 +20,18 @@ import { rateLimit, ipKeyGenerator, type Options } from 'express-rate-limit';
 //    trust proxy sigue en false). En Render eso es la IP del proxy: un bucket compartido,
 //    más restrictivo, pero nunca una key elegida por el cliente.
 //
-// Store: MemoryStore (por proceso). Alcanza con la única instancia actual del servicio.
-// Si el servicio escala a varias instancias, cada una contaría por separado: migrar a un
-// store compartido (p. ej. Render Key Value / Redis).
+// LOGIN_CLIENT_IP_MODE=cloud-run-direct es experimental y exige aceptar/verificar H1;
+// no se activa por K_SERVICE ni por estar en Cloud Run. Legacy sigue siendo el default.
+// Store: MemoryStore por proceso. Pierde contadores al reiniciar y los separa entre
+// procesos/revisiones. Un máximo nominal de una instancia no garantiza persistencia
+// ni una cuota agregada estricta. C1 sigue bloqueado hasta validación y aprobación.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const RENDER_CLIENT_IP_HEADER = 'cf-connecting-ip';
 // Último recurso si el request no trae ninguna dirección: bucket compartido, no aleatorio.
 const UNKNOWN_CLIENT = 'unknown-client';
+// Fuera del namespace de candidatos válidos; no acredita identidad ni cumplimiento C1.
+export const UNVERIFIED_LOGIN_CLIENT_KEY = 'unverified';
 
 type Env = Record<string, string | undefined>;
 
@@ -39,10 +44,20 @@ function renderClientIp(req: Request): string | null {
 }
 
 /**
- * Key del rate limit de login para este request. Pura y determinista: no depende de JWT,
+ * Key del rate limit de login para este request. Determinista para el entorno dado: no depende de JWT,
  * req.user ni del email. ipKeyGenerator normaliza IPv4-mapped a IPv4 y agrupa IPv6 por /56.
  */
 export function loginClientKey(req: Request, env: Env = process.env): string {
+    const mode = env.LOGIN_CLIENT_IP_MODE || 'legacy';
+    if (mode !== 'legacy') {
+        // parseWebEnv rechaza estos estados al arrancar. Degradación constante si
+        // un llamador directo omite la validación; nunca confiar en otro header.
+        if (mode !== 'cloud-run-direct' || env.RENDER === 'true') return UNVERIFIED_LOGIN_CLIENT_KEY;
+        const candidate = cloudRunDirectIpCandidate(req);
+        return candidate.kind === 'candidate'
+            ? `cloud-run-direct:${ipKeyGenerator(candidate.ip, 56)}`
+            : UNVERIFIED_LOGIN_CLIENT_KEY;
+    }
     if (env.RENDER === 'true') {
         const ip = renderClientIp(req);
         if (ip) return ipKeyGenerator(ip);
@@ -65,9 +80,8 @@ export function createLoginRateLimiter(overrides: Partial<Options> = {}) {
         legacyHeaders: false,
         keyGenerator: (req) => loginClientKey(req),
         handler: (req, res, _next, options) => {
-            // Solo el evento, la ruta y la key ya calculada (IP o subred /56). Nunca el body
-            // (email/password) ni headers (Authorization).
-            console.warn(`[RATE_LIMIT] ${options.statusCode} ${req.method} ${req.originalUrl.split('?')[0]} key=${loginClientKey(req)}`);
+            // Ruta fija: nunca IP/subred/key, método/URL manipulables, body ni headers.
+            console.warn(`[RATE_LIMIT] ${options.statusCode} POST /api/auth/login`);
             res.status(options.statusCode).json({
                 success: false,
                 code: 'TOO_MANY_REQUESTS',
