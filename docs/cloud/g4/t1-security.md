@@ -78,7 +78,9 @@ No se observaron regresiones frente a la validación previa ni fallos persistent
 
 ## Bloqueantes C1 y pendientes humanos
 
-1. **Identidad de cliente y topología:** falta evidencia del camino real hasta Cloud Run, de headers sobrescritos y de acceso directo. El código conserva trust proxy=false y no usa X-Forwarded-For como identidad. No se configura un número de saltos sin evidencia. La modalidad heredada de Render no debe trasladarse automáticamente; confirmar configuración efectiva antes de autorizar C1.
+1. **Identidad de cliente y topología:** falta evidencia del camino real hasta Cloud Run, de headers sobrescritos y de acceso directo. El modo predeterminado conserva trust proxy=false y no usa X-Forwarded-For como identidad.
+   La preparación experimental posterior P1 se describe en [Identidad IP experimental](c1-login-ip-experiment.md);
+   no acredita H1 ni autoriza su activación. No se configura un número de saltos sin evidencia. La modalidad heredada de Render no debe trasladarse automáticamente; confirmar configuración efectiva antes de autorizar C1.
 2. **Rate limit runtime:** aprobar alcance requerido entre procesos/instancias y reinicios, estrategia de almacenamiento y disponibilidad. El limiter en memoria local no demuestra un límite agregado y el fallback de proxy puede compartir bucket entre clientes. Resolver y probar en un trabajo autorizado antes de C1.
 3. **Superficie pública y arquitectura:** confirmar y autorizar Hosting → API Cloud Run HTTPS con JWT/RBAC → PostgreSQL privado. Es recomendación pendiente, sin BFF ni dominios nuevos. Sin cambios de ingress, APIs, IAM o infraestructura en T1.
 4. **Privacidad y credenciales temporales:** revisar política de acceso/retención de logs, URLs firmadas y permisos efectivos de storage; verificar configuración segura de producción y origen definitivo. Las pruebas mock no acreditan controles de plataforma ni revocación de enlaces ya emitidos.
@@ -87,3 +89,13 @@ No se observaron regresiones frente a la validación previa ni fallos persistent
 Protocolo futuro de IP/rate limiting: documentar caminos de ingreso y frontera de confianza; luego, solo con autorización separada, validar clientes distintos, headers reenviados no confiables, IPv4/IPv6, concurrencia, separación de buckets y continuidad entre reinicios/revisiones. El fallback determinista puede agrupar usuarios y MemoryStore pierde contadores; no equivale a identificación correcta ni a un límite agregado persistente. Sin sondas activas, instrumentación, despliegues ni cambios de trust proxy o limiter en este frente. La evidencia privada de C2 se consultó sin repetir operaciones Cloud ni trasladar identificadores o detalles sensibles a este documento.
 
 La evidencia sensible queda en un archivo temporal privado cuya ruta se entrega al coordinador por canal local; no se incorpora su contenido ni su ubicación a este documento publicable. No se ejecutaron suites DB, QA contra staging ni pruebas de recursos cloud. Este trabajo entrega un diff revisable; no aprueba su propia integración.
+
+## Preparación local P1 posterior a integración de T1
+
+Sobre main `058a648a`, la rama independiente de P1 conserva legacy por defecto y prepara un
+helper exclusivo del login, sin modificar trust proxy, JWT/RBAC ni rutas ajenas. El log del limiter
+deja de incluir key/IP/subred; no se afirma redacción de logs de plataforma. Los resultados
+anteriores conservan su fecha/base. Véase [informe P1](c1-login-ip-experiment.md) para resultados
+actuales: Node24, build/typecheck PASS y 105 suites/3837 pruebas PASS; 21 escenarios locales,
+ninguna invocación staging. El borrador AI está separado del registro central. C1 continúa
+BLOQUEADO, C3 pendiente y T5 no iniciado; revisión y publicación de este frente no autorizadas.
