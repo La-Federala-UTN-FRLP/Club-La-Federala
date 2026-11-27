@@ -1,146 +1,114 @@
-# G4 · T3 — Inventario de plataforma y decisión C2
+# G4 · T3 — Plataforma y cierre documental de C2
 
-Estado: **C2 listo para decisión humana; no aprobado**. Corte: 2026-11-26, 16:12–16:16 ART (UTC−03). Revisor propuesto: Santiago; validación: Nicolas. Referencia: issue principal #290 del repositorio canónico `La-Federala-UTN-FRLP/Club-La-Federala`; coordinación `g4-base`.
+Actualización: 2026-11-27. **C2 completado y reutilización del sitio existente aprobada por coordinación; C1 BLOQUEADO; C3 pendiente, no aprobado; T5 no iniciado.** C2 no aprueba exposición de Cloud Run, despliegue ni nuevas modificaciones Cloud. Revisor propuesto: Santiago, con validación Nicolas. Refs #290.
 
-## Alcance y procedencia
+## Procedencia y límites
 
-Inventario control-plane de `la-federala-staging-utn`, región `southamerica-east1`. Las consultas globales (Service Usage, IAM del proyecto, buckets, redes y Cloud SQL) llevan proyecto explícito; las regionales de Run, subredes y Scheduler llevan además región o ubicación explícita. No se modificó infraestructura, configuración local de gcloud ni datos de aplicación.
+El inventario inicial del 2026-11-26 se realizó sobre `84490e678b388fa6053fcfe262167412ea0f40e7`: ambas APIs Firebase estaban DISABLED y sus recursos eran desconocidos. Es evidencia histórica, sustituida para Firebase por la auditoría posterior del 2026-11-27, 18:26–18:27 UTC. No se interpreta la situación inicial como inexistencia de recursos ni como estado vigente.
 
-Base congelada y HEAD final: `84490e678b388fa6053fcfe262167412ea0f40e7`. Checkout limpio antes de editar. La rama nueva de Orca se renombró de `SantiTalavera/g4-t3-platform` a `docs/g4-platform-proposal` tras comprobar que la requerida no existía. `origin` conserva `https://github.com/justinasmith1/Club-La-Federala.git`. No hubo commit, push, PR ni cambios en issues o Projects.
+La actualización documental parte del main canónico `7f5597bae624967554c0da1116817f7e41e87746`, preservando previamente el trabajo propio mediante commit y respaldo local. Rama: `docs/g4-platform-proposal`; repositorio canónico: `La-Federala-UTN-FRLP/Club-La-Federala`. Origin conserva el fork. No se modificaron otras ramas o archivos de otros frentes.
 
-Se consultaron `CONTRIBUTING.md`, `.github/pull_request_template.md` y el registro `AI-DECISIONS.md`, incluida su plantilla y AI-015. No se encontraron `AGENTS.md` en el checkout ni en sus directorios ancestros consultados. La excepción explícita del encargo conserva el registro central sin cambios: borrador exclusivo en [ai/T3.md](ai/T3.md).
+Se consultaron `CONTRIBUTING.md`, el PR template y `AI-DECISIONS.md` canónico, con última entrada real AI-041. No se encontró `AGENTS.md` aplicable en checkout o ancestros consultados. El registro central queda reservado al coordinador; [ai/T3.md](ai/T3.md) es un insumo temporal sin ID definitivo para consolidación posterior.
 
-## Inventario comprobado
+En esta actualización **no hubo llamadas a recursos Cloud**: se reutilizaron las capturas privadas y el informe de auditoría entregados por coordinación, junto con documentación oficial pública. No se obtuvieron valores de claves, tokens, secretos, configuraciones de apps ni envs completas; tampoco datos o logs de aplicación. Las rutas privadas, identidades personales, identificadores de claves y detalle de seguridad no se incorporan al repositorio.
 
-| Componente | Evidencia observada | Límites de interpretación |
+## Estado Firebase observado y autorizado
+
+| Elemento | Evidencia del 2026-11-27 | Interpretación y límite |
 | --- | --- | --- |
-| Cloud Run | Servicio `federala-staging-api`, Ready=True; revisión creada y lista `federala-staging-api-00001-7b4`; tráfico 100% a esa revisión | Ready no demuestra corrección de aplicación ni QA de seguridad |
-| Imagen de API | Digest `sha256:61550f344b1259c85a86f7b56b10a8921c0accf5f6dcef6973a5a231148de0ac` en Artifact Registry regional, repositorio `federala-backend`, imagen `api` | No se estableció correspondencia entre digest y SHA del código; no se ejecutó imagen ni análisis de dependencias |
-| Capacidad API | 1 vCPU, 1 GiB; concurrencia 10; timeout 60 s; CPU idle habilitada y startup CPU boost habilitado | Sin prueba de carga ni cálculo de conexiones SQL |
-| Escalado API | Máximo de servicio 5; máximo de revisión/template 1; mínimos omitidos en respuesta | Conservar ambos niveles; no informar capacidad real de 5 instancias. Mínimo omitido es valor por defecto, no una reserva positiva comprobada |
-| Ingress | `INGRESS_TRAFFIC_ALL` | Aceptar ingress no equivale a invocación pública autorizada |
-| Acceso Run | Política IAM directa con 0 bindings; 0 bindings públicos `roles/run.invoker` en política del proyecto; `invokerIamDisabled` omitido en respuesta v2 | No se auditó herencia de carpeta/organización, roles personalizados ni políticas organizacionales; no se probó HTTP anónimo. No afirmar apertura pública ni autorización pública aprobada |
-| Red API | Direct VPC egress con red `federala-staging-vpc`, subred `federala-staging-subnet`, `PRIVATE_RANGES_ONLY` | No se inspeccionaron reglas detalladas de firewall, rutas, peers ni tráfico |
-| Red del proyecto | Red de staging custom y red `default` automática; subred de staging regional con Private Google Access=True | La existencia de `default` no demuestra uso por la API |
-| Cloud SQL | `federala-staging-db`, `POSTGRES_17`, RUNNABLE, regional indicado, ZONAL, `db-g1-small`, SSD 20 GB; IPv4 pública deshabilitada y red privada de staging configurada | No se consultaron tablas, usuarios, conexiones, credenciales ni contenido SQL |
-| Protección SQL | Backups habilitados, retención de 7 backups, protección de borrado habilitada y `sslMode=ENCRYPTED_ONLY` | `pointInTimeRecoveryEnabled` no apareció; retención de logs de 7 días no demuestra PITR habilitado. No se probó restauración |
-| Run Job expiraciones | `federala-staging-expirations`: 1 tarea, paralelismo 1, 1 vCPU/512 MiB, timeout 600 s, 0 retries | Solo metadata; no se ejecutó ni se consultaron logs o payloads |
-| Run Job migraciones | `federala-staging-migrate`: 1 tarea, paralelismo 1, 1 vCPU/1 GiB, timeout 900 s, 0 retries | Existencia no demuestra migraciones aplicadas ni esquema al día |
-| Scheduler | `federala-staging-expirations-daily`, ENABLED, `0 9 * * *`, zona `America/Argentina/Buenos_Aires`, método POST, deadline 60 s | Estado observado preexistente; no se pausó ni ejecutó. Payload, headers, destino e identidad no inventariados |
-| GCS | Bucket `federala-staging-files-28822223940`, STANDARD, `SOUTHAMERICA-EAST1`; Public Access Prevention enforced; Uniform Bucket-Level Access=True; 0 bindings públicos directos | No se listaron objetos ni se generaron URLs firmadas; permisos efectivos e identidad firmante pendientes |
-| Recuperación GCS | Soft delete 604800 s (7 días); campos de versionado y retention policy omitidos | No afirmar versionado ni retención inmutable configurados; protección soft delete no es una prueba de recuperación |
-| Firebase Management | `firebase.googleapis.com`: **DISABLED**, obtenido por Service Usage GET | Bloquea inventario Firebase; no demuestra ausencia de proyecto Firebase |
-| Firebase Hosting | `firebasehosting.googleapis.com`: **DISABLED**, obtenido por Service Usage GET | Sitios, versiones, canales, releases y dominios: **desconocidos**. No se intentó crearlos ni habilitar APIs |
+| Proyecto GCP/Firebase | `projectId=la-federala-staging-utn`, `projectNumber=28822223940`, FirebaseProject ACTIVE, projects.get HTTP 200 | Identificadores conservados, no proyecto nuevo |
+| Asociación | Auditoría AddFirebase con operación terminada y respuesta del proyecto, sin error final | Asociación completada por el responsable en consola; los intentos REST fallidos anteriores no describen el resultado final |
+| Facturación | billingEnabled=true y mismo vínculo de cuenta antes/después | Blaze por regla oficial; projects.get no devolvió un campo plan. Sin cambio de cuenta, auditoría de factura ni garantía de costo cero |
+| Sitio | `la-federala-staging-utn`, tipo DEFAULT_SITE | Reutilización aprobada; no crear otro sitio ni una app Firebase innecesaria |
+| URL Hosting | `https://la-federala-staging-utn.web.app`, devuelta por API | URL del sitio vacío, no evidencia de frontend funcional |
+| Canal | Solo `live` | Canal no equivale a release |
+| Publicación | 0 versiones, 0 releases del sitio y 0 releases de live; listados completos HTTP 200 | No hay despliegue observado en las capturas |
+| Apps | 0 web, 0 Android, 0 iOS; listados completos HTTP 200 | No registrar una app solo para alojar estáticos |
+| Dominios | 0 customDomains, listado completo HTTP 200 | No crear dominios. `la-federala-staging-utn.firebaseapp.com` deriva de la regla oficial; no fue devuelto como customDomain ni probado por HTTP/DNS |
+| Analytics | getAnalyticsDetails HTTP 404 NOT_FOUND, con proyecto ACTIVE | Sin vínculo encontrado; consistente con la elección de no habilitarlo. No se inventariaron propiedades externas |
+| Labels | `firebase=enabled`, `firebase-core=disabled` | Valores literales; sin semántica acreditada del segundo ni contradicción demostrada con ACTIVE |
 
-Jobs: digest de expiraciones `sha256:632756ac9ed63cd659c9630acb7cdc485590b45965354599aae20b624cc3574b`; digest de migraciones `sha256:bfefaeffac79154208b50c4f3d7316d914b43eea86cce222c7952d5c3cad67cf`. Son imágenes distintas de la API: la diferencia exige verificar procedencia antes de un futuro despliegue, sin deducir por sí sola incompatibilidad.
+Billing implica Blaze según [Firebase sobre un proyecto GCP existente](https://firebase.google.com/docs/projects/use-firebase-with-existing-cloud-project). Hosting es global: la región de Run/SQL no se asigna al sitio. [Reglas del sitio predeterminado](https://firebase.google.com/docs/hosting/default-site). No se atribuye el disparador exacto de la creación del sitio: la consulta específica de auditoría no obtuvo un evento que lo demostrara.
 
-No se consultaron `.env`, versiones/valores de secretos ni envs completas. `FRONTEND_URL` y `NODE_ENV` quedan sin verificar en esta corrida: no se empleó una extracción de env completa para obtenerlos. Secret Manager solo figura como API habilitada; no se listaron secretos.
+## APIs: resultado real, no previsión
 
-## APIs: estado y necesidad
+La comparación posterior a la asociación registra **57 → 67 APIs habilitadas, diez adiciones y ninguna baja**. `firebase.googleapis.com` y `firebasehosting.googleapis.com` ya estaban habilitadas en el baseline inmediato previo a la asociación. Las diez adiciones son:
 
-| API exacta | Estado comprobado | Papel en la propuesta |
-| --- | --- | --- |
-| `serviceusage.googleapis.com` | ENABLED | Consulta y futura habilitación controlada |
-| `firebase.googleapis.com` | DISABLED | Firebase Management: identificar asociación del proyecto y apps existentes |
-| `firebasehosting.googleapis.com` | DISABLED | Inventariar Hosting y, con otra autorización, publicar estáticos |
-| `run.googleapis.com` | ENABLED | API HTTPS existente y Jobs existentes |
-| `artifactregistry.googleapis.com` | ENABLED | Imágenes existentes; no implica necesidad de nueva imagen |
-| `compute.googleapis.com` | ENABLED | Red y Direct VPC egress existentes |
-| `servicenetworking.googleapis.com` | ENABLED | Conectividad de servicios privados existente |
-| `sqladmin.googleapis.com` | ENABLED | Administración metadata de PostgreSQL existente |
-| `storage.googleapis.com` | ENABLED | Archivos existentes |
-| `cloudscheduler.googleapis.com` | ENABLED | Programación existente; no necesaria para servir el frontend |
-| `iam.googleapis.com`, `iamcredentials.googleapis.com` | ENABLED | Identidades y operaciones de firma existentes; permisos efectivos no validados |
-| `secretmanager.googleapis.com` | ENABLED | Configuración sensible existente; contenido fuera del inventario |
-| `logging.googleapis.com`, `monitoring.googleapis.com` | ENABLED | Observabilidad; no se consultaron logs de aplicación |
-
-Los estados ENABLED proceden de `gcloud services list --enabled --project=la-federala-staging-utn`. DISABLED se confirmó individualmente por Service Usage REST; la ausencia en la lista no se usó como única prueba. No se propone habilitar Authentication, Firestore, App Hosting, Functions, Cloud Build ni otras APIs por conveniencia; cualquier dependencia adicional observada requiere nueva revisión.
-
-## C2 — Propuesta delimitada para decisión
-
-**Decisión solicitada a revisión humana:** autorizar exclusivamente habilitar `firebase.googleapis.com` y `firebasehosting.googleapis.com` en el proyecto existente `la-federala-staging-utn`, seguido de un nuevo inventario read-only. No es autorización para crear proyecto Firebase, apps, sitios, canales, dominios, releases, recursos de facturación ni para desplegar. Hosting es global; no asignar ficticiamente `southamerica-east1` a sus sitios. Run y SQL conservan esa región.
-
-Secuencia propuesta, no ejecutada:
-
-1. Santiago revisa este inventario y el alcance; Nicolas valida seguridad, titularidad del proyecto y presupuesto. Registrar autorización expresa de C2, APIs, operador y ventana.
-2. Guardar evidencia filtrada del estado de ambas APIs y de sus dependencias. Un operador autorizado habilita solo las dos APIs exactas. Esta acción puede aprovisionar identidades gestionadas del servicio; revisar el cambio efectivo sin conceder roles amplios manualmente.
-3. Esperar operación de habilitación; verificar ENABLED. Consultar Firebase `projects.get` y apps existentes mediante list; Hosting `projects.sites.list`, y get/list de versiones, canales y releases de los sitios devueltos. No ejecutar `addFirebase`, `projects.create`, `sites.create` ni inicializaciones que creen recursos. Si no existe asociación Firebase o falta permiso, detener y presentar otra decisión; no inferir autorización para corregirlo.
-4. Actualizar inventario con sitios y dominios efectivamente devueltos, estado de facturación/plan accesible y límites de permisos. No inventar dominios ni tratar un 403/404 como prueba general de inexistencia.
-5. Presentar autorización **separada** para cualquier recurso, despliegue estático, configuración CORS/URL, configuración de facturación y acceso público de Run. Seguridad y pruebas JWT/RBAC deben preceder a la apertura pública. C2 no habilita T5.
-
-### Permisos mínimos propuestos
-
-Los permisos se describen como necesidades de operaciones futuras; no se concedieron ni se demostró su posesión con la identidad actual fuera de las lecturas exitosas.
-
-| Operación | Permisos/rol acotado propuesto |
+| API añadida | API añadida |
 | --- | --- |
-| Ver estado de APIs | `serviceusage.services.get`, `serviceusage.services.list`; rol predefinido `roles/serviceusage.serviceUsageViewer` |
-| Habilitar y observar operación | `serviceusage.services.enable`, `serviceusage.operations.get` sobre proyecto exacto; permiso `serviceusage.services.use` si el consumo/cuota del método lo exige. Delegación temporal acotada por política organizacional; no solicitar Owner/Editor |
-| Inventariar Firebase | `firebase.projects.get` y los get/list correspondientes a las apps que se consulten; evaluar `roles/firebase.viewer` para la lectura requerida |
-| Inventariar Hosting | `firebasehosting.sites.get`, `firebasehosting.sites.list`, `roles/firebasehosting.viewer`; la documentación vigente indica que Hosting no admite custom roles para controlar acceso a sus recursos |
-| Eventual reversa de APIs | `serviceusage.services.disable` y lectura de operaciones/dependencias, solo con autorización de rollback y tras evaluar consumidores |
-| Eventual apertura pública Run | `run.services.getIamPolicy` / `run.services.setIamPolicy` sobre ese servicio, sujeto a políticas de organización y aprobación distinta de C2 |
+| `cloudresourcemanager.googleapis.com` | `fcm.googleapis.com` |
+| `firebaseinstallations.googleapis.com` | `firebaseremoteconfig.googleapis.com` |
+| `firebaseremoteconfigrealtime.googleapis.com` | `firebaserules.googleapis.com` |
+| `identitytoolkit.googleapis.com` | `runtimeconfig.googleapis.com` |
+| `securetoken.googleapis.com` | `testing.googleapis.com` |
 
-Referencia de permisos: [Service Usage](https://docs.cloud.google.com/iam/docs/roles-permissions/serviceusage), [Firebase IAM](https://firebase.google.com/docs/projects/iam/permissions). Las consultas de inventario posteriores deben limitar las respuestas a metadata pública; permisos de lectura no autorizan descargar configuraciones con credenciales.
+`appengine.googleapis.com` (App Engine Admin) y `firebasedynamiclinks.googleapis.com` siguen **DISABLED**, comprobadas individualmente. La previsión condicional de 69 APIs no se materializó y no es criterio para habilitarlas: el proyecto ya está ACTIVE. Pub/Sub estaba habilitada antes. No inferir uso, facturación o APIs habilitadas a partir de las restricciones de una clave.
 
-### Costos y supuestos
+## Revisión de metadatos IAM y de clave
 
-Fuentes oficiales consultadas el 2026-11-26; valores ilustrativos en USD, sin impuestos ni conversión monetaria. No se consultó facturación, consumo real ni créditos de la cuenta.
+Las cuentas listables pasaron de 6 a 7. La nueva cuenta `firebase-adminsdk-fbsvc` recibió `roles/firebase.sdkAdminServiceAgent` y `roles/iam.serviceAccountTokenCreator` **en el proyecto**. La auditoría atribuye ambas altas al agente Firebase Management. Ese agente ya existía desde la habilitación C2; no se cuenta como nueva identidad de esta asociación. No se observaron bajas o cambios de vinculaciones anteriores. Los agentes gestionados no necesariamente aparecen en serviceAccounts.list.
 
-- **C2 acotado:** habilitación y lectura, sin publicar contenido ni crear recursos de consumo. Incremento de Hosting esperado USD 0 bajo ese supuesto; no representa una garantía de factura total cero ni detiene costos existentes.
-- **Hosting futuro:** tarifa publicada de almacenamiento extra USD 0,026/GB y transferencia extra USD 0,15/GB, con franquicia de almacenamiento de 10 GB. Como ejemplo de consumo ya determinado como facturable tras aplicar franquicias: 20 GB adicionales almacenados y 20 GB adicionales transferidos implican `20 × 0,026 + 20 × 0,15 = USD 3,52` en el período tarifario. No equivale a pronóstico de uso. La tabla de pricing presenta transferencia gratuita de 360 MB/día; la guía de Hosting expresa 10 GB/mes. Reconciliar el período aplicable en el plan/console antes del presupuesto final. [Precios Firebase](https://firebase.google.com/pricing), [cuotas Hosting](https://firebase.google.com/docs/hosting/usage-quotas-pricing).
-- **Run existente/futuro público:** cobro según región, modalidad, vCPU-s, GiB-s, requests y transferencia; cuotas gratuitas compartidas por cuenta de facturación. Para estimar usar 1 vCPU y 1 GiB observados y separar CPU boost/arranques, tiempo facturable, requests y egress. No se midieron esos consumos ni se calculó un precio regional inventado; solicitar estimación en calculadora para `southamerica-east1` antes de otra autorización de recursos. [Cloud Run pricing](https://cloud.google.com/run/pricing).
-- **Base existente:** SQL `db-g1-small` ZONAL y 20 GB SSD, backups y transferencia; GCS STANDARD regional, operaciones, almacenamiento recuperable y soft delete. Presupuestar con horas de SQL, GB y operaciones efectivos; no aplicar franquicias de otras regiones ni atribuir estos costos a C2. Imágenes, secretos y observabilidad también pueden generar cargos; inventario sin factura no proporciona un total. [Cloud SQL pricing](https://cloud.google.com/sql/pricing), [GCS pricing](https://cloud.google.com/storage/pricing).
-- **Scheduler existente:** USD 0,10 por job/31 días, con 3 jobs gratuitos por cuenta de facturación; un job aquí sería USD 0 incremental si la cuenta conserva franquicia, o hasta USD 0,10 por período completo si ya la consumió. El precio no incluye el trabajo ejecutado por Run. [Scheduler pricing](https://cloud.google.com/scheduler/pricing).
+Token Creator contiene permisos para credenciales temporales y firma; no es solo autorización OIDC. El nivel proyecto se hereda a recursos descendientes pertinentes y es más amplio que una concesión sobre una cuenta específica. Eso no concede por sí solo acceso a cualquier dato: evaluar por principal, permiso y recurso las políticas allow heredadas/directas y sus condiciones, deny y límites de acceso del principal aplicables. No se probó acceso ni se usó el rol. [Definición del rol](https://docs.cloud.google.com/iam/docs/roles-permissions/iam#iam.serviceAccountTokenCreator), [herencia IAM](https://docs.cloud.google.com/iam/docs/resource-hierarchy-access-control), [evaluación IAM](https://docs.cloud.google.com/policy-intelligence/docs/troubleshoot-access).
 
-El presupuesto mensual total y los límites de consumo quedan pendientes de lectura autorizada de billing o estimación humana. Aprobar C2 no implica aceptar un gasto ilimitado ni aprobar los recursos posteriores.
+Revisión humana de mínimo privilegio pendiente: documentar necesidad gestionada por Firebase, recursos que la requieren y alternativas de alcance admitidas por el producto. Ser automático no acredita necesidad mínima ni autoriza revocarlo; cualquier cambio exige evaluación de impacto y autorización separada. No se recomiendan concesiones adicionales ni remediaciones automáticas.
 
-### Rollback de C2
+Se observó una Browser key nueva con **27 API targets**, sin `generativelanguage.googleapis.com`. Se cotejó con la tabla oficial de APIs relacionadas con Firebase: 24 coincidencias y 3 objetivos no enumerados, cuyo detalle y revisión de restricciones de aplicación quedan en evidencia privada para seguridad. Una allowlist de APIs no acredita restricción de origen HTTP ni permisos IAM; tampoco obliga a habilitar APIs de la tabla que no figuren en la clave. No se obtuvo su valor ni se cambió la clave. React con JWT hacia Cloud Run no debe incorporarla por su mera existencia. [Guía oficial de claves Firebase](https://firebase.google.com/docs/projects/api-keys).
 
-Si solo se habilitaron APIs y el inventario posterior no detecta consumidores, proponer restaurar cada API al estado DISABLED inicial mediante operador autorizado. Antes de deshabilitar, comprobar dependencias e impactos: no usar deshabilitación forzada/cascada. Si hay sitios, integraciones o consumidores preexistentes, detener la reversa y acordar ventana/impacto; no borrarlos para hacer coincidir el estado inicial. Retirar únicamente la delegación temporal concedida para esta operación, sin alterar permisos previos. No usar borrado de proyecto como rollback.
+## Plataforma GCP: último inventario histórico conservado
 
-## Arquitectura recomendada y acceso público: otra decisión
+Esta tabla mantiene el corte del **2026-11-26** y no afirma una reverificación de Run/SQL/GCS/Jobs el 27. Las capturas Firebase posteriores no prueban cambios ni continuidad de todos esos controles.
 
-Propuesta pendiente de seguridad y autorización pública: **Firebase Hosting → API Cloud Run HTTPS con JWT/RBAC → PostgreSQL privado**. El navegador llamaría directamente a la API existente; el frontend estático no guarda secretos de backend. No se propone BFF ni un dominio nuevo. El proyecto/servicio de Firebase real y el origen permitido se determinan después del inventario, antes de configurar CORS.
+| Recurso | Metadata observada el 26 | Límite |
+| --- | --- | --- |
+| Run `federala-staging-api` | Ready=True; revisión `federala-staging-api-00001-7b4`, tráfico 100%; 1 vCPU/1 GiB, concurrencia 10, timeout 60 s, CPU idle y startup boost habilitados | Sin prueba funcional ni de carga |
+| Escalado Run | Máximo servicio 5 y template/revisión 1; mínimos omitidos | No presentar capacidad efectiva de 5 instancias ni reserva positiva verificada |
+| Ingress e IAM | Ingress all, política directa con 0 bindings, 0 bindings públicos run.invoker en proyecto, invokerIamDisabled omitido en respuesta v2 | Sin auditoría de herencia organizacional ni HTTP anónimo; ingress no prueba acceso público |
+| Red | Direct VPC egress PRIVATE_RANGES_ONLY, `federala-staging-vpc` / `federala-staging-subnet`; Private Google Access=True; también existe red default | La salida a SQL no demuestra topología de ingreso/proxies |
+| SQL `federala-staging-db` | PostgreSQL 17, RUNNABLE, db-g1-small, ZONAL, SSD 20 GB, IPv4 pública deshabilitada, red privada, backups y protección de borrado, ENCRYPTED_ONLY | PITR no confirmado; sin lectura SQL ni restauración probada |
+| Run Jobs | Expiraciones: 1 tarea/paralelismo 1, 1 vCPU/512 MiB, 600 s, 0 retries; migraciones: 1 tarea/paralelismo 1, 1 vCPU/1 GiB, 900 s, 0 retries | `federala-staging-expirations` y `federala-staging-migrate` no ejecutados; existencia no acredita esquema migrado |
+| Scheduler | `federala-staging-expirations-daily`, ENABLED, `0 9 * * *`, America/Argentina/Buenos_Aires, POST, deadline 60 s | Estado preexistente; no ejecutado ni modificado |
+| GCS | `federala-staging-files-28822223940`, STANDARD, SOUTHAMERICA-EAST1; PAP enforced, UBLA=True, 0 bindings públicos directos, soft delete 7 días | Sin objetos, firmas o recuperación probados; versionado/retención inmutable no confirmados |
 
-La apertura de ingress ya observada no resuelve la invocación desde un navegador. El JWT de aplicación y la autorización IAM de Run son capas distintas. Antes de permitir invocaciones anónimas en la capa Run hay que revisar autenticación, RBAC, aislamiento de tenants, CORS, rate limiting, proxies/IP y endpoints deliberadamente públicos; no se validaron en este inventario.
+Digest API observado: `sha256:61550f344b1259c85a86f7b56b10a8921c0accf5f6dcef6973a5a231148de0ac`. Expiraciones: `sha256:632756ac9ed63cd659c9630acb7cdc485590b45965354599aae20b624cc3574b`. Migraciones: `sha256:bfefaeffac79154208b50c4f3d7316d914b43eea86cce222c7952d5c3cad67cf`. No se estableció correspondencia con SHA de código ni compatibilidad entre imágenes. FRONTEND_URL y NODE_ENV no verificados en T3; no se extrajeron envs completas.
 
-Diff conceptual futuro, **no aplicado y fuera de C2**:
+## Arquitectura e invocación pública: propuesta futura única
+
+Recomendación: **Hosting existente → API Cloud Run HTTPS con JWT/RBAC → PostgreSQL privado**. Sin BFF, dominios inventados ni secretos de backend en frontend. Origen/CORS y build con valores aprobados quedan sujetos a C3. La URL de Hosting conocida no implica aprobación de endpoint API ni publicación.
+
+Tras resolver C1, aprobar C3 y autorizar expresamente la exposición, se propone **desactivar Invoker IAM check solo en `federala-staging-api`**, sin agregar allUsers. Es el mecanismo recomendado por Google. Diff conceptual pendiente, no aplicado:
 
 ```diff
- # Solo política del servicio federala-staging-api, tras revisión de seguridad
-+roles/run.invoker: allUsers
- # Sin ampliar permisos SQL, secretos, GCS ni cambiar ingress/red
+ # Servicio existente, proyecto la-federala-staging-utn
+ # Región southamerica-east1; conservar políticas, ingress y red
++invokerIamDisabled: true
 ```
 
-Reversa conceptual: quitar exclusivamente el binding `allUsers` que se hubiera agregado, conservando cualquier otro binding/condición. Guardar y comparar política antes/después; no restaurar una política completa que pise cambios concurrentes. No se propone deshabilitar el chequeo IAM como segundo cambio paralelo. [Opciones oficiales para acceso público de Run](https://docs.cloud.google.com/run/docs/authenticating/public).
+La [documentación oficial de acceso público Run](https://docs.cloud.google.com/run/docs/authenticating/public) enumera `run.services.create`, `run.services.update` y `run.services.setIamPolicy` para desactivar/restablecer el control. Incluidos en roles/run.admin; no se concedió ese rol ni se propone crear un servicio. Verificar permisos efectivos del operador para el flujo autorizado y constraints `run.managed.requireInvokerIam` y, donde corresponda, `run.requireInvokerIam`. No modificar constraints para eludir una restricción.
 
-## Consultas ejecutadas y resultados
+La alternativa allUsers mantiene el control IAM y agrega roles/run.invoker, requiere setIamPolicy y está sujeta a restricciones de compartición por dominio. No es la recomendación elegida ni un fallback automático. Ambos mecanismos admiten solicitudes anónimas en la capa Run; JWT/RBAC siguen en backend y no sustituyen rate limiting/identidad IP de C1. La carga pública puede aumentar costos.
 
-Ejecutable utilizado: `gcloud.cmd` instalado, con autenticación existente. Se usaron `--format` con campos seleccionados; las lecturas IAM se redujeron a conteos de bindings públicos sin versionar miembros. Las llamadas REST llevaron token solo en memoria y no lo imprimieron.
+Rollback futuro: restablecer el control (`invokerIamDisabled: false`; opción CLI documentada `--invoker-iam-check`) y verificar, en ventana autorizada, configuración efectiva, ausencia de bindings públicos y rechazo anónimo. Preservar demás permisos; no reemplazar la política completa ni confiar en revertir solo imagen/revisión. Revisar efectos del flujo de consola sobre bindings públicos antes de usarlo. Ninguna instrucción de este apartado se ejecutó.
 
-| Consulta ejecutada | Resultado |
-| --- | --- |
-| `git status --short`, `git rev-parse HEAD`, `git branch --show-current`, `git remote -v`, `git branch --list docs/g4-platform-proposal` | Base correcta, limpio inicialmente, rama requerida ausente y origin conservado |
-| `git branch -m docs/g4-platform-proposal` | Renombrada solo rama nueva autorizada |
-| `gcloud services list --enabled --project=la-federala-staging-utn --format='value(config.name)'` | Exit 0; APIs relevantes en tabla anterior |
-| `gcloud run services describe federala-staging-api --project=la-federala-staging-utn --region=southamerica-east1 --format=<proyección>` | Exit 0; servicio listo, ingress, red y escalado |
-| `gcloud run revisions describe federala-staging-api-00001-7b4 --project=la-federala-staging-utn --region=southamerica-east1 --format=<proyección>` | Exit 0; digest y recursos |
-| `gcloud run services get-iam-policy federala-staging-api --project=la-federala-staging-utn --region=southamerica-east1 --format=json` y proyección de roles | Exit 0; política directa vacía; confirmado mediante REST |
-| `gcloud projects get-iam-policy la-federala-staging-utn --format=json`, reducido en memoria a conteos | Exit 0; 0 bindings públicos de `roles/run.invoker` a nivel proyecto |
-| `gcloud sql instances list --project=la-federala-staging-utn --format=<proyección>` y `sql instances describe federala-staging-db` con el mismo proyecto | Exit 0; metadata SQL y protecciones |
-| `gcloud run jobs list` y `run jobs describe` de cada nombre devuelto, proyecto y región explícitos | Exit 0; 2 jobs y capacidad/digests; no ejecuciones |
-| `gcloud scheduler jobs list --project=la-federala-staging-utn --location=southamerica-east1 --format=<proyección>` | Exit 0; 1 job programado |
-| `gcloud storage buckets list --project=la-federala-staging-utn --format=<proyección>`, `buckets describe` y `buckets get-iam-policy` del bucket devuelto con proyecto explícito | Exit 0; protecciones y conteo IAM directo |
-| `gcloud compute networks list --project=la-federala-staging-utn --format=<proyección>`; `compute networks subnets list --project=la-federala-staging-utn --regions=southamerica-east1 --format=<proyección>` | Exit 0; redes y subredes regionales |
-| Dos intentos `gcloud services describe <API> --project=la-federala-staging-utn --format='json(config.name,state)'` | **Fallaron**: subcomando `describe` no soportado por esta CLI. No hubo mutación; sustituidos por GET REST |
-| Service Usage GET `/v1/projects/la-federala-staging-utn/services/firebase.googleapis.com?fields=config/name,state` y equivalente Hosting | HTTP exitoso; ambos DISABLED. No se volvió a invocar Firebase/Hosting tras confirmar la dependencia |
-| Run REST GET v1 de política IAM del servicio y GET v2 del servicio con máscara `name,ingress,invokerIamDisabled,scaling,template(scaling,vpcAccess,timeout,maxInstanceRequestConcurrency,containers(resources))` | HTTP exitoso; confirmó política vacía, CPU idle, límites y red sin extraer envs |
+## C2 completado: límites de continuidad y reversa
 
-El antecedente `SERVICE_DISABLED` no fue regenerado contra Firebase; esta corrida comprobó el estado DISABLED mediante Service Usage y se detuvo en esa dependencia. Un error de sintaxis CLI no es una falla de recursos ni una regresión del producto.
+La instrucción vigente aprueba reutilizar DEFAULT_SITE y proyecto homónimos con billing existente Blaze, sin Analytics ni apps innecesarias. Se conserva el resultado observado de APIs, identidades, sitio y clave; no se habilitan servicios para igualar una previsión. La revisión de seguridad de metadatos no se presenta como aprobación de mínimo privilegio.
 
-## Validación documental y pendientes humanos
+La antigua propuesta de volver ambas APIs a DISABLED era condicional, anterior a la asociación. **No es rollback integral de C2 actual:** añadir Firebase a un proyecto existente no se puede deshacer completamente según la [regla oficial](https://firebase.google.com/docs/projects/use-firebase-with-existing-cloud-project). No borrar proyecto/sitio/identidades, desvincular billing ni revocar roles para simular reversión. Una reversa parcial requiere inventariar dependencias, acordar impacto y autorización específica, sin force/cascada. No se ejecuta en este frente.
 
-Solo se agregaron este informe y el borrador AI, con intent-to-add para permitir revisar el diff sin commit. Se verificaron enlaces Markdown relativos y patrones de credenciales/datos personales en ambos documentos: PASS. El primer `git diff --check` detectó tres líneas con espacios finales de Markdown en el borrador AI; se eliminaron y se repitió la validación. No se ejecutaron tests, builds, lint de aplicación, HTTP de negocio, login, migraciones, seeds, jobs, logs, pruebas de restauración ni pruebas de carga; no corresponde atribuirles PASS. El baseline global de CI no se volvió a medir.
+## Costos con supuestos
 
-Pendientes de revisión: aprobar o rechazar C2, revisar presupuesto total, inventariar Firebase una vez autorizadas las APIs, resolver procedencia de imágenes, validar configuración pública de frontend/CORS, revisar acceso efectivo e identidades y aprobar por separado cualquier recurso o acceso público. El reviewer humano deberá revisar el diff y abrir un eventual PR en el repositorio canónico; esta tarea no lo crea ni aprueba.
+Sin auditoría de consumo o factura. El mismo billing conserva costos GCP previos; Blaze no es presupuesto ni garantía de gasto cero. La captura sin versiones/releases no prueba una factura futura.
+
+- Hosting: la [tabla de precios](https://firebase.google.com/pricing), consultada el 27, publica 10 GB de almacenamiento gratuito, luego USD 0,026/GB; transferencia extra USD 0,15/GB. Ejemplo sobre cantidades ya facturables: 20 GB extra almacenados y 20 GB extra transferidos → USD 3,52, sin impuestos; no es pronóstico. La tabla expresa transferencia gratuita de 360 MB/día y la [guía de Hosting](https://firebase.google.com/docs/hosting/usage-quotas-pricing) usa 10 GB/mes; reconciliar período/plan en presupuesto humano.
+- Run, SQL, GCS, Scheduler, imágenes, secretos y observabilidad siguen generando costos según uso. El inventario del 26 no midió horas SQL, almacenamiento/operaciones, requests, vCPU-s/GiB-s o transferencia; no permite total mensual. Referencias: [Run](https://cloud.google.com/run/pricing), [SQL](https://cloud.google.com/sql/pricing), [GCS](https://cloud.google.com/storage/pricing), [Scheduler](https://cloud.google.com/scheduler/pricing).
+- Completar C2 no aprueba gasto ilimitado, nuevos recursos o carga pública. Se requiere presupuesto con región southamerica-east1 para Run/SQL y franquicias efectivas de la cuenta antes de la siguiente operación autorizada.
+
+## Verificación, errores históricos y entrega
+
+Consultas originales del 26: gcloud list/describe/get-iam-policy de Run/revisión, SQL metadata, Jobs, Scheduler, buckets y redes, con proyecto explícito y región/ubicación donde aplica; Service Usage GET de ambas APIs. Resultados exitosos del corte histórico. Dos intentos gcloud services describe fallaron por subcomando no soportado y se sustituyeron por GET REST. No se inventa un PASS de aplicación a partir del inventario.
+
+La auditoría del 27 suministrada por coordinación incluye JSON de estados/diff y listados completos de Hosting/apps, metadata IAM/clave y auditoría de asociación/altas IAM. Una consulta inicial de versiones falló HTTP 400 por campo inválido; la corregida dio HTTP 200 y cero versiones. Se conserva esa trazabilidad sin repetir Cloud calls. El 404 de vínculo Analytics no es fallo de asociación.
+
+Verificación local de esta actualización: PASS del merge-base contra el SHA canónico, diff solo de dos documentos T3, registro central sin cambios, whitespace, enlaces relativos, contraste de cifras/listados JSON y escaneo acotado de datos sensibles; 37 checksums de evidencia privada verificados. Es validación documental, sin suites/build/lint de producto, staging HTTP, login, jobs, migraciones, seeds, logs, restauraciones o carga; no se atribuye PASS funcional ni se reevalúa el baseline CI.
+
+El borrador privado de PR sigue el template y usa Refs #290, revisor Santiago con validación Nicolas. Sin push/PR ni cambios en issues/Projects. Pendientes: revisión humana de documentos y metadatos, consolidación AI por el coordinador, C1 bloqueado, C3 no aprobado y autorización posterior de exposición/publicación; el sitio vacío no completa los criterios de despliegue, login, navegación por rol o recarga SPA de #290.
