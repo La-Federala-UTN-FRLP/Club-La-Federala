@@ -1,10 +1,10 @@
-// Preparar un artefacto no confirma que la URL esté aprobada por C2.
+// Preparar un artefacto no aprueba la URL ni el contrato de acceso pendiente de C1/C3.
 export function validateHostingEnv(env) {
   let url;
   try {
     url = new URL(env.VITE_API_BASE_URL);
   } catch {
-    throw new Error("Hosting requiere VITE_API_BASE_URL absoluta HTTPS con /api, aprobada por C2.");
+    throw new Error("Hosting requiere VITE_API_BASE_URL absoluta HTTPS con /api y aprobación del contrato de acceso.");
   }
   if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash ||
       !/^\/api\/?$/.test(url.pathname) ||

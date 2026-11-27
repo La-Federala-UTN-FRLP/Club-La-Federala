@@ -17,11 +17,11 @@ test('Hosting rechaza configuración incompleta y flags de desarrollo', () => {
   }
 });
 
-test('Hosting sirve dist y resuelve rutas profundas sin rewrite de API', async () => {
+test('Configura sitio verificado, dist y fallback SPA sin rewrite de API', async () => {
   const config = JSON.parse(await readFile(new URL('../../firebase.json', import.meta.url)));
   assert.equal(config.hosting.public, 'frontend/dist');
   assert.deepEqual(config.hosting.rewrites, [{ source: '**', destination: '/index.html' }]);
-  assert.equal(config.hosting.site, undefined);
+  assert.equal(config.hosting.site, 'la-federala-staging-utn');
   assert.equal(config.hosting.target, undefined);
 });
 
@@ -36,7 +36,6 @@ test('Transporte real con fetch simulado, sin red ni datos de staging', async (t
       'import.meta.env.VITE_API_BASE_URL': JSON.stringify('https://api.invalid/api/'),
       'import.meta.env.VITE_API_BASE': JSON.stringify(''),
       'import.meta.env.VITE_AUTH_TOKEN_KEY': JSON.stringify('lf_token'),
-      'import.meta.env.VITE_REPORTES_MOCK': JSON.stringify('false'),
     },
   });
   const original = { fetch: globalThis.fetch, window: globalThis.window, localStorage: globalThis.localStorage };
@@ -52,7 +51,7 @@ test('Transporte real con fetch simulado, sin red ni datos de staging', async (t
   try {
     const { http, buildApiUrl } = await server.ssrLoadModule('/src/lib/http/http.js');
     const { uploadArchivo, sustituirArchivo, getFileSignedUrl } = await server.ssrLoadModule('/src/lib/api/archivos.js');
-    const { exportarReporte, REPORTES_EN_MOCK } = await server.ssrLoadModule('/src/lib/api/reportes.js');
+    const { exportarReporte, getInventario, getFraccionesReporte } = await server.ssrLoadModule('/src/lib/api/reportes.js');
 
     await t.test('base /api sin doble barra y JSON con Bearer', async () => {
       assert.equal(buildApiUrl('/lotes'), 'https://api.invalid/api/lotes');
@@ -71,6 +70,7 @@ test('Transporte real con fetch simulado, sin red ni datos de staging', async (t
       assert.equal(url, 'https://api.invalid/api/files');
       assert.ok(options.body instanceof FormData);
       assert.equal(options.body.get('idLoteAsociado'), '1');
+      assert.equal(options.body.get('tipo'), 'IMAGEN');
       assert.equal(options.headers['Content-Type'], undefined);
       assert.equal(options.headers.Authorization, 'Bearer test-token');
       response = new Response('{"data":{"id":2}}');
@@ -79,12 +79,23 @@ test('Transporte real con fetch simulado, sin red ni datos de staging', async (t
       assert.equal(url, 'https://api.invalid/api/files/1/sustituir');
       assert.ok(options.body instanceof FormData);
       assert.equal(options.headers['Content-Type'], undefined);
+      assert.equal(options.headers.Authorization, 'Bearer test-token');
     });
     await t.test('URL firmada usa el mismo transporte autenticado', async () => {
       response = new Response('{"signedUrl":"https://files.invalid/example"}');
       assert.equal(await getFileSignedUrl(1), 'https://files.invalid/example');
       assert.equal(calls.at(-1)[0], 'https://api.invalid/api/files/1/url');
       assert.equal(calls.at(-1)[1].body, '{}');
+      assert.equal(calls.at(-1)[1].headers.Authorization, 'Bearer test-token');
+    });
+    await t.test('reportes reales preservan filtros, señal y catálogo con total', async () => {
+      response = new Response('{"data":{"filas":[]}}');
+      assert.deepEqual(await getInventario({ fraccion: 2 }), { filas: [] });
+      assert.equal(calls.at(-1)[0], 'https://api.invalid/api/reportes/inventario?fraccion=2');
+      assert.ok(calls.at(-1)[1].signal instanceof AbortSignal);
+      assert.equal(calls.at(-1)[1].headers.Authorization, 'Bearer test-token');
+      response = new Response('{"fracciones":[{"idFraccion":2,"numero":4}],"total":11}');
+      assert.deepEqual(await getFraccionesReporte(), { fracciones: [{ id: 2, numero: 4 }], total: 11 });
     });
     await t.test('403 preserva sesión y 401 multipart limpia token y redirige', async () => {
       response = new Response('{}', { status: 403 });
@@ -96,7 +107,7 @@ test('Transporte real con fetch simulado, sin red ni datos de staging', async (t
       assert.equal(window.location.href, '/login');
     });
     await t.test('exportación conserva binario y rechaza HTML y error HTTP', async () => {
-      assert.equal(REPORTES_EN_MOCK, false);
+      storage.set('lf_token', 'test-token');
       response = new Response('example-binary', { headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': 'attachment; filename="reporte.xlsx"',
@@ -104,10 +115,17 @@ test('Transporte real con fetch simulado, sin red ni datos de staging', async (t
       const result = await exportarReporte('inventario');
       assert.equal(await result.blob.text(), 'example-binary');
       assert.equal(result.nombre, 'reporte.xlsx');
+      assert.equal(calls.at(-1)[1].headers.Authorization, 'Bearer test-token');
+      assert.ok(calls.at(-1)[1].signal instanceof AbortSignal);
       response = new Response('<html/>', { headers: { 'Content-Type': 'text/html' } });
       await assert.rejects(exportarReporte('inventario'), /Excel/);
       response = new Response('{}', { status: 403 });
       await assert.rejects(exportarReporte('inventario'), { statusCode: 403 });
+      response = new Response('example-binary', { headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      } });
+      response.blob = async () => { throw new DOMException('fixture', 'AbortError'); };
+      await assert.rejects(exportarReporte('inventario'), /La exportación tardó demasiado/);
     });
   } finally {
     Object.assign(globalThis, original);

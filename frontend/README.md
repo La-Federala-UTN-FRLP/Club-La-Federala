@@ -13,9 +13,9 @@ El foco del front es: **tablero reutilizable**, **barra de filtros reutilizable*
   3. Corré `npm run lint` y `npm run build`. No existe un script `npm test` ni una suite general de componentes en este checkout.
 
 - **Alcance de la suite de preparación**
-  - Guard de build Hosting, directorio estático y fallback SPA.
+  - Guard de build Hosting, sitio verificado, directorio estático y configuración de fallback SPA; no navegación real en Hosting.
   - Base `/api`, JSON, Bearer, multipart sin Content-Type manual, 401 y 403.
-  - URL firmada y exportación binaria con respuestas simuladas; no valida CORS ni servicios reales.
+  - URL firmada, consultas de reportes reales, catálogo con total y exportación binaria con respuestas simuladas; no valida CORS ni servicios reales.
 
 ---
 
@@ -48,11 +48,11 @@ Sin `VITE_API_BASE_URL`, el build genérico usa `/api` relativo al propio domini
 
 ### Preparación de Firebase Hosting (sin publicar)
 
-`npm run build:hosting` genera `dist` y exige `VITE_API_BASE_URL` en el entorno del proceso: URL HTTPS REAL aprobada de Cloud Run, terminada en `/api`. No hay URL aprobada incorporada en esta preparación. Vite incorpora las variables públicas al compilar; cambiarlas requiere otro build, no una variable de runtime en Hosting.
+`npm run build:hosting` genera `dist` y exige `VITE_API_BASE_URL` en el entorno del proceso: URL HTTPS REAL aprobada de Cloud Run, terminada en `/api`. El contrato de acceso sigue pendiente: C1 bloqueado y C3 no aprobado. No hay URL API aprobada incorporada en esta preparación. Vite incorpora las variables públicas al compilar; cambiarlas requiere otro build, no una variable de runtime en Hosting.
 
-Este modo ignora todos los archivos `.env` y rechaza `VITE_REPORTES_MOCK`, `VITE_AUTH_USE_MOCK` y `VITE_RBAC_DISABLE_UI` si no están ausentes o en `false`. No pasar secretos con prefijo `VITE_`: se publican en el bundle. El build verifica el formato, no la autorización de C2 ni la accesibilidad del servicio.
+Este modo ignora todos los archivos `.env` y rechaza los flags legacy `VITE_REPORTES_MOCK`, `VITE_AUTH_USE_MOCK` y `VITE_RBAC_DISABLE_UI` si no están ausentes o en `false`. Reportes siempre consulta la API: su mock fue eliminado en main y no se restaura aquí. No pasar secretos con prefijo `VITE_`: se publican en el bundle. El build verifica el formato, no la autorización ni la accesibilidad del servicio.
 
-El `firebase.json` de la raíz sirve `frontend/dist` y aplica fallback a `/index.html` para BrowserRouter, incluidas rutas profundas. No contiene proyecto, sitio, dominio ni rewrite de API. La asociación y publicación quedan pendientes de aprobación; no ejecutar `firebase init` ni `firebase deploy` como parte de esta tarea. `vite preview` no emula Firebase Hosting.
+El `firebase.json` de la raíz selecciona el sitio existente `la-federala-staging-utn`, sirve `frontend/dist` y configura fallback a `/index.html` para BrowserRouter. C2 aprobó reutilizar ese DEFAULT_SITE y proyecto homónimo con billing Blaze existente; no se requieren apps Firebase, Analytics ni SDK para servir el frontend estático. El origen `https://la-federala-staging-utn.web.app` fue comprobado por API; `la-federala-staging-utn.firebaseapp.com` es el dominio estándar documentado, sin prueba HTTP/DNS en esta tarea. No hay rewrite de API ni `.firebaserc`. No ejecutar `firebase init` ni `firebase deploy` como parte de esta tarea. `vite preview` no emula Firebase Hosting y la configuración no acredita recargas reales.
 
 Pendientes y evidencia de preparación: [informe T2](../docs/cloud/g4/t2-frontend.md).
 
