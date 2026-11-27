@@ -66,11 +66,13 @@ export async function aplicarPromocion(
 
   // Ejecutar en transacción
   const resultado = await prisma.$transaction(async (tx) => {
-    // Pasar el lote a EN_PROMOCION solo si sigue DISPONIBLE: de dos promociones concurrentes sobre
-    // el mismo lote, la segunda espera el lock de la fila, afecta 0 filas y se revierte con 409 sin
-    // crear la promoción. Mismo patrón que createPrioridad y createReserva.
+    // Pasar el lote a EN_PROMOCION solo si sigue DISPONIBLE y con el precio validado: de dos
+    // promociones concurrentes sobre el mismo lote, la segunda espera el lock de la fila, afecta 0
+    // filas y se revierte con 409 sin crear la promoción. El precio en el where cubre una edición de
+    // precio en paralelo (la comparación con el precio promocional se hizo sobre el valor leído).
+    // Mismo patrón que createPrioridad y createReserva.
     const { count } = await tx.lote.updateMany({
-      where: { id: loteId, estado: EstadoLote.DISPONIBLE },
+      where: { id: loteId, estado: EstadoLote.DISPONIBLE, precio: lote.precio },
       data: {
         estado: EstadoLote.EN_PROMOCION,
         precio: body.precioPromocional,

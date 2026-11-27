@@ -79,3 +79,14 @@ describe.each(HANDLERS)('POST promociones/$nombre', ({ request: hacer, mock, ok 
         expect(JSON.stringify(res.body)).not.toContain('detalle interno');
     });
 });
+
+// Revisión de la PR 368: precioPromocional con más de 2 decimales no llega al service.
+test('POST promociones/aplicar con 3 decimales → 400 con el mensaje del campo, sin llamar al service', async () => {
+    const res = await request(app).post('/api/lotes/5/promociones/aplicar').set(ADMIN).send({ precioPromocional: 999.995 });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toBe('Datos inválidos');
+    expect(res.body.errors).toEqual([
+        { field: 'precioPromocional', message: 'El precio promocional puede tener hasta 2 decimales' },
+    ]);
+    expect(aplicarMock).not.toHaveBeenCalled();
+});
