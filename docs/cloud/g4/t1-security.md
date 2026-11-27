@@ -1,14 +1,14 @@
 # G4 T1 — Revisión de seguridad previa a C1
 
-Fecha inicial: 2026-11-26; actualización y preparación local de PR: 2026-11-27. Estado: revisión humana pendiente; **C1 bloqueado y C3 no aprobado**. C2 aprobado para reutilizar el sitio DEFAULT_SITE y proyecto homónimo `la-federala-staging-utn`, con billing existente Blaze, sin Analytics ni apps Firebase innecesarias; esa aprobación no habilita exposición ni publicación. Este informe sanitizado no constituye aprobación de publicación.
+Fecha inicial: 2026-11-26; actualización y preparación local de PR: 2026-11-27. Estado: revisión humana pendiente; **C1 bloqueado y C3 pendiente**. C2 aprobado para reutilizar el sitio DEFAULT_SITE y proyecto homónimo `la-federala-staging-utn`, con billing existente Blaze, sin Analytics ni apps Firebase innecesarias; esa aprobación no habilita exposición ni publicación. Este informe sanitizado no constituye aprobación de publicación.
 
 ## Trazabilidad y alcance
 
-- Task actual `task_ab561a932c2f`; dispatch `ctx_70584fbe1056`; coordinación `g4-base`, Refs #290. Procedencia: task `task_f5d1f5cbe11d`, dispatch `ctx_dd0b8c8d17ca`.
-- Rama `fix/g4-security`; base de integración `7f5597bae624967554c0da1116817f7e41e87746`. El trabajo inicial sobre `84490e678b388fa6053fcfe262167412ea0f40e7` se preservó mediante commit selectivo y respaldo local antes de rebasar únicamente esta rama; actualización sin conflictos, sin cambios de ramas ajenas. Los SHA de commits de entrega constan en el reporte privado para evitar autorreferencias.
+- Task actual `task_aefb9e3b3215`; dispatch `ctx_2d8ba819906f`; coordinación `g4-base`, Refs #290. Procedencia: tasks `task_f5d1f5cbe11d` y `task_ab561a932c2f`, con sus entregas históricas preservadas.
+- Rama `fix/g4-security`; base actual de integración post-374 `52a1d346aee960114647f9d885ce398bdcb275e3`. El trabajo inicial sobre `84490e678b388fa6053fcfe262167412ea0f40e7` y la actualización a `7f5597bae624967554c0da1116817f7e41e87746` se preservaron antes de rebasar únicamente commits propios; actualización sin conflictos, sin cambios de ramas ajenas. Los SHA de entrega constan en el reporte privado para evitar autorreferencias.
 - Base verificada limpia antes de editar. La rama nueva de Orca fue renombrada tras verificar que la requerida no existía.
 - Repositorio canónico para consultas y futuros PRs: `La-Federala-UTN-FRLP/Club-La-Federala`. Se conserva `origin` apuntando a `justinasmith1/Club-La-Federala`.
-- Consultados CONTRIBUTING, PR template y AI-DECISIONS de la base; no se encontraron AGENTS.md aplicables en el checkout ni sus ancestros inspeccionados. El registro AI central permanece intacto; borrador en [ai/T1.md](ai/T1.md).
+- Consultados CONTRIBUTING, PR template y AI-DECISIONS vigentes; no se encontraron AGENTS.md aplicables en el checkout ni sus ancestros inspeccionados. [AI-042](ai/T1.md) ya está integrado en main mediante #374; el registro central permanece intacto y la referencia local no duplica su entrada ni implica aprobación del código.
 - Solo backend, pruebas con mocks y documentación T1. Sin frontend, escrituras remotas, DB, staging, migraciones, seeds, ejecución operativa de jobs, cloud, push ni PR.
 
 ## Inspección y pruebas locales
@@ -48,11 +48,11 @@ Entorno local Windows, Node v22.14.0 y npm 10.9.2; sin archivo Backend/.env y si
 
 Incidencias históricas de preparación, no fallos ocultos: la primera comprobación de tipos encontró TS2305 en Pagos porque `--ignore-scripts` omitió el stub de @prisma/client. Se revisó y ejecutó `node node_modules/@prisma/client/scripts/postinstall.js`, que creó los archivos locales omitidos; emitió un aviso de descubrimiento de CLI. El build inicial encontró además EPERM del engine Prisma mientras seguía vivo un proceso de pruebas propio; se detuvo ese proceso y se repitió secuencialmente. Build y typecheck posteriores pasaron sin modificar Pagos ni dependencias versionadas. Estos resultados no se atribuyen a la base nueva ni constituyen CI global verde.
 
-## Validación actual sobre 7f5597b (2026-11-27)
+## Validación previa sobre 7f5597b (2026-11-27)
 
 Se revisaron configuración Jest, exclusión de integration y mocks, incluido el cliente de IA incorporado upstream; sin llamadas reales a IA, DB, storage ni login. Node v22.14.0 y npm 10.9.2; no acredita paridad con imagen productiva.
 
-| Comando desde Backend | Resultado actual |
+| Comando desde Backend | Resultado previo sobre 7f5597b |
 | --- | --- |
 | `npm.cmd ci --ignore-scripts --no-audit --no-fund` | Exit 0, 758 paquetes; lockfile intacto. Avisos de deprecación, sin audit ni upgrade. |
 | `node node_modules/@prisma/client/scripts/postinstall.js` | Script revisado, exit 0; prepara stubs locales omitidos por ignore-scripts y emite aviso de descubrimiento de CLI, sin operación DB. |
@@ -61,7 +61,20 @@ Se revisaron configuración Jest, exclusión de integration y mocks, incluido el
 | `npm.cmd test -- --runInBand tests/unit/security tests/unit/app tests/unit/openapi tests/unit/services tests/unit/routes tests/unit/middlewares tests/unit/utils tests/unit/config tests/unit/validations tests/unit/domain tests/unit/architecture tests/unit/storage tests/unit/runtime --silent` | Exit 0, 103 suites y 3789 pruebas PASS. Incluye JWT, identidad, logger, rutas montadas, limiter, CORS y OpenAPI. Integration/DB y directorio jobs excluidos. |
 | `git diff --check` | Exit 0. |
 
-No se observaron fallos persistentes preexistentes ni regresiones nuevas en estas verificaciones actuales. Los avisos de preparación están identificados; los resultados no equivalen a CI global, revisión humana ni validación Cloud. Rebase sin conflictos y merge-base verificado igual a 7f5597b; el diff conserva los cambios upstream fuera del ownership T1.
+No se observaron fallos persistentes preexistentes ni regresiones nuevas en esas verificaciones previas. Los avisos de preparación están identificados; los resultados no equivalen a CI global, revisión humana ni validación Cloud. La base de esa corrida fue 7f5597b; sus resultados no se atribuyen automáticamente al main posterior.
+
+## Revalidación actual post-374 sobre 52a1d3 (2026-11-27)
+
+Entre 7f5597b y 52a1d3 solo cambió documentación de plataforma y el registro AI central. El rebase de T1 terminó sin conflictos; el diff completo de Backend comparado antes y después es idéntico. No se modificó runtime ni tests en esta actualización. Lockfile y entorno vigentes conservados, sin repetir npm ci. Jest sigue excluyendo integration; selección amplia de unidades y contratos con mocks, sin directorio jobs, DB ni IA real.
+
+| Comando desde Backend | Resultado actual sobre 52a1d3 |
+| --- | --- |
+| `npm.cmd run build` | Exit 0; generación local Prisma, TypeScript y copia del cliente generado. Aviso informativo de actualización de Prisma, sin instalación ni upgrade. |
+| `npm.cmd run typecheck` | Exit 0, app y test. |
+| `npm.cmd test -- --runInBand tests/unit/security tests/unit/app tests/unit/openapi tests/unit/services tests/unit/routes tests/unit/middlewares tests/unit/utils tests/unit/config tests/unit/validations tests/unit/domain tests/unit/architecture tests/unit/storage tests/unit/runtime --silent` | Exit 0: 103 suites, 3789 pruebas PASS, sin omisiones dentro de la selección. |
+| `git diff --check` | Exit 0. |
+
+No se observaron regresiones frente a la validación previa ni fallos persistentes preexistentes en esta selección; no se certifica CI global ni QA staging. No hubo incidencias de instalación porque se reutilizó el entorno; build sin los fallos históricos EPERM/TS2305. Logs y exit reales bajo custodia privada; el aviso de Prisma y las líneas PASS emitidas por stderr no son fallos del proceso. Node local v22.14.0, npm 10.9.2, sin paridad productiva certificada.
 
 ## Bloqueantes C1 y pendientes humanos
 
