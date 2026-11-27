@@ -98,4 +98,4 @@ deja de incluir key/IP/subred; no se afirma redacción de logs de plataforma. Lo
 anteriores conservan su fecha/base. Véase [informe P1](c1-login-ip-experiment.md) para resultados
 actuales: Node24, build/typecheck PASS y 105 suites/3837 pruebas PASS; 21 escenarios locales,
 ninguna invocación staging. El seguimiento P1 queda consolidado dentro de AI-042, sin asignar un identificador nuevo. C1 continúa
-BLOQUEADO, C3 pendiente y T5 no iniciado; revisión y publicación de este frente no autorizadas.
+BLOQUEADO, C3 pendiente y T5 no iniciado. El coordinador revisó el patch favorablemente con observaciones; publicación e integración de este frente siguen sin autorización.
