@@ -2,13 +2,6 @@ import { http } from '../http/http';
 
 const PRIMARY = "/files";
 
-const getApiBase = () => {
-  const RAW_BASE = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || "";
-  const FORCE_ABS = import.meta.env.VITE_API_FORCE_ABSOLUTE === "true";
-  const isLocalAbs = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(RAW_BASE);
-  return (import.meta.env.DEV && isLocalAbs && !FORCE_ABS) ? "/api" : (RAW_BASE || "/api");
-};
-
 /**
  * Obtiene todos los archivos de un lote
  * @param {number} loteId - ID del lote
@@ -136,15 +129,8 @@ export async function uploadArchivo(file, idLoteAsociado, tipo = "IMAGEN", venta
       formData.append("ventaId", String(ventaId));
     }
 
-    const { getAccessToken } = await import("../auth/token");
-    const access = getAccessToken();
-    const url = `${getApiBase()}${PRIMARY}`;
-
-    const res = await fetch(url, {
+    const res = await http(PRIMARY, {
       method: 'POST',
-      headers: {
-        ...(access ? { Authorization: `Bearer ${access}` } : {}),
-      },
       body: formData,
     });
 
@@ -184,11 +170,8 @@ export async function sustituirArchivo(fileId, file) {
   try {
     const formData = new FormData();
     formData.append("file", file);
-    const { getAccessToken } = await import("../auth/token");
-    const access = getAccessToken();
-    const res = await fetch(`${getApiBase()}${PRIMARY}/${fileId}/sustituir`, {
+    const res = await http(`${PRIMARY}/${fileId}/sustituir`, {
       method: "POST",
-      headers: { ...(access ? { Authorization: `Bearer ${access}` } : {}) },
       body: formData,
     });
     const data = await res.json().catch(() => ({}));
@@ -281,20 +264,14 @@ export async function actualizarAprobacion(fileId, { target, estado, observacion
 export async function getFileSignedUrl(fileId) {
   if (!fileId) return null;
   try {
-    const { getAccessToken } = await import('../auth/token');
-    const access = getAccessToken();
-    const urlRes = await fetch(`${getApiBase()}${PRIMARY}/${fileId}/url`, {
+    const urlRes = await http(`${PRIMARY}/${fileId}/url`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(access ? { Authorization: `Bearer ${access}` } : {}),
-      },
-      body: JSON.stringify({}),
+      body: {},
     });
     const urlData = await urlRes.json().catch(() => ({}));
     if (!urlRes.ok) return null;
     return urlData?.signedURL || urlData?.signedUrl || null;
-  } catch (error) {
+  } catch {
     return null;
   }
 }

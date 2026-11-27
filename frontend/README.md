@@ -8,14 +8,14 @@ El foco del front es: **tablero reutilizable**, **barra de filtros reutilizable*
 ## Testing
 
 - **Cómo ejecutar los tests**
-  1. Instalá las dependencias (`npm install`).
-  2. Corré la suite con `npm test`.
-  3. Para un archivo específico podés usar `npm test -- nombre-del-archivo`.
+  1. Instalá las dependencias (`npm ci`).
+  2. Corré `npm run test:preparation` para configuración de Hosting y transporte HTTP con fetch simulado, sin red.
+  3. Corré `npm run lint` y `npm run build`. No existe un script `npm test` ni una suite general de componentes en este checkout.
 
-- **Qué se está testeando**
-  - Componentes reutilizables (Tabla, FilterBar, layouts) y su comportamiento condicionado por rol.
-  - Hooks y utilidades (`useDebouncedEffect`, `useModalSheet`, formateadores) que encapsulan lógica.
-  - Adaptadores de API en `lib/api/*`, validando la normalización de respuestas y el manejo de errores.
+- **Alcance de la suite de preparación**
+  - Guard de build Hosting, sitio verificado, directorio estático y configuración de fallback SPA; no navegación real en Hosting.
+  - Base `/api`, JSON, Bearer, multipart sin Content-Type manual, 401 y 403.
+  - URL firmada, consultas de reportes reales, catálogo con total y exportación binaria con respuestas simuladas; no valida CORS ni servicios reales.
 
 ---
 
@@ -44,7 +44,17 @@ Copiar `.env.example` a `.env.local` (no versionado). No hay secretos en el fron
 
 `VITE_API_URL` no existe: no usarla. Si tu `.env` local todavía tiene `VITE_AUTH_REFRESH_*`, `VITE_AUTH_ME_PATH`, `VITE_AUTH_LOGIN_PATH` o `VITE_API_URL`, borralas: el código ya no las lee.
 
-Sin `VITE_API_BASE_URL`, el build usa `/api` relativo al propio dominio del frontend; en producción hay que definirla en el hosting.
+Sin `VITE_API_BASE_URL`, el build genérico usa `/api` relativo al propio dominio del frontend. Ese artefacto no sirve para la arquitectura de llamadas directas a Cloud Run desde Hosting.
+
+### Preparación de Firebase Hosting (sin publicar)
+
+`npm run build:hosting` genera `dist` y exige `VITE_API_BASE_URL` en el entorno del proceso: URL HTTPS REAL aprobada de Cloud Run, terminada en `/api`. El contrato de acceso sigue pendiente: C1 bloqueado y C3 no aprobado. No hay URL API aprobada incorporada en esta preparación. Vite incorpora las variables públicas al compilar; cambiarlas requiere otro build, no una variable de runtime en Hosting.
+
+Este modo ignora todos los archivos `.env` y rechaza los flags legacy `VITE_REPORTES_MOCK`, `VITE_AUTH_USE_MOCK` y `VITE_RBAC_DISABLE_UI` si no están ausentes o en `false`. Reportes siempre consulta la API: su mock fue eliminado en main y no se restaura aquí. No pasar secretos con prefijo `VITE_`: se publican en el bundle. El build verifica el formato, no la autorización ni la accesibilidad del servicio.
+
+El `firebase.json` de la raíz selecciona el sitio existente `la-federala-staging-utn`, sirve `frontend/dist` y configura fallback a `/index.html` para BrowserRouter. C2 aprobó reutilizar ese DEFAULT_SITE y proyecto homónimo con billing Blaze existente; no se requieren apps Firebase, Analytics ni SDK para servir el frontend estático. El origen `https://la-federala-staging-utn.web.app` fue comprobado por API; `la-federala-staging-utn.firebaseapp.com` es el dominio estándar documentado, sin prueba HTTP/DNS en esta tarea. No hay rewrite de API ni `.firebaserc`. No ejecutar `firebase init` ni `firebase deploy` como parte de esta tarea. `vite preview` no emula Firebase Hosting y la configuración no acredita recargas reales.
+
+Pendientes y evidencia de preparación: [informe T2](../docs/cloud/g4/t2-frontend.md).
 
 ---
 

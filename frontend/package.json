@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:hosting": "vite build --mode hosting",
     "lint": "eslint .",
+    "test:preparation": "node --test tests/preparation.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

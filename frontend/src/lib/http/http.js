@@ -14,9 +14,9 @@ import { getAccessToken, clearTokens } from "../auth/token";
 // - En producción usamos la absoluta si está definida. Si no, caemos a '/api'.
 // - Si querés forzar absoluta en dev, poné VITE_API_FORCE_ABSOLUTE=true.
 // ---------------------------------------------------------------------
-const RAW_BASE  = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || "";
+const RAW_BASE = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || "").trim().replace(/\/+$/, "");
 const FORCE_ABS = import.meta.env.VITE_API_FORCE_ABSOLUTE === "true";
-const isLocalAbs = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(RAW_BASE);
+const isLocalAbs = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(?:\/|$)/i.test(RAW_BASE);
 const API_BASE = (import.meta.env.DEV && isLocalAbs && !FORCE_ABS) ? "/api" : (RAW_BASE || "/api");
 
 // --- arma URL absoluta (acepta path absoluto o relativo)
@@ -27,15 +27,17 @@ function absUrl(path) {
 
 // --- hace fetch con headers JSON + Authorization opcional
 async function doFetch(url, { method, headers, body, access, ...rest }) {
+  // El navegador debe agregar el boundary de multipart; el JSON conserva su contrato.
+  const isMultipart = body instanceof FormData;
   const baseHeaders = {
-    "Content-Type": "application/json",
+    ...(!isMultipart ? { "Content-Type": "application/json" } : {}),
     ...(headers || {}),
     ...(access ? { Authorization: `Bearer ${access}` } : {}),
   };
   return fetch(url, {
     method,
     headers: baseHeaders,
-    body: body != null ? JSON.stringify(body) : undefined,
+    body: body != null ? (isMultipart ? body : JSON.stringify(body)) : undefined,
     ...rest,
   });
 }
