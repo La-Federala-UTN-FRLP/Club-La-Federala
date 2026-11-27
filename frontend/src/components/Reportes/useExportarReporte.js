@@ -6,13 +6,12 @@
 // REP-A5), y el borrador puede haber cambiado desde el último Generar.
 
 import { useRef, useState } from "react";
-import { exportarReporte, REPORTES_EN_MOCK } from "../../lib/api/reportes";
+import { exportarReporte } from "../../lib/api/reportes";
 import { descargarBlob } from "../../lib/descargas";
 import { parseApiError } from "../../lib/http/errors";
 import { useToast } from "../../app/providers/ToastProvider";
 
 const MENSAJE_ERROR = "No se pudo exportar el reporte";
-const MOTIVO_MOCK = "No disponible con datos simulados";
 const MOTIVO_SIN_GENERAR = "Generá el reporte para poder exportarlo";
 
 // Con un backend rápido la descarga termina antes del segundo clic de un doble clic, y el guard
@@ -58,11 +57,10 @@ export default function useExportarReporte({ ruta, aplicados, datos, cargando })
   // `!cargando` no es decorativo: mientras se recarga, `aplicados` ya son los filtros nuevos
   // pero en pantalla sigue el resultado viejo atenuado. Exportar ahí bajaría un archivo que no
   // coincide con lo que se ve, que es justo lo que REP-A5 pide que no pase.
-  const puedeExportar = !REPORTES_EN_MOCK && !sinResultado && !cargando && !descargando;
+  const puedeExportar = !sinResultado && !cargando && !descargando;
 
   let motivoDeshabilitado = null;
-  if (REPORTES_EN_MOCK) motivoDeshabilitado = MOTIVO_MOCK;
-  else if (sinResultado && !cargando) motivoDeshabilitado = MOTIVO_SIN_GENERAR;
+  if (sinResultado && !cargando) motivoDeshabilitado = MOTIVO_SIN_GENERAR;
 
   const exportar = async () => {
     if (enCurso.current || !puedeExportar) return;
