@@ -107,6 +107,8 @@ Antes de abrir un PR:
 
 Cuando TypeScript, tests y build estén saneados, se habilitarán status checks obligatorios sobre `main`. Hasta entonces, la revisión humana debe considerar el alcance real del cambio.
 
+Los PRs que tocan `Backend/` ejecutan el workflow **Backend CI** (typecheck, build, tests unitarios y de integración sobre PostgreSQL 17 descartable). Todavía no es un check obligatorio. Ver [CI del backend](ci-backend.md).
+
 ## Experimentos
 
 `experiment/*` es excepcional y temporal. Sirve para probar una hipótesis técnica sin afirmar que sea arquitectura final. Ejemplo: `experiment/cloud-run-poc`.

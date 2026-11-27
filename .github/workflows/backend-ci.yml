@@ -1,0 +1,83 @@
+# CI del backend: valida cada PR hacia main con PostgreSQL 17 descartable.
+# No despliega, no accede a GCP y no usa secretos. Documentación: docs/development/ci-backend.md
+name: Backend CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Backend/**'
+      - '.github/workflows/backend-ci.yml'
+
+permissions:
+  contents: read
+
+# Un push nuevo al mismo PR cancela la ejecución anterior.
+concurrency:
+  group: backend-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (typecheck, build, tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: Backend
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: federala_ci
+          POSTGRES_PASSWORD: federala_ci
+          POSTGRES_DB: federala_ci
+        ports:
+          - 5432:5432
+        # Los steps esperan a que el contenedor esté healthy. El comando va entre comillas: sin ellas,
+        # `-U` se interpreta como flag de `docker create`.
+        options: >-
+          --health-cmd="pg_isready -U federala_ci -d federala_ci"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=12
+
+    env:
+      # Base local del runner, se destruye al terminar el job. Credenciales sin valor fuera del CI.
+      TEST_DATABASE_URL: postgresql://federala_ci:federala_ci@127.0.0.1:5432/federala_ci?schema=public
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: Backend/package-lock.json
+
+      # El postinstall de @prisma/client genera el cliente en src/generated/prisma.
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Tests unitarios
+        run: npm test
+
+      - name: Aplicar migraciones (base descartable)
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          DIRECT_URL: ${{ env.TEST_DATABASE_URL }}
+        run: npx prisma migrate deploy
+
+      # setup.ts apunta DATABASE_URL y DIRECT_URL a TEST_DATABASE_URL antes de importar Prisma.
+      - name: Tests de integración
+        run: npm run test:integration
