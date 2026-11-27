@@ -61,4 +61,27 @@ describe('mounted API authentication boundaries', () => {
         expect(denied.headers['access-control-allow-origin']).toBeUndefined();
         expect(app.get('trust proxy')).toBe(false);
     });
+
+    test('production permits localhost only when it is the explicitly configured origin', async () => {
+        const originalNodeEnv = process.env.NODE_ENV;
+        const originalFrontendUrl = process.env.FRONTEND_URL;
+        try {
+            process.env.NODE_ENV = 'production';
+            delete process.env.FRONTEND_URL;
+            const preflight = () => request(app).options('/api/files/1/url')
+                .set('Origin', 'http://localhost:5173').set('Access-Control-Request-Method', 'POST');
+            const automatic = await preflight();
+            expect(automatic.headers['access-control-allow-origin']).toBeUndefined();
+
+            process.env.FRONTEND_URL = 'http://localhost:5173';
+            const explicit = await preflight();
+            expect(explicit.status).toBe(204);
+            expect(explicit.headers['access-control-allow-origin']).toBe('http://localhost:5173');
+        } finally {
+            if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+            else process.env.NODE_ENV = originalNodeEnv;
+            if (originalFrontendUrl === undefined) delete process.env.FRONTEND_URL;
+            else process.env.FRONTEND_URL = originalFrontendUrl;
+        }
+    });
 });
