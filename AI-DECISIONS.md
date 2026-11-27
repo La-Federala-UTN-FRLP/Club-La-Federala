@@ -3069,6 +3069,144 @@ Limitaciones conocidas:
 - AI-035
 - `AI-DECISIONS.md`
 
+### AI-042 — Política JWT y minimización del logger para preparar G4
+
+**Fecha:** 2026-11-27
+**Área:** Backend / seguridad / G4
+**Herramientas:** Codex, Orca, Git, Jest y TypeScript
+
+#### Problema
+
+La preparación de staging necesitaba contrastar las rutas montadas con autenticación y reducir datos de entrada retenidos por el logger, sin confundir pruebas locales con seguridad operativa de Cloud Run.
+
+#### Prompt / intención
+
+Auditar JWT, RBAC, tenant, CORS y rate limiting; implementar correcciones acotadas en una rama independiente, preservar cambios al actualizar main y preparar una propuesta revisable sin publicar ni desplegar.
+
+#### Propuesta generada por IA
+
+Explicitar HS256 en emisión y verificación, exigir exp finito, registrar plantillas de ruta y probar las fronteras HTTP con fixtures sintéticos. Mantener la identidad y autorización vigentes desde DB; documentar por separado las limitaciones de IP y del store en memoria.
+
+#### Validación humana
+
+El coordinador autorizó auditoría, correcciones y commits locales. No aprobó todavía el código, C1, C3 ni exposición pública. C2 se aprobó por separado para reutilizar Firebase existente. La revisión cruzada de T1 queda propuesta para Nicolas, con contraste QA de Justina.
+
+#### Decisión adoptada
+
+Preparado en fix/g4-security sobre el canónico 7f5597b, con implementación revisable en 7ec446c. La aceptación JWT se endurece; se preservan rutas y roles, sin prometer compatibilidad con tokens fuera de la nueva política. Se corrigió la descripción de localhost explícito en FRONTEND_URL, sin cambiar CORS runtime.
+Build, typecheck y 103 suites/3789 pruebas locales pasaron. No se ejecutó QA staging. C1 permanece bloqueado por identidad IP/topología, alcance operativo del rate limit y evidencia de plataforma. No se cambió trust proxy, IAM ni infraestructura. El código todavía no está integrado ni aprobado humanamente.
+
+#### Evidencia / archivos relacionados
+
+- Rama fix/g4-security; commit de implementación/verificación 7ec446cc3fdbe762786f8f2bdea0dd2b6cb3a365.
+- Backend/src/middlewares/auth.middleware.ts, logger.middleware.ts; Backend/src/services/auth.service.ts.
+- Pruebas JWT, rutas montadas, CORS, logger y fixtures; docs/cloud/g4/t1-security.md, propuestos en la rama T1.
+- Refs #290 y #302; no se cierran por esta preparación.
+
+### AI-043 — Preparación Hosting y transporte HTTP del frontend para G4
+
+**Fecha:** 2026-11-27
+**Área:** Frontend / build / integración G4
+**Herramientas:** Codex, Orca, Git, Vite, Node test runner, ESLint y npm audit
+
+#### Problema
+
+El frontend requería una configuración de Hosting reproducible y transporte coherente para JSON, multipart y descargas, preservando las llamadas de Reportes reales incorporadas en main.
+
+#### Prompt / intención
+
+Actualizar la preparación sobre main vigente, incorporar solo el sitio verificado, corregir observaciones, clasificar lint/audit y preparar commits/PR sin generar publicación con una API no aprobada.
+
+#### Propuesta generada por IA
+
+Configurar dist/fallback SPA y build:hosting con guardas, normalizar la base API y reutilizar HTTP autenticado para multipart y emisión de URLs firmadas. Mantener la descarga de almacenamiento fuera del transporte Bearer de API.
+
+#### Validación humana
+
+El coordinador autorizó correcciones/commits locales y aprobó reutilizar el sitio la-federala-staging-utn; mantuvo pendientes el contrato de acceso API, C1 y C3. No autorizó deploy, nueva app Firebase, clave Browser en el frontend ni PR/push. Revisión humana propuesta para Nicolas.
+
+#### Decisión adoptada
+
+Preparado en chore/g4-frontend-preparation sobre 7f5597b, con implementación verificada en 0630260. firebase.json fija únicamente el sitio existente, frontend/dist y fallback a index.html, sin rewrite de API ni endpoint inventado.
+Nueve pruebas y build ordinario pasaron; build:hosting sin base API falló como guard esperado. Lint global conserva 112 errores/50 advertencias preexistentes y cero mensajes nuevos frente al canónico; audit reportó 15 paquetes de desarrollo afectados y cero al omitir desarrollo. No se aplicó audit fix ni se alteró el lockfile. Estos resultados no certifican cadena de suministro, navegación real ni QA staging. El código sigue pendiente de revisión e integración.
+
+#### Evidencia / archivos relacionados
+
+- Rama chore/g4-frontend-preparation; commit de implementación/verificación 0630260bd34df2083c0d86526279fcb2008f4d94.
+- firebase.json; frontend/config/hosting.js, vite.config.js, src/lib/http/http.js, src/lib/api/archivos.js y tests/preparation.test.mjs.
+- docs/cloud/g4/t2-frontend.md, propuesto en T2; evidencia detallada de lint/audit privada.
+- Refs #290; sin cierre ni publicación.
+
+### AI-044 — Asociación Firebase, inventario C2 y reutilización del sitio existente
+
+**Fecha:** 2026-11-27
+**Área:** Cloud / arquitectura G4 / gobernanza
+**Herramientas:** Codex, Google Cloud SDK, APIs REST de control, Cloud Audit Logs, documentación oficial y GitHub CLI
+
+#### Problema
+
+Firebase no podía inventariarse con sus APIs deshabilitadas. La asociación posterior podía generar efectos automáticos adicionales y no tenía una reversión completa; debía distinguirse de autorización de despliegue.
+
+#### Prompt / intención
+
+Preparar checkpoints humanos, habilitar únicamente las dos APIs inicialmente autorizadas, realizar intentos únicos de asociación cuando se autorizaron y auditar en lectura el resultado final completado por el responsable desde consola.
+
+#### Propuesta generada por IA
+
+Capturar baselines sanitizados y operaciones, comparar IAM/APIs/claves/labels/billing, evaluar la creación implícita del sitio y separar los controles C1/C2/C3. Preferir la arquitectura original Hosting → API HTTPS Cloud Run con JWT/RBAC → PostgreSQL privado, condicionada por seguridad.
+
+#### Validación humana
+
+El responsable autorizó las dos APIs, luego los efectos automáticos de asociación, incluido eventual sitio implícito, y aceptó la falta de reversión completa. Dos solicitudes REST autorizadas separadamente fueron rechazadas por términos; no hubo reintentos automáticos.
+El responsable completó después la asociación en Firebase Console con Analytics desactivado. El coordinador validó C2 y aprobó reutilizar proyecto/sitio la-federala-staging-utn, mantener billing y Blaze y no crear sitios/apps innecesarios. No aprobó exposición Run, despliegue, C1/C3 ni cambios manuales de IAM.
+
+#### Decisión adoptada
+
+Auditoría independiente confirmó FirebaseProject ACTIVE y mismos ID/número/billing; APIs 57→67, cuenta Admin SDK nueva, dos vinculaciones administradas, Browser key con restricciones por API y labels. El sitio DEFAULT_SITE coincide con el preferido y tiene solo live, sin versiones/releases/apps/dominios personalizados; no se encontró vínculo Analytics. No se habilitaron las dos APIs de la previsión documental que siguieron DISABLED.
+Reutilización del sitio aprobada humanamente; revisión de alcance de roles y restricciones de la clave pendiente, sin remediación automática ni uso de valores de claves. T3 actualizó el inventario sin nuevas llamadas Cloud. La propuesta de desactivar Invoker IAM check solo tras C1/C3 y autorización de exposición sigue pendiente; no se adoptó ni implementó como acceso actual.
+
+#### Evidencia / archivos relacionados
+
+- docs/cloud/g4/t3-platform.md; auditorías sanitizadas y metadatos detallados bajo custodia privada del coordinador.
+- Rama docs/g4-platform-proposal; entrega T3 99b42ce06c091928b05eda584db97cc28454abed, anterior a esta consolidación.
+- Proyecto la-federala-staging-utn, número 28822223940. Auditoría de asociación finalizada el 27/11/2026 18:24 UTC.
+- Refs #290; asociación y sitio vacío no cumplen login, navegación ni recarga SPA.
+
+### AI-045 — Matriz QA de G4 alineada con contratos vigentes
+
+**Fecha:** 2026-11-27
+**Área:** QA / contratos / documentación G4
+**Herramientas:** Codex, Orca, GitHub CLI en lectura y validación documental Python
+
+#### Problema
+
+La preparación de #302 debía distinguir escenarios futuros de pruebas ejecutadas, corregir discrepancias documentales y reflejar las reglas comerciales y Reportes reales del main vigente.
+
+#### Prompt / intención
+
+Actualizar matriz/escenarios y dependencias, corregir la fila RBAC de sustitución de archivos y preparar commits revisables sin fixtures ni ejecución sobre staging.
+
+#### Propuesta generada por IA
+
+Conservar 52 casos parametrizados por rol/tenant, separar UI/API/transporte/persistencia, incorporar variantes concurrentes y definir evidencia/autorización por caso. Resolver DOC-06 según servicio/OpenAPI y REP-03 según el contrato de XLSX vacío.
+
+#### Validación humana
+
+El coordinador autorizó correcciones documentales y commits locales, incluida la fila RBAC, sin cambiar permisos/runtime ni ejecutar QA. Propuso revisión de Justina y coordinación de Santiago. #302 y sus cinco bloqueadores abiertos no fueron cerrados por esta preparación.
+
+#### Decisión adoptada
+
+Preparado en docs/g4-qa-matrix sobre 7f5597b, con entrega aed01a0. Se corrigió sustitución a BOLETO/ESCRITURA/OTRO/PLANO, TECNICO solo PLANO, sin permitir IMAGEN por inferencia. Se documentó XLSX vacío válido y variantes actuales de reservas/promociones/ventas/pagos/lotes y Reportes 39.6.
+Validación documental pasó: 52 IDs, 10 columnas completas y 49 enlaces. Todos los casos siguen PREPARADO / NO EJECUTADO, con cero PASS funcionales. C1/C3, autorizaciones y ejecución integrada siguen pendientes. No se ejecutaron scripts de aplicación ni se modificaron datos o infraestructura. La observación upstream reemplazo-plan/pago no se declara corregida.
+
+#### Evidencia / archivos relacionados
+
+- Rama docs/g4-qa-matrix; entrega documental aed01a0fc7d9e9d5213c82f7ba8fcccdc876c95d.
+- docs/qa/g4/matriz-g4.md, escenarios-g4.md y docs/architecture/matriz-rbac.md, propuestos en T4.
+- Refs #290 y #302; evidencia documental privada, sin inferir cumplimiento staging.
+
+
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.
