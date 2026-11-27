@@ -12,6 +12,7 @@ import express, { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
 import { handleError } from '../../../src/middlewares/error.middleware';
 import { SENSITIVE_MARKER, expectSinTextos } from '../../support/sensitiveErrors';
+import { AiUnavailableError } from '../../../src/services/aiSummary.errors';
 
 function appQueLanza(err: Error) {
     const app = express();
@@ -96,5 +97,28 @@ describe('error sin status HTTP válido', () => {
         expect(res.status).toBe(500);
         expect(res.body).toEqual({ success: false, code: 'INTERNAL_ERROR', message: 'Error interno.' });
         expect(consoleError).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('AiUnavailableError (resumen con IA)', () => {
+    test('502 con code AI_UNAVAILABLE y el mensaje público, sin volver a loguear', async () => {
+        const res = await request(appQueLanza(new AiUnavailableError())).get('/boom');
+
+        expect(res.status).toBe(502);
+        expect(res.body).toEqual({
+            success: false,
+            code: 'AI_UNAVAILABLE',
+            message: 'No se pudo generar el resumen. Los reportes siguen disponibles.',
+        });
+        expect(consoleError).not.toHaveBeenCalled();
+    });
+
+    test('otro error 502 sigue siendo INTERNAL_ERROR genérico', async () => {
+        const err = Object.assign(new Error(`${SENSITIVE_MARKER} detalle interno`), { statusCode: 502 });
+
+        const res = await request(appQueLanza(err)).get('/boom');
+
+        expect(res.status).toBe(502);
+        expect(res.body).toEqual({ success: false, code: 'INTERNAL_ERROR', message: 'Error interno.' });
     });
 });

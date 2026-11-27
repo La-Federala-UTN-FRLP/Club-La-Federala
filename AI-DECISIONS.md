@@ -2867,6 +2867,58 @@ Pagos y recargos sobre una misma cuota se serializan con lock de fila (SELECT ..
 - `AI-DECISIONS.md`
 
 
+### AI-039 — Servicio aiSummary: Gemini en Vertex AI con @google/genai (40.2, CCLF-66)
+
+**Fecha:** 2026-11-26
+**Área:** Backend / Reportes + IA / Integración con Vertex AI
+**Herramientas:** Claude Code
+
+#### Problema
+
+El resumen con IA de Reportes (CCLF-37, V4) necesita un servicio que llame a Gemini Flash-Lite en Vertex AI con los agregados de los 3 reportes y devuelva un JSON con `texto`, `puntos[]` y `datosFaltantes[]`. La 40.1 verificó que `gemini-3.5-flash-lite` no está disponible en `southamerica-east1` (404) y sí en `global`. El código no tenía el error `AI_UNAVAILABLE`: la 38.7 (AI-033) lo agregó solo al contrato OpenAPI, y el middleware convertía cualquier 5xx en `INTERNAL_ERROR`.
+
+#### Prompt / intención
+
+Tarea 40.2: servicio `aiSummary` con cliente inyectable, autenticación por ADC (sin API key), configuración por entorno validada al usarla (sin romper el arranque), `responseSchema` equivalente a la salida, temperatura 0,2, 600 tokens de salida y timeout de 15 s. Cualquier falla termina en `AI_UNAVAILABLE` (502) con mensaje genérico; el detalle técnico va solo al log, nunca la entrada ni la salida. Fuera de alcance (40.3): endpoint, armado de la entrada, validación del contenido, límite diario y logging de tokens y latencia.
+
+#### Propuesta generada por IA
+
+- **SDK:** `@google/genai` 3.2.0 con `new GoogleGenAI({ vertexai: true, project, location })`. `@google-cloud/vertexai` está deprecado. Se verificó en la documentación oficial (README de js-genai, referencia typedoc y guía de SDKs de Vertex AI) y en los tipos del paquete instalado: `systemInstruction`, `temperature`, `maxOutputTokens`, `responseMimeType`, `responseSchema` y `abortSignal` van en `config`; `ApiError` (con `status`) y el enum `Type` se exportan desde la raíz; el paquete trae build CommonJS (`require`). Se eligió 3.2.0 porque es la última versión con más de dos semanas publicada.
+- **Location `global`** por defecto (`VERTEX_LOCATION`) en lugar de `southamerica-east1`: el modelo no está disponible ahí (verificado en la 40.1). La V4 pide la región más cercana disponible, documentada; `global` es el endpoint donde el modelo responde.
+- **Configuración** (`src/config/aiSummary.config.ts`): `VERTEX_PROJECT` (obligatoria al usar la IA, sin valor por defecto ni hardcodeo), `VERTEX_LOCATION` (default `global`) y `AI_SUMMARY_MODEL` (default `gemini-3.5-flash-lite`). No entra en `parseWebEnv`: se valida al pedir un resumen, y si falta responde `AI_UNAVAILABLE` sin crear el cliente. Los mensajes nombran la variable, nunca el valor. Agregadas a `.env.example` con valores ficticios.
+- **Servicio** (`src/services/aiSummary.service.ts`): `createAiSummaryService({ client, config, logger })` para tests y `generarResumen(entrada)` para la app, que arma el cliente de Vertex AI una sola vez desde el entorno. Tipos `ResumenEntrada` y `ResumenSalida` según la V4. Devuelve `{ resumen, modelo, versionModelo, tokens }`: `resumen` es el objeto JSON parseado sin validar contra `ResumenSalida`, y `tokens` sale de `usageMetadata` (entrada, salida, razonamiento y total).
+- **Timeout:** `AbortController` propio con un plazo total de 15 s, pasado como `config.abortSignal`, más un `Promise.race` para que el plazo se cumpla aunque el cliente ignore la señal. No se usa `httpOptions.timeout`, porque el SDK lo aplica por intento. El SDK no reintenta si no se le pasan `retryOptions`, así que no hay reintentos.
+- **Errores:** `AiUnavailableError` (`src/services/aiSummary.errors.ts`, status 502, code `AI_UNAVAILABLE`, mensaje del ejemplo `AiUnavailable` de la OpenAPI). Está en un archivo aparte para que el middleware no cargue el SDK. El log registra el motivo (`config`, `timeout`, `permisos`, `cuota`, `api`, `red`, `respuesta_vacia`, `json_invalido` o `json_no_objeto`), el modelo, el `finishReason`, los tokens y el error del SDK en forma segura (`safeErrorForLog`). Ante JSON inválido no se loguea el mensaje del `SyntaxError`, porque cita un fragmento del texto generado.
+- **Middleware de errores** (cambio compartido, avisado): `AiUnavailableError` responde 502 con `code: AI_UNAVAILABLE` y su mensaje público, sin volver a loguear. Cualquier otro 5xx sigue siendo `INTERNAL_ERROR` genérico.
+
+#### Validación humana
+
+Revisión del diff y una llamada real a Vertex AI con ADC y datos ficticios (ejemplo de entrada de la V4), corrida por la autora con un script manual local, fuera de los tests y de este cambio: el servicio respondió correctamente con el JSON del resumen, el modelo y los tokens.
+
+#### Decisión adoptada
+
+`@google/genai` con `vertexai: true` y ADC, location `global`, parámetros de la V4 como constantes con nombre y cliente inyectable. El servicio solo garantiza que la salida sea un objeto JSON: validar el schema y que cada número del texto esté en la entrada queda para la 40.3, junto con el endpoint, el límite de 20 por día y el logging de tokens y latencia.
+
+#### Resultado
+
+- Backend: `npm run typecheck` OK y `env -u NODE_ENV npm test -- --runInBand` PASS (101 suites, 3558 tests, incluida la paridad OpenAPI). En paralelo (sin `--runInBand`), 4 suites ajenas a la IA fallaron por timeout de carga en esta máquina y pasaron al correrlas solas.
+- `npm run build`: falló en `prisma generate` con EPERM al renombrar `src/generated/prisma/libquery_engine-debian-openssl-3.0.x.so.node` (archivo bloqueado en Windows/OneDrive, como en AI-037; sin procesos node abiertos). `tsc -p tsconfig.json` compila OK a una carpeta temporal y `require('@google/genai')` carga en CommonJS.
+- Tests nuevos con el cliente mockeado y sin red: respuesta válida, parámetros enviados, timeout con timers simulados, errores del SDK (401, 403, 404, 429 y de red), texto vacío, JSON roto o que no es objeto, y log sin entrada ni salida.
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/services/aiSummary.service.ts`
+- `Backend/src/services/aiSummary.errors.ts`
+- `Backend/src/config/aiSummary.config.ts`
+- `Backend/src/middlewares/error.middleware.ts`
+- `Backend/tests/unit/services/aiSummary.service.test.ts`
+- `Backend/tests/unit/config/aiSummary.config.test.ts`
+- `Backend/tests/unit/middlewares/error.middleware.test.ts`
+- `Backend/.env.example`
+- `Backend/package.json`, `Backend/package-lock.json`
+- `AI-DECISIONS.md`
+
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.
