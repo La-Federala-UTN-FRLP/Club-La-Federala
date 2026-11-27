@@ -14,6 +14,7 @@
 import { useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import { Alert, Form } from "react-bootstrap";
+import AvisoFraccionesTruncadas from "./AvisoFraccionesTruncadas";
 import FiltrosReporte from "./FiltrosReporte";
 import BotonExportar from "./BotonExportar";
 import TarjetaKpi from "./TarjetaKpi";
@@ -241,7 +242,7 @@ export default function VistaCuotasVencidas() {
     filtrosIniciales: BORRADOR_INICIAL,
   });
 
-  const { fracciones, errorFracciones } = useCatalogoFracciones();
+  const { fracciones, errorFracciones, truncado, totalFracciones } = useCatalogoFracciones();
 
   const { exportar, descargando, puedeExportar, motivoDeshabilitado } = useExportarReporte({
     ruta: "cuotas-vencidas",
@@ -311,6 +312,10 @@ export default function VistaCuotasVencidas() {
         <Alert variant="warning" className="reportes-aviso">
           {errorFracciones} Podés consultar las cuotas vencidas sin filtrar por fracción.
         </Alert>
+      )}
+
+      {truncado && (
+        <AvisoFraccionesTruncadas cantidad={fracciones.length} total={totalFracciones} />
       )}
 
       {aplicados === null && !cargando && (

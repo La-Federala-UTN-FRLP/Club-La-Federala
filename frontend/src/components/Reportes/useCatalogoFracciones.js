@@ -12,20 +12,27 @@ import { getFraccionesReporte } from "../../lib/api/reportes";
 import { parseApiError } from "../../lib/http/errors";
 
 /**
- * @returns {{fracciones: Array<{id: number, numero: number}>, errorFracciones: string|null}}
+ * @returns {{fracciones: Array<{id: number, numero: number}>, errorFracciones: string|null,
+ *   truncado: boolean}}
  *   `fracciones` arranca vacío, que es lo que deshabilita el select hasta que llegue el
- *   catálogo, y `errorFracciones` en null. Un error no vacía la lista ni al revés.
+ *   catálogo, y `errorFracciones` en null. Un error no vacía la lista ni al revés. `truncado` es
+ *   true solo cuando el backend informó un `total` válido y mayor que lo que se pudo listar: el
+ *   límite de `GET /fracciones` (como máximo 10 por llamada) dejó fracciones sin mostrar.
  */
 export default function useCatalogoFracciones() {
   const [fracciones, setFracciones] = useState([]);
   const [errorFracciones, setErrorFracciones] = useState(null);
+  const [totalFracciones, setTotalFracciones] = useState(null);
 
   // Catálogo del filtro de fracción: se pide una vez y no depende de los filtros.
   useEffect(() => {
     let cancelado = false;
     getFraccionesReporte()
-      .then((lista) => {
-        if (!cancelado) setFracciones(lista);
+      .then(({ fracciones: lista, total }) => {
+        if (!cancelado) {
+          setFracciones(lista);
+          setTotalFracciones(total);
+        }
       })
       .catch((err) => {
         if (!cancelado) {
@@ -37,5 +44,9 @@ export default function useCatalogoFracciones() {
     };
   }, []);
 
-  return { fracciones, errorFracciones };
+  // Sin un `total` válido no hay con qué comparar: queda sin truncar, en lugar de romper o
+  // avisar de algo que no se puede confirmar.
+  const truncado = totalFracciones !== null && totalFracciones > fracciones.length;
+
+  return { fracciones, errorFracciones, truncado, totalFracciones };
 }

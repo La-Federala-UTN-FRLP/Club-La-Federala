@@ -3043,6 +3043,84 @@ Se aplican los tres ajustes de la revisión de la PR #368 (AI-037): la finalizac
 - `AI-DECISIONS.md`
 
 
+### AI-041 — Reportes sobre la API real: baja del mock, timeout del cliente y aviso de fracciones truncadas (39.6)
+
+**Fecha:** 2026-11-26
+**Área:** Frontend / Reportes / Integración con la API
+**Herramientas:** Claude Code (implementación) y Claude en chat (planificación, revisión de reportes y verificación en el navegador)
+
+#### Problema
+
+- La pantalla de Reportes tenía un mock temporal (`VITE_REPORTES_MOCK`, `reportes.mock.js` de 525 líneas) que había que eliminar en la 39.6.
+- Antes de borrarlo había que comprobar que su forma coincidiera con la respuesta real del backend.
+- El cliente HTTP no tenía timeout: contra la API real, una consulta lenta dejaba el spinner indefinidamente.
+- `GET /fracciones` devuelve como máximo 10 fracciones (límite fijo en el backend, `getAllFracciones(limit = 10)`, sin parámetro para pedir más) e informa `total`; el frontend lo descartaba y un selector incompleto no avisaba nada.
+
+#### Prompt / intención
+
+- Trabajo en etapas, con reporte al final de cada una: (1) lectura y comparación sin escribir; (2) borrado del mock; (3) timeout y aviso de fracciones; (3b) corrección de dos mensajes; (4) verificación en el navegador contra la API real, hecha por el chat de planificación; (5) esta entrada.
+- Restricciones dadas: no tocar `frontend/src/lib/http/http.js` ni `errors.js` (compartidos por todos los módulos), no tocar el backend, no tocar `.env.local`.
+
+#### Propuesta generada por IA
+
+- Etapa 1 (solo lectura): comparó campo por campo las tres respuestas del mock contra el servicio, los schemas Zod y la OpenAPI del backend, con ruta:línea. Conclusión: ninguna diferencia de forma (número y precio nulos, montos string, enlaces, filas de ventas con `fraccionId` y de cuotas sin `fraccionId` coinciden). Detectó: límite de 10 fracciones, ausencia de timeout, `parseApiError` que no muestra `errors[]` de un 400 `VALIDATION_ERROR`, y que los seeds del repo no crean ningún plan en ARS.
+- Etapa 2: borró `reportes.mock.js`, `USE_MOCK`, `REPORTES_EN_MOCK` y `MOTIVO_MOCK`, quitó el parámetro `mockFn` de `getReporte` y las tres líneas de `VITE_REPORTES_MOCK` de `.env.example`. Lint sin cambios.
+- Etapa 3: en `reportes.js` agregó un `AbortController` con plazo (`conPlazo`): 30 s para consultas y 60 s para exportación, que cubre también la lectura del cuerpo, y `jsonSeguro` para que un abort durante `res.json()` no se confunda con una respuesta vacía. `getFraccionesReporte()` pasó a devolver `{ fracciones, total }`; `useCatalogoFracciones` expone `truncado`; componente nuevo `AvisoFraccionesTruncadas`, usado en las tres vistas. Alternativas que descartó para llevar el total: colgarlo como propiedad del array y hacer una segunda request.
+- Verificó con ejecución real que `parseApiError` deja pasar los mensajes de timeout sin reescribirlos.
+- Confirmó que `useReporte` ya descarta respuestas viejas (patrón `cancelado`), así que el timeout no introduce una condición de carrera.
+
+#### Validación humana
+
+- Los dos mensajes de timeout iniciales decían "acotá el período" aun en Inventario, Cuotas vencidas y el catálogo de fracciones, que no tienen período. El texto salía del prompt de planificación, no de Claude Code. Se corrigió en la etapa 3b: "La consulta tardó demasiado. Probá de nuevo." y "La carga de fracciones tardó demasiado." (sin "Probá de nuevo" porque la vista lo muestra seguido de "Podés consultar … sin filtrar por fracción").
+- El reporte de la etapa 2 no incluyó la salida del grep de cierre que se había pedido; se corrió en esta etapa (ver Resultado).
+- Decisión de no ampliar el alcance: no se modificó el backend (límite de `/fracciones`), ni `errors.js` (detalle de 400), ni `http.js` (timeout global).
+- Decisión de no agregar un aviso extra en Ventas por período sobre las tarjetas solo en USD: el recuadro "Otras monedas, informadas aparte" ya lo dice.
+
+#### Decisión adoptada
+
+El mock se elimina; Reportes usa siempre la API real. Timeout de 30 s (consultas) y 60 s (exportación), solo dentro de `lib/api/reportes.js`. Un aviso en pantalla cuando el backend informa más fracciones que las listadas, en lugar de tocar el límite del backend. La exportación a Excel con resultado vacío queda habilitada: genera un archivo que documenta la consulta y que no hubo filas.
+
+#### Resultado
+
+Verificado en el navegador (sesión de administrador, backend real en localhost:3000/api):
+- Inventario: 47 lotes, 17 ofrecibles, cargó con la API real.
+- `GET /fracciones` en la base local devolvió 8 fracciones (3, 4, 6, 7, 8, 11, 14, 15) y `total` 8: sin aviso. (Los seeds del repo crean solo 3.)
+- Aviso de fracciones: con el total forzado a 12 en la respuesta, apareció "El selector muestra 8 de 12 fracciones. Las demás no se pueden filtrar desde esta pantalla." en Inventario, Ventas y Cuotas vencidas, con el mismo estilo de advertencia.
+- Timeout con backend pausado (`docker pause` del contenedor del backend, hecho por la autora): `GET /reportes/cuotas-vencidas?moneda=USD` salió con `signal`, quedó sin respuesta y el navegador lo abortó con `AbortError` a los 30.002 ms. La pantalla mostró "La consulta tardó demasiado. Probá de nuevo." con el botón Reintentar. Antes se había probado también con un fetch colgado simulado (abort a los 30,08 s). Reintentar con el backend respondiendo: Cuotas vencidas USD → USD 213.833,34, 6 cuotas en 2 ventas, una sola request con 200 (mismas cifras que AI-035).
+- Al cambiar la fracción sin regenerar apareció el aviso de que los filtros cambiaron.
+- Estado vacío: Cuotas vencidas USD con Fracción 4 → USD 0,00, 0 cuotas en 0 ventas, "No hay registros para estos filtros", con Exportar habilitado. Ventas 01/01/2020–31/01/2020 → tarjetas en 0 y "0 ventas".
+- Excel del vacío (`reporte-cuotas-vencidas_USD_corte-2026-11-26.xlsx`): hoja "Cuotas vencidas" solo con encabezados; "Totales" con saldo 0, 0 cuotas, 0 ventas y los tres tramos en 0; "Parámetros" con moneda USD, fracción 4 y "Filas exportadas: 0".
+- Observación en Ventas 28/01/2026–26/11/2026: las tarjetas muestran 0 escrituras firmadas porque cuentan solo ventas en USD; la escriturada VEN-72-001 es en ARS (ARS 20.000,00) y figura en el recuadro "Otras monedas" y en la tabla. Es el comportamiento del contrato (ARS y USD nunca se suman).
+- Lint: 163 problemas (`npx eslint src`, 113 errores y 50 advertencias) y 164 problemas (`npm run lint`, 114 errores y 50 advertencias), igual que la referencia anterior. Build (`npm run build`) correcto.
+- Grep de cierre de la etapa 2 (`grep -rniI "REPORTES_MOCK\|REPORTES_EN_MOCK\|reportes\.mock\|USE_MOCK\|MOTIVO_MOCK\|simulad\|39\.6" frontend/src frontend/.env.example`): tres coincidencias, ninguna resto del mock — `Botones.jsx:31` es un comentario CSS ("borde interior simulado") sin relación con datos simulados; `RoleSwitcher.jsx:3` y `:9` son `VITE_AUTH_USE_MOCK`, del selector de rol en desarrollo, no de Reportes; `AvisoFraccionesTruncadas.jsx:2` menciona "39.6" a propósito, en un comentario que identifica la tarea.
+- Las consultas aparecen duplicadas en desarrollo (por ejemplo /fracciones y /reportes/inventario al cambiar de pestaña): es React.StrictMode, que en desarrollo monta y desmonta cada componente dos veces a propósito; confirmado en `frontend/src/main.jsx`, que envuelve `<App />` en `<React.StrictMode>`. No ocurre en el build de producción.
+
+No verificado:
+- La consola del navegador: el registro empezó a capturar recién al final de la sesión, así que no hay una revisión completa de errores desde la carga.
+- La exportación con resultado vacío se verificó leyendo el archivo; no se verificó la exportación de resultados vacíos de Inventario ni de Ventas.
+- Con datos reales: lotes sin `numero` o sin `precio` (el frontend los maneja, pero la base local no los tiene).
+
+Limitaciones conocidas:
+- `GET /fracciones` devuelve como máximo 10 y trae todos los lotes de cada fracción (`include: { lotes: true }`) aunque el frontend solo use `id` y `numero`.
+- `parseApiError` no muestra el detalle `errors[]` de un 400 `VALIDATION_ERROR`; los selects y `validarPeriodo` hacen improbable que ocurra.
+- `http()` no tiene timeout; se resolvió solo dentro de `lib/api/reportes.js`.
+- Los seeds del repo no crean ningún plan de pago en ARS (el único `PlanPago` sembrado es en USD): sin esos datos, un staging sembrado solo con los scripts no puede mostrar cuotas en ARS ni la sección de otras monedas en Ventas. Los registros en ARS usados en AI-035 no salen de ningún script de seed del repo.
+- Antes de una demo conviene calentar el backend (primer pedido tras un arranque en frío).
+
+#### Evidencia / archivos relacionados
+
+- `frontend/src/lib/api/reportes.js`
+- `frontend/src/lib/api/reportes.mock.js` (eliminado)
+- `frontend/src/components/Reportes/useExportarReporte.js`
+- `frontend/src/components/Reportes/useCatalogoFracciones.js`
+- `frontend/src/components/Reportes/AvisoFraccionesTruncadas.jsx` (nuevo)
+- `frontend/src/components/Reportes/VistaInventario.jsx`
+- `frontend/src/components/Reportes/VistaVentas.jsx`
+- `frontend/src/components/Reportes/VistaCuotasVencidas.jsx`
+- `frontend/.env.example`
+- AI-035
+- `AI-DECISIONS.md`
+
 ## Plantilla para entradas nuevas
 
 Copiar el bloque siguiente y completar. No inventar decisiones sin evidencia.

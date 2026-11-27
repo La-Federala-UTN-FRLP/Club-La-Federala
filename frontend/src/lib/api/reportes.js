@@ -1,10 +1,6 @@
 // src/lib/api/reportes.js
 // API del módulo Reportes (contrato CCLF-37). Solo staff (ADMINISTRADOR y GESTOR).
 //
-// Con VITE_REPORTES_MOCK=true las tres funciones responden con datos simulados de
-// ./reportes.mock.js (mismas formas y mismos errores 400 que la API). Cualquier otro valor,
-// o la variable ausente, usa la API real: el mock no puede activarse por omisión.
-//
 // Todos los montos son string decimal con 2 cifras ("85000.00") y las fechas YYYY-MM-DD.
 // La interfaz nunca recalcula cifras: muestra lo que devuelve el backend.
 
@@ -12,13 +8,43 @@ import { http } from "../http/http";
 
 const BASE = "/reportes";
 
-// import.meta.env se reemplaza al compilar: sin la variable, el import dinámico del mock
-// queda como código muerto y no entra al bundle.
-const USE_MOCK = import.meta.env.VITE_REPORTES_MOCK === "true";
+// Cuánto esperar antes de abortar, contra la API real: sin esto una consulta lenta deja el
+// spinner para siempre. `http()` reenvía el resto de las opciones a fetch ({...rest}), así que
+// alcanza con pasarle `signal` sin tocarlo.
+const TIMEOUT_CONSULTA_MS = 30_000;
+// La exportación arma el libro de Excel en el servidor antes de responder: puede tardar más que
+// una consulta JSON, así que tiene su propio plazo, más largo.
+const TIMEOUT_EXPORTACION_MS = 60_000;
 
-// Si la pantalla está con datos simulados. Lo necesita el botón de exportar, que no puede
-// inventar un .xlsx. Se borra junto con el mock en 39.6.
-export const REPORTES_EN_MOCK = USE_MOCK;
+/**
+ * Un AbortController con un plazo. El timer se limpia con `cancelar()`, que quien llama invoca en
+ * un `finally` de la función entera: así el plazo sigue corriendo durante la lectura del cuerpo
+ * (`res.json()` / `res.blob()`), no solo durante el `fetch`, y el timer se cancela siempre, se
+ * haya cumplido o no.
+ *
+ * @param {number} ms
+ * @returns {{signal: AbortSignal, cancelar: () => void}}
+ */
+function conPlazo(ms) {
+  const controlador = new AbortController();
+  const timer = setTimeout(() => controlador.abort(), ms);
+  return { signal: controlador.signal, cancelar: () => clearTimeout(timer) };
+}
+
+/** Si el error es el abort del plazo, y no uno disparado por otra razón. */
+const esTimeout = (err) => err?.name === "AbortError";
+
+/**
+ * `res.json()` tolerante a un cuerpo vacío o no-JSON (se devuelve `{}`), salvo que lo que falló
+ * fue el plazo: ese error se repropaga para que se vea como timeout y no como una respuesta
+ * vacía y exitosa.
+ */
+function jsonSeguro(res) {
+  return res.json().catch((err) => {
+    if (esTimeout(err)) throw err;
+    return {};
+  });
+}
 
 /** Arma "?a=1&b=2" omitiendo los parámetros undefined, null o vacíos. */
 function buildQuery(params = {}) {
@@ -51,21 +77,23 @@ function errorDeRespuesta(data, status, fallbackMsg) {
  * Si la respuesta no es 2xx lanza un Error con `statusCode` y `response` (el body del error).
  * @param {string} path - Ruta bajo /reportes (ej. "/ventas")
  * @param {object} params - Query params; los vacíos no se mandan
- * @param {"getInventario"|"getVentas"|"getCuotasVencidas"} mockFn - Función equivalente del mock
  * @param {string} fallbackMsg - Mensaje si el body de error no trae `message`
  */
-async function getReporte(path, params, mockFn, fallbackMsg) {
-  if (USE_MOCK) {
-    const mock = await import("./reportes.mock");
-    return mock[mockFn](params);
+async function getReporte(path, params, fallbackMsg) {
+  const { signal, cancelar } = conPlazo(TIMEOUT_CONSULTA_MS);
+  try {
+    const res = await http(`${BASE}${path}${buildQuery(params)}`, { method: "GET", signal });
+    const data = await jsonSeguro(res);
+
+    if (!res.ok) throw errorDeRespuesta(data, res.status, fallbackMsg);
+
+    return data?.data ?? data;
+  } catch (err) {
+    if (esTimeout(err)) throw new Error("La consulta tardó demasiado. Probá de nuevo.");
+    throw err;
+  } finally {
+    cancelar();
   }
-
-  const res = await http(`${BASE}${path}${buildQuery(params)}`, { method: "GET" });
-  const data = await res.json().catch(() => ({}));
-
-  if (!res.ok) throw errorDeRespuesta(data, res.status, fallbackMsg);
-
-  return data?.data ?? data;
 }
 
 /**
@@ -92,7 +120,6 @@ export function getInventario({ fraccion, estado, subestado } = {}) {
   return getReporte(
     "/inventario",
     { fraccion, estado, subestado },
-    "getInventario",
     "Error al obtener el reporte de inventario"
   );
 }
@@ -143,7 +170,6 @@ export function getVentas({ desde, hasta, fraccion } = {}) {
   return getReporte(
     "/ventas",
     { desde, hasta, fraccion },
-    "getVentas",
     "Error al obtener el reporte de ventas"
   );
 }
@@ -172,7 +198,6 @@ export function getCuotasVencidas({ moneda, fraccion } = {}) {
   return getReporte(
     "/cuotas-vencidas",
     { moneda, fraccion },
-    "getCuotasVencidas",
     "Error al obtener el reporte de cuotas vencidas"
   );
 }
@@ -190,35 +215,38 @@ const NOMBRE_EN_DISPOSITION = /filename="?([A-Za-z0-9._-]+\.xlsx)"?/;
  * Exporta un reporte a Excel. Mismos parámetros, validaciones y roles que su gemelo JSON: el
  * backend arma el archivo con el mismo service, así que las filas coinciden con las de la vista.
  *
- * Con el mock no se exporta nada: simular un .xlsx necesitaría una librería nueva, y un archivo
- * inventado por el frontend no probaría que coincide con la pantalla.
- *
  * @param {"inventario"|"ventas"|"cuotas-vencidas"} ruta
  * @param {object} filtros - Los filtros aplicados, tal cual; `buildQuery` saltea los vacíos
  * @returns {Promise<{blob: Blob, nombre: string|null}>} `nombre` es el del backend, o null si la
  *   cabecera no llegó o no se pudo leer: quien llama pone el suyo.
  */
 export async function exportarReporte(ruta, filtros = {}) {
-  if (USE_MOCK) throw new Error("La exportación no está disponible con datos simulados");
+  const { signal, cancelar } = conPlazo(TIMEOUT_EXPORTACION_MS);
+  try {
+    const res = await http(`${BASE}/${ruta}.xlsx${buildQuery(filtros)}`, { method: "GET", signal });
 
-  const res = await http(`${BASE}/${ruta}.xlsx${buildQuery(filtros)}`, { method: "GET" });
+    // Un error nunca viene en binario: ante validación fallida, sin token o sin rol, el backend
+    // responde el JSON de error. Por eso se mira `res.ok` antes de tocar el cuerpo como archivo.
+    if (!res.ok) {
+      const data = await jsonSeguro(res);
+      throw errorDeRespuesta(data, res.status, "Error al exportar el reporte");
+    }
 
-  // Un error nunca viene en binario: ante validación fallida, sin token o sin rol, el backend
-  // responde el JSON de error. Por eso se mira `res.ok` antes de tocar el cuerpo como archivo.
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw errorDeRespuesta(data, res.status, "Error al exportar el reporte");
+    // Un 200 que no es un libro de Excel (un proxy devolviendo HTML, por ejemplo) no se baja como
+    // si lo fuera: se abriría roto y parecería un archivo corrupto en lugar de un problema de red.
+    if (!(res.headers.get("Content-Type") ?? "").includes(TIPO_XLSX)) {
+      throw new Error("La respuesta no es un archivo de Excel");
+    }
+
+    const nombre = NOMBRE_EN_DISPOSITION.exec(res.headers.get("Content-Disposition") ?? "")?.[1];
+
+    return { blob: await res.blob(), nombre: nombre ?? null };
+  } catch (err) {
+    if (esTimeout(err)) throw new Error("La exportación tardó demasiado. Probá de nuevo.");
+    throw err;
+  } finally {
+    cancelar();
   }
-
-  // Un 200 que no es un libro de Excel (un proxy devolviendo HTML, por ejemplo) no se baja como
-  // si lo fuera: se abriría roto y parecería un archivo corrupto en lugar de un problema de red.
-  if (!(res.headers.get("Content-Type") ?? "").includes(TIPO_XLSX)) {
-    throw new Error("La respuesta no es un archivo de Excel");
-  }
-
-  const nombre = NOMBRE_EN_DISPOSITION.exec(res.headers.get("Content-Disposition") ?? "")?.[1];
-
-  return { blob: await res.blob(), nombre: nombre ?? null };
 }
 
 /**
@@ -231,29 +259,42 @@ export async function exportarReporte(ruta, filtros = {}) {
  * `lib/api/fracciones.js`: ese atrapa todo y devuelve una lista vacía con `success: true`, así
  * que un 403 o un 500 se vería en la pantalla como "no hay fracciones" en vez de como un error.
  *
- * @returns {Promise<Array<{id: number, numero: number}>>}
+ * El backend lista como máximo 10 fracciones por llamada (límite fijo del lado del servicio,
+ * sin un parámetro para pedir más) y manda `total` con el conteo real; se devuelve también, para
+ * que quien filtra pueda avisar si el selector quedó incompleto.
+ *
+ * @returns {Promise<{fracciones: Array<{id: number, numero: number}>, total: number|null}>}
+ *   `total` es `null` si la respuesta no lo trae o no es un número.
  */
 export async function getFraccionesReporte() {
-  if (USE_MOCK) {
-    const mock = await import("./reportes.mock");
-    return mock.getFracciones();
-  }
+  const { signal, cancelar } = conPlazo(TIMEOUT_CONSULTA_MS);
+  try {
+    const res = await http("/fracciones", { method: "GET", signal });
+    const data = await jsonSeguro(res);
 
-  const res = await http("/fracciones", { method: "GET" });
-  const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error(data?.message || "Error al obtener las fracciones");
+      err.statusCode = res.status;
+      err.response = data;
+      throw err;
+    }
 
-  if (!res.ok) {
-    const err = new Error(data?.message || "Error al obtener las fracciones");
-    err.statusCode = res.status;
-    err.response = data;
+    // El endpoint responde { success, message, fracciones, total }: la lista va plana, no en
+    // `data`. El backend mapea Fraccion.id a `idFraccion`; se tolera `id` por si eso cambia.
+    const lista = data?.fracciones ?? data?.data?.fracciones ?? [];
+    const fracciones = lista
+      .map((f) => ({ id: Number(f.idFraccion ?? f.id), numero: Number(f.numero) }))
+      .filter((f) => Number.isFinite(f.id) && Number.isFinite(f.numero))
+      .sort((a, b) => a.numero - b.numero);
+
+    const totalCrudo = Number(data?.total ?? data?.data?.total);
+    const total = Number.isFinite(totalCrudo) ? totalCrudo : null;
+
+    return { fracciones, total };
+  } catch (err) {
+    if (esTimeout(err)) throw new Error("La carga de fracciones tardó demasiado.");
     throw err;
+  } finally {
+    cancelar();
   }
-
-  // El endpoint responde { success, message, fracciones, total }: la lista va plana, no en `data`.
-  // El backend mapea Fraccion.id a `idFraccion`; se tolera `id` por si eso cambia.
-  const lista = data?.fracciones ?? data?.data?.fracciones ?? [];
-  return lista
-    .map((f) => ({ id: Number(f.idFraccion ?? f.id), numero: Number(f.numero) }))
-    .filter((f) => Number.isFinite(f.id) && Number.isFinite(f.numero))
-    .sort((a, b) => a.numero - b.numero);
 }

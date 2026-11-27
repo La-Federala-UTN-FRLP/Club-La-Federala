@@ -13,6 +13,7 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Alert, Form } from "react-bootstrap";
+import AvisoFraccionesTruncadas from "./AvisoFraccionesTruncadas";
 import FiltrosReporte from "./FiltrosReporte";
 import BotonExportar from "./BotonExportar";
 import TarjetaTabla from "./TarjetaTabla";
@@ -260,7 +261,7 @@ export default function VistaVentas() {
     filtrosIniciales: borradorInicial,
   });
 
-  const { fracciones, errorFracciones } = useCatalogoFracciones();
+  const { fracciones, errorFracciones, truncado, totalFracciones } = useCatalogoFracciones();
 
   const { exportar, descargando, puedeExportar, motivoDeshabilitado } = useExportarReporte({
     ruta: "ventas",
@@ -351,6 +352,10 @@ export default function VistaVentas() {
         <Alert variant="warning" className="reportes-aviso">
           {errorFracciones} Podés consultar las ventas sin filtrar por fracción.
         </Alert>
+      )}
+
+      {truncado && (
+        <AvisoFraccionesTruncadas cantidad={fracciones.length} total={totalFracciones} />
       )}
 
       {aplicados === null && !cargando && (
