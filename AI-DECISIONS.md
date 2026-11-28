@@ -3231,6 +3231,62 @@ Validación documental pasó: 52 IDs, 10 columnas completas y 49 enlaces. Todos 
 - Refs #290 y #302; evidencia documental privada, sin inferir cumplimiento staging.
 
 
+### AI-046 — Endpoint POST /api/reportes/resumen: entrada, validación de cifras, límite diario y log (40.3, CCLF-37)
+
+**Fecha:** 2026-11-27
+**Área:** Backend / Reportes + IA / OpenAPI
+**Herramientas:** Claude Code
+
+#### Problema
+
+La 40.2 (AI-039, #370) dejó el servicio `aiSummary`, que llama a Gemini y solo garantiza un objeto JSON. Faltaba el "Resumen para la reunión" de la V4: el endpoint, el armado de la entrada con los 3 reportes, la validación del esquema y de que cada cifra de la salida esté en la entrada, el límite de 20 resúmenes por usuario por día, el log de tokens y latencia, y el status del 502 `AI_UNAVAILABLE` en la OpenAPI (AI-033 lo dejó pendiente para esta tarea).
+
+#### Prompt / intención
+
+Tarea 40.3: `POST /api/reportes/resumen` con body Zod estricto `{ desde, hasta, fraccion?, moneda }`, entrada solo con agregados (sin filas ni datos personales), validación de la salida (esquema, cifras, sin porcentajes ni emails) con 502 si falla, límite de 20 por usuario por día de Buenos Aires sin depender de la IP (AI-042, #377), una línea de log JSON por resumen sin contenido y la operación en la OpenAPI. Tests sin red con el cliente de `@google/genai` mockeado y los fakes de Prisma (REP-A6 y REP-A7). Sin tocar el frontend, `trust proxy` ni el rate limit del login.
+
+#### Propuesta generada por IA
+
+- **Body** (`bodyResumenSchema`): `z.strictObject` con las reglas del período de ventas (las dos reglas pasaron a `conReglasDePeriodo`, compartida con `queryReporteVentasSchema`, sin cambiar sus mensajes), `fraccion` con `idDelBody` y `moneda` con `z.enum(Moneda)`. Una clave desconocida da 400 `VALIDATION_ERROR` con `field: ''`.
+- **Entrada** (`armarEntradaResumen`): los 3 services en paralelo con los filtros del body. `corte` y `periodo` salen de ventas. `porFraccion` suma `saldoPendiente` de las filas de cuotas vencidas por número visible de fracción, en `Prisma.Decimal`, con 2 decimales y claves en orden numérico.
+- **Validación de la salida** (`reporteResumen.salida.ts`): esquema Zod (`texto` y `detalle` no vacíos, `tema` del enum, `enlace` que matchea `^/reportes([/?#]…)?$` sin `//`, `\`, `..` ni espacios, `datosFaltantes[]` de strings). Las cifras se revisan en `texto`, `puntos[].detalle` y `datosFaltantes[]`. Primero se reconocen las fechas completas (`2026-11-20`, `20/11/2026`), que tienen que ser fechas de la entrada. Después cada número se normaliza a su forma canónica sin ceros sobrantes (`255000.00` = `255.000,00` = `255000`) y se compara con el conjunto de números de la entrada (valores, montos, claves de `porFraccion` y partes de fechas). Rechaza `%`, "por ciento" y emails. El resultado da solo el motivo (`esquema`, `email`, `porcentaje` o `cifras`) y la cantidad de cifras rechazadas, nunca cuáles.
+- **Límite diario** (`resumenDailyLimit.middleware.ts`): store en memoria con key `req.user.id` y el día de `fechaCorte` (Buenos Aires). Va después de `validate`, así un 400 no consume cupo. Reserva el cupo antes de seguir, así dos pedidos simultáneos no pasan el límite. Si fallan los reportes antes de llamar a la IA, el controller lo devuelve con `liberarCupoResumen`. Al superar el límite responde 429 `TOO_MANY_REQUESTS` con `Retry-After` en segundos hasta las 00:00 de Argentina. Tiene `reset()` para los tests.
+- **Log** (`reporteResumen.service.ts`): una línea JSON por resumen (`severity`, `message: '[AI_SUMMARY] resumen'`, `resultado`, `motivo`, `cifrasRechazadas`, `rol`, `modelo`, `versionModelo`, `tokens`, `latenciaMs`, `latenciaIaMs`), en `console.log` (INFO) o `console.error` (ERROR). Logger, reloj, generador y armado de la entrada se inyectan. Si la IA falla, el motivo técnico ya lo registra `aiSummary` (40.2) y no se duplica. Una falla inesperada de la IA que no sea `AiUnavailableError` también responde 502.
+- **OpenAPI**: operación `resumenReportes` con `x-roles`, `security`, `requestBody` (`ReporteResumenRequest`), 200 (`ReporteResumenResponse`, con un ejemplo que pasa la validación de cifras con la entrada de la V4), 400 (`ReporteResumenBadRequest`), 401, 403, 413, 429 (`ReporteResumenTooManyRequests` con `Retry-After`), 500 y 502 con el ejemplo `AiUnavailable`. Se actualizaron las descripciones de `ErrorCode` y de `AiUnavailable`. Conteo de operaciones de 84 a 85 en `openapi.contract.test.ts` y `mounted-routes.auth.test.ts`.
+
+#### Validación humana
+
+La autora revisó el diff antes de commitear y está de acuerdo con las decisiones adoptadas (key por usuario, store en memoria, día de Buenos Aires, qué cuenta para el cupo y reglas de cifras). Queda pendiente la revisión cruzada en la PR.
+
+#### Decisión adoptada
+
+- **Key por usuario, no por IP:** la identidad por IP no está validada en Cloud Run (AI-042, C1 bloqueado) y el resumen siempre tiene `req.user`. No se tocó `trust proxy` ni `loginRateLimit.middleware.ts`.
+- **Store en memoria:** misma limitación que el login (AI-042). Se pierde al reiniciar y no se comparte entre instancias ni revisiones: con N instancias, el máximo real es 20 × N. Alcanza para acotar costo y abuso en el uso previsto; un store compartido queda fuera de alcance.
+- **Día de Buenos Aires:** el cupo se reinicia a las 00:00 de Argentina (`fechaCorte`), el mismo día de corte de los reportes. Solo se guardan los contadores del día en curso.
+- **Qué cuenta para el cupo:** cada pedido que llega a la IA, salga bien o mal (también un 502 por salida inválida o por timeout). No cuentan el 400 del body, el 401, el 403 ni un 500 de los reportes antes de llamar a la IA.
+- **Reglas de cifras:** fechas completas contra las fechas de la entrada. Números en los dos formatos, comparados en forma canónica. Un número con un solo separador y 3 dígitos después (`7.200`, `1,500`) es ambiguo y se acepta si cualquiera de las dos lecturas está en la entrada. **Se aceptan día, mes y año sueltos** de las fechas de la entrada ("del 1 al 20 de noviembre de 2026"), porque es como se escribe un período en una oración. Costo asumido: un número inventado que coincida con uno de esos (por ejemplo 20) pasa. Sin porcentajes ni emails.
+
+#### Resultado
+
+- Backend, Node v22.16.0: `npm run build` OK (`prisma generate`, `tsc` y copia del cliente; sin el EPERM de AI-037/AI-039) y `npm run typecheck` OK.
+- `npx jest` en paralelo: 111 suites y 3966 tests PASS, sin fallos preexistentes ni timeouts. No hizo falta `--runInBand`.
+- Tests nuevos: 100 en 3 suites. La suite HTTP del resumen (33 tests) pasó en 4 corridas, incluida la suite completa y el caso de timeout con `setTimeout` simulado.
+- Paridad OpenAPI y contratos de reportes PASS con 85 operaciones.
+- No se hizo una llamada real a Vertex AI con el endpoint: queda para la validación humana en staging (REP-A6 y REP-A7 con datos sintéticos).
+
+#### Evidencia / archivos relacionados
+
+- `Backend/src/validations/reporte.validation.ts`
+- `Backend/src/services/reporteResumen.service.ts`, `Backend/src/services/reporteResumen.salida.ts`
+- `Backend/src/middlewares/resumenDailyLimit.middleware.ts`
+- `Backend/src/controllers/reporte.controller.ts`, `Backend/src/routes/reportes.routes.ts`
+- `Backend/documents/documentacionApi.yaml`
+- `Backend/tests/unit/routes/reportes.resumen.routes.test.ts` (REP-A6, REP-A7, permisos, body y límite)
+- `Backend/tests/unit/services/reporteResumen.salida.test.ts`, `Backend/tests/unit/services/reporteResumen.service.test.ts`
+- `Backend/tests/unit/openapi/openapi.contract.test.ts`, `Backend/tests/unit/security/mounted-routes.auth.test.ts`
+- `AI-DECISIONS.md`
+
+
 
 ## Plantilla para entradas nuevas
 
