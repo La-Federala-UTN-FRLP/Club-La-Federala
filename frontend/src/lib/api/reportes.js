@@ -15,6 +15,11 @@ const TIMEOUT_CONSULTA_MS = 30_000;
 // La exportación arma el libro de Excel en el servidor antes de responder: puede tardar más que
 // una consulta JSON, así que tiene su propio plazo, más largo.
 const TIMEOUT_EXPORTACION_MS = 60_000;
+// El resumen no reusa TIMEOUT_CONSULTA_MS: el backend encadena los tres reportes (inventario,
+// ventas, cuotas vencidas), que no tienen techo de tiempo propio, y recién después llama a
+// Gemini, que sí tiene su propio plazo de 15 s (AI-039). Una medición real del endpoint dio
+// 4931 ms totales, 4002 de los cuales fueron el modelo: 45 s es holgado, no ajustado.
+const TIMEOUT_RESUMEN_MS = 45_000;
 
 /**
  * Un AbortController con un plazo. El timer se limpia con `cancelar()`, que quien llama invoca en
@@ -200,6 +205,45 @@ export function getCuotasVencidas({ moneda, fraccion } = {}) {
     { moneda, fraccion },
     "Error al obtener el reporte de cuotas vencidas"
   );
+}
+
+/**
+ * Resumen con IA para la reunión: tres reportes (inventario, ventas, cuotas vencidas)
+ * condensados en un texto y en puntos por tema.
+ *
+ * @param {object} filtros
+ * @param {string} filtros.desde - YYYY-MM-DD
+ * @param {string} filtros.hasta - YYYY-MM-DD
+ * @param {"ARS"|"USD"} filtros.moneda
+ * @param {number|string} [filtros.fraccion] - Id de fracción; se omite del body si es ""
+ * @returns {Promise<{
+ *   texto: string,
+ *   puntos: Array<{tema: "Comercial"|"Cobranzas"|"Inventario", detalle: string, enlace: string}>,
+ *   datosFaltantes: string[],
+ *   modelo: string,
+ *   corte: string
+ * }>}
+ */
+export async function getResumen({ desde, hasta, moneda, fraccion } = {}) {
+  const { signal, cancelar } = conPlazo(TIMEOUT_RESUMEN_MS);
+  // Va en el body, no en la query string: `buildQuery` no aplica a un POST con body JSON.
+  const cuerpo = { desde, hasta, moneda };
+  if (fraccion !== undefined && fraccion !== null && fraccion !== "") {
+    cuerpo.fraccion = fraccion;
+  }
+  try {
+    const res = await http(`${BASE}/resumen`, { method: "POST", body: cuerpo, signal });
+    const data = await jsonSeguro(res);
+
+    if (!res.ok) throw errorDeRespuesta(data, res.status, "Error al generar el resumen");
+
+    return data?.data ?? data;
+  } catch (err) {
+    if (esTimeout(err)) throw new Error("El resumen tardó demasiado. Probá de nuevo.");
+    throw err;
+  } finally {
+    cancelar();
+  }
 }
 
 // Lo que tiene que decir el `Content-Type` de un .xlsx. Se busca por fragmento y no por igualdad
