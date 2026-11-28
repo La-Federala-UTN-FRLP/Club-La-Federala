@@ -158,11 +158,13 @@ La política por tipo es `canUserAccessArchivo` (`file.auth.utils.ts:89`): TECNI
 | Ver metadata de un archivo | `GET /files/:id` | Sí | Sí | Sí (filtrado por tipo) | Sí (filtrado por tipo) | Todos desde Documentos | Sí | `files.routes.ts:47-50`, `file.controller.ts:27-50` |
 | Firmar URL de descarga | `POST /files/:id/url` | Sí | Sí | Sí (filtrado por tipo) | Sí (filtrado por tipo) | Todos desde Documentos | Sí | `files.routes.ts:57-60`, `file.controller.ts:27-50` |
 | Subir archivo | `POST /files` | Sí | Sí | No | Sí (solo `PLANO` e `IMAGEN`) | ADMIN, GESTOR y TECNICO | Sí | `files.routes.ts:99-102`, `file.controller.ts:91-92`, `LoteVerCard.jsx:312-315`, `Ventas.jsx:180` |
-| Sustituir archivo | `POST /files/:id/sustituir` | Sí | Sí | No | Sí (solo `PLANO` e `IMAGEN`) | ADMIN, GESTOR y TECNICO | Sí | `files.routes.ts:90-93`, `DocumentoVerCard.jsx:408` |
+| Sustituir archivo | `POST /files/:id/sustituir` | Sí (BOLETO, ESCRITURA, OTRO o PLANO) | Sí (BOLETO, ESCRITURA, OTRO o PLANO) | No | Sí (solo `PLANO`) | ADMIN, GESTOR y TECNICO, limitado a tipos sustituibles | Sí | `files.routes.ts`, `file.service.ts:324-330` (`tiposSustituibles`), OpenAPI `sustituirArchivo`, `DocumentoVerCard.jsx` (`esTipoSustituible`) |
 | Aprobar plano | `PATCH /files/:id/aprobaciones` | Sí | Sí | No | Sí (solo Comisión, no Municipio) | Comisión: ADMIN, GESTOR y TECNICO. Municipio: ADMIN y GESTOR | Sí | `files.routes.ts:81-84`, `file.auth.utils.ts:121-129`, `DocumentoVerCard.jsx:93-94` |
 | Eliminar archivo | `DELETE /files/:id` | Sí | Sí | No | No | ADMIN y GESTOR | Sí | `files.routes.ts:108-111`, `rbac.ui.js:126-128`, `LoteVerCard.jsx:316-319`, `LoteEditarCard.jsx:749` |
 | Restaurar archivo | `POST /files/:id/restore` | Sí | Sí | No | No | ADMIN y GESTOR | Sí | `files.routes.ts:65-68`, `DocumentoVerCard.jsx:69-70` |
 | Purgar archivo | `DELETE /files/:id/purge` | Sí | No | No | No | Solo ADMIN | Sí | `files.routes.ts:73-76`, `DocumentoVerCard.jsx:71` |
+
+La sustitución admite BOLETO, ESCRITURA, OTRO y PLANO; TECNICO solo PLANO. IMAGEN no se sustituye. Corrección documental contrastada el 28/11/2026 con OpenAPI `sustituirArchivo`, servicio Files (`tiposSustituibles`) y UI; no cambia runtime ni permisos.
 
 ## Reportes
 
