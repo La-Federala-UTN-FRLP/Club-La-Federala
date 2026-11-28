@@ -3259,6 +3259,14 @@ Validación documental pasó: 52 IDs, 10 columnas completas y 49 enlaces. Todos 
 - Refs #290 y #302; evidencia documental privada, sin inferir cumplimiento staging.
 
 
+#### Seguimiento local T4 final — 28/11/2026
+
+Recuperación selectiva de la preparación histórica 4f274f083099e86186bcd653a4d70182880259a4 (base 52a1d3), preservada sin modificaciones. Nueva rama exclusiva test/g4-qa-preparation inicialmente sobre f6fea9415c6cb100b4e9abe1f0cb8bb80b097c1c; al integrarse #378, coordinación autorizó respaldar 3150091539fd41caa1096dd7c3cf7b475ab34d5f en backup/g4-t4-preparation-3150091 y rebasar solo el commit documental sobre main 6db0d42114af9fa515858f1155cb93d40898fb17, confirmado en GitHub; T1/T2 y P1/P2 integrados. Se conservan los 52 IDs, se agregan clasificación/criticidad/automatización y estados separados, variante 429, JWT HS256/exp finito y transporte ya integrado. Se porta solo la corrección RBAC establecida por código/OpenAPI, sin cambios runtime ni nuevos permisos.
+
+Documentos: docs/qa/g4/matriz-g4.md, escenarios-g4.md y auditoria-preparacion.md. La auditoría enlaza automatización existente parcial y gaps; no se agregan tests espejo ni fixtures ejecutables. Validación local exclusivamente documental; aplicación/build/typecheck/suites SKIP por docs-only. 52 PREPARADO / NO EJECUTADO; staging BLOQUEADO C1/C3, cero PASS funcionales. C2 completo, C4 ejecución pendiente; O y T5 fuera del alcance. #373 sigue externo/OPEN, sin importar código. #378 ya integrado: delta contractual/servicio/ruta/limiter y tests inspeccionados; 7 variantes adicionales de resumen ligadas a los IDs previos y contadas aparte, todas P/NE, sin IA real ni staging. AI-046 preservado íntegro y sin duplicar IDs.
+
+La instrucción de coordinación autoriza preparación/commits/borrador local, no aprobación técnica humana ni publicación. Justina propuesta como revisora distinta del autor; sin asignación/review solicitado. Refs #302 y #290; sin cierre, push, PR, merge, despliegue ni cambios Projects. Se conserva íntegro el registro histórico de AI-045 y las demás entradas, incluida AI-042; este seguimiento no atribuye aprobación humana al nuevo diff.
+
 ### AI-046 — Endpoint POST /api/reportes/resumen: entrada, validación de cifras, límite diario y log (40.3, CCLF-37)
 
 **Fecha:** 2026-11-27
@@ -3314,16 +3322,6 @@ La autora revisó el diff antes de commitear y está de acuerdo con las decision
 - `Backend/tests/unit/openapi/openapi.contract.test.ts`, `Backend/tests/unit/security/mounted-routes.auth.test.ts`
 - `AI-DECISIONS.md`
 
-
-
-
-#### Seguimiento local T4 final — 28/11/2026
-
-Recuperación selectiva de la preparación histórica 4f274f083099e86186bcd653a4d70182880259a4 (base 52a1d3), preservada sin modificaciones. Nueva rama exclusiva test/g4-qa-preparation sobre main f6fea9415c6cb100b4e9abe1f0cb8bb80b097c1c, confirmado en GitHub; T1/T2 y P1/P2 integrados. Se conservan los 52 IDs, se agregan clasificación/criticidad/automatización y estados separados, variante 429, JWT HS256/exp finito y transporte ya integrado. Se porta solo la corrección RBAC establecida por código/OpenAPI, sin cambios runtime ni nuevos permisos.
-
-Documentos: docs/qa/g4/matriz-g4.md, escenarios-g4.md y auditoria-preparacion.md. La auditoría enlaza automatización existente parcial y gaps; no se agregan tests espejo ni fixtures ejecutables. Validación local exclusivamente documental; aplicación/build/typecheck/suites SKIP por docs-only. 52 PREPARADO / NO EJECUTADO; staging BLOQUEADO C1/C3, cero PASS funcionales. C2 completo, C4 ejecución pendiente; O y T5 fuera del alcance. #373/#378 siguen externos y requieren revalidación tras merge.
-
-La instrucción de coordinación autoriza preparación/commits/borrador local, no aprobación técnica humana ni publicación. Justina propuesta como revisora distinta del autor; sin asignación/review solicitado. Refs #302 y #290; sin cierre, push, PR, merge, despliegue ni cambios Projects. Se conserva íntegro el registro histórico de AI-045 y las demás entradas, incluida AI-042; este seguimiento no atribuye aprobación humana al nuevo diff.
 
 
 ## Plantilla para entradas nuevas

@@ -1,6 +1,6 @@
 # Escenarios G4 — ejecución futura condicionada
 
-Consolidación local: 28/11/2026 (UTC−03:00). Base canónica verificada por GitHub: `f6fea9415c6cb100b4e9abe1f0cb8bb80b097c1c`; rama `test/g4-qa-preparation`. Recuperación selectiva de `4f274f083099e86186bcd653a4d70182880259a4`, base anterior `52a1d346aee960114647f9d885ce398bdcb275e3`; no se actualizó el worktree anterior. [Auditoría de los 52 IDs y estados separados](auditoria-preparacion.md).
+Consolidación local: 28/11/2026 (UTC−03:00). Base canónica actual verificada por GitHub: `6db0d42114af9fa515858f1155cb93d40898fb17` (original f6fea9415c6cb100b4e9abe1f0cb8bb80b097c1c, actualizada tras integración #378); rama `test/g4-qa-preparation`. Recuperación selectiva de `4f274f083099e86186bcd653a4d70182880259a4`, base anterior `52a1d346aee960114647f9d885ce398bdcb275e3`; no se actualizó el worktree anterior. [Auditoría de los 52 IDs y estados separados](auditoria-preparacion.md).
 
 **Estado: 52 casos preparados; 0 ejecutados; 0 PASS funcionales.** Este documento no autoriza QA contra staging. T4 solo hizo consultas GitHub READ-ONLY e inspección/validación documental local; no inició sesión ni ejecutó app, seeds, migraciones, jobs, scripts QA, escrituras de datos o cambios de Cloud. Se prepararon commits documentales locales y borrador privado de PR; no se hicieron push, PR, comentarios ni cambios de issues/Projects.
 
@@ -72,9 +72,9 @@ Una ejecución con evidencia incompleta o parcial no satisface el caso. Los P2 d
 
 ## Verificación documental de T4
 
-Los resultados del worktree anterior son antecedentes históricos, conservados allí. Esta consolidación sobre f6fea94 compara las cuatro rutas del diff anterior con main y porta únicamente matriz, escenarios y la corrección RBAC aún aplicable. No copia la referencia cloud/ai/T4 obsoleta: utiliza AI-045 central, conservando su historia y añadiendo seguimiento. Las validaciones actuales y la clasificación de los 52 casos están en [auditoría](auditoria-preparacion.md); ningún resultado anterior se convierte en ejecución nueva.
+Los resultados del worktree anterior son antecedentes históricos, conservados allí. Esta consolidación originalmente sobre f6fea94, actualizada por instrucción del coordinador a 6db0d4 después del merge #378, compara las cuatro rutas del diff anterior con main y porta únicamente matriz, escenarios y la corrección RBAC aún aplicable. No copia la referencia cloud/ai/T4 obsoleta: utiliza AI-045 central, conservando su historia y añadiendo seguimiento. Las validaciones actuales y la clasificación de los 52 casos están en [auditoría](auditoria-preparacion.md); ningún resultado anterior se convierte en ejecución nueva.
 
-GitHub READ-ONLY del 28/11: #302 y #290 OPEN; #302 tiene cinco dependencias abiertas (#290, #294, #299, #300, #301); #288, #289 y #296–#298 cerradas. #290 depende de #280 y #286 cerradas. #302 sin comentarios; #290 conserva comentario histórico importado que permite preparación en paralelo, sin aprobar despliegue. #373 y #378 OPEN. No se consultó Jira ni se alteró seguimiento.
+GitHub READ-ONLY del 28/11: #302 y #290 OPEN; #302 tiene cinco dependencias abiertas (#290, #294, #299, #300, #301); #288, #289 y #296–#298 cerradas. #290 depende de #280 y #286 cerradas. #302 sin comentarios; #290 conserva comentario histórico importado que permite preparación en paralelo, sin aprobar despliegue. #373 OPEN y #378 MERGED en 6db0d4 (corte inicial: ambas OPEN; actualización al control final). No se consultó Jira ni se alteró seguimiento.
 
 ## Restauración por recorrido y evidencia
 
@@ -102,3 +102,9 @@ Cerrar cada ficha con relectura de persistencia autorizada, comparación contra 
 6. Registrar evidencia propia por variante y resultado real; #302 solo puede evaluarse tras E2E críticos PASS en staging, cero P0/P1 abiertos del alcance y aceptación humana explícita de P2 diferidos. Esta preparación no cierra C1/C3/C4, #302 ni #290; T5 sigue fuera del alcance.
 
 Revisora propuesta: Justina, distinta de Santiago (autor local); sin asignación ni solicitud de review. Se entregan commits y borrador privado de PR; sin push, creación de PR, merge ni cambios Projects.
+
+## Extensión integrada #378
+
+[Siete variantes de resumen](extensiones-resumen.md), vinculadas a los 52 IDs existentes, se cuentan aparte y siguen P/NE. Secuencia futura: revisar body/roles sin acceso al modelo primero; OK/errores/cupo/corte y privacidad solo con harness mock aprobado o autorización separada para IA real y presupuesto. No provocar fallos reales ni consumir 20 llamadas reales para probar un límite. Las pruebas ya implementadas usan SDK/Prisma/reloj simulados, no sustituyen C4.
+
+No hay mutaciones comerciales previstas por resumen, pero existen efectos de cuota, costo/modelo y logs. Usar usuarios auxiliares, día/proceso controlado únicamente en harness; no resetear contadores productivos, cambiar reloj real ni reiniciar servicios para limpiar. Verificar cierre de perfiles y sanitización/retención; presupuesto consumido y logs no son reversibles. Ante ausencia de permiso IA, esas variantes permanecen BLOQUEADAS aunque C1/C3 estén resueltos.
