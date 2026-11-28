@@ -119,6 +119,109 @@
   line-height: 1.2;
 }
 
+/* Fila del título: el h1 y el botón del resumen, uno a cada punta */
+.reportes-titulo-fila {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+/* Botón "Resumen para la reunión": mismo criterio visual que los demás controles de la
+   pantalla (alto y radio de control, borde suave, texto medio). No es la acción primaria de
+   la pantalla, así que no usa el verde de --color-action-primary. */
+.reporte-resumen-boton {
+  height: var(--reporte-alto-control);
+  padding: 0 var(--space-4);
+  color: var(--reporte-texto-medio);
+  background: var(--color-text-light);
+  border: 1px solid var(--reporte-borde-control);
+  border-radius: var(--reporte-radio-control);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.reporte-resumen-boton:hover {
+  border-color: var(--reporte-texto-suave);
+}
+
+.reporte-resumen-boton:focus-visible {
+  outline: 2px solid var(--color-action-primary);
+  outline-offset: 2px;
+}
+
+/* Tarjeta "Resumen para la reunión" (40.4, etapa 4): un hijo directo más de
+   `.reportes-pantalla`, con su lugar en el flex-wrap de arriba. Por defecto, apilada debajo
+   del reporte, a ancho completo. El resto del estilo (colores, tipografía, estados) va al
+   final de la hoja, después de los componentes compartidos que neutraliza. */
+.reporte-resumen-card {
+  order: 4;
+  flex: 0 0 100%;
+  align-self: start;
+}
+
+/* Sigue montada mientras está oculta (ver PanelResumen.jsx): conserva su resumen generado.
+   La clase de más es la convención de la hoja para resolver empates: `.reporte-resumen-card`
+   declara `display: flex` más abajo, con la misma especificidad, y ganaría por orden. */
+.reporte-resumen-card.reporte-resumen-card--oculta {
+  display: none;
+}
+
+/* A partir de 992px, en columna a la derecha del reporte. El selector del override lleva las
+   dos clases (`.reportes-pantalla.reportes-pantalla--con-resumen > .tab-content`, 0-3-0) para
+   ganarle a `.reportes-pantalla > .tab-content` (0-2-0): un empate se resolvería por orden en
+   el archivo, que es frágil. `min-width: 0` porque un ítem flex no baja de su contenido mínimo
+   por default, y sin eso las tablas anchas romperían la columna en vez de scrollear.
+   `align-self: start` en las dos columnas: el contenedor tiene `align-items: center`, y sin
+   esto quedarían centradas verticalmente entre sí en lugar de alineadas arriba. */
+@media (min-width: 992px) {
+  /* El ancho de la tarjeta sale de acá y no de un `clamp` repetido: lo necesitan la tarjeta
+     y el `max-width` del reporte, y tienen que moverse juntos. */
+  .reportes-pantalla.reportes-pantalla--con-resumen {
+    --resumen-ancho: clamp(320px, 30%, 400px);
+  }
+
+  /* `flex-basis: 100%` para que el reporte SIEMPRE arranque renglón propio: el reparto en
+     renglones se decide con la base, antes de repartir el espacio sobrante, así que una base
+     menor lo deja entrar en el renglón de las pestañas cuando ahí sobra lugar (pasa en
+     Cobranzas, que tiene un solo chip). El `max-width` le devuelve el hueco a la tarjeta, que
+     entonces sí entra al lado. */
+  .reportes-pantalla.reportes-pantalla--con-resumen > .tab-content {
+    flex: 1 1 100%;
+    max-width: calc(100% - var(--resumen-ancho) - var(--space-3));
+    min-width: 0;
+    align-self: start;
+  }
+
+  .reporte-resumen-card {
+    flex: 0 0 var(--resumen-ancho);
+    align-self: start;
+    /* La tabla de lotes es larga; sin esto hay que scrollear hasta el final para volver a ver
+       el resumen. */
+    position: sticky;
+    top: var(--space-3);
+    /* Pegada arriba, una tarjeta más alta que la ventana no se podría terminar de leer: el
+       final quedaría cortado y sin forma de llegar. Scrollea por dentro. */
+    max-height: calc(100vh - 2 * var(--space-3));
+    overflow-y: auto;
+  }
+
+  /* Con el resumen al lado, el reporte queda en ~769px: los tres filtros (602px) más los dos
+     botones (310px) no entran en un renglón, así que los botones bajan y el `margin-left: auto`
+     de `.reporte-filtros-card__acciones` los manda a la derecha dejando un hueco de ~400px.
+     Acotado a `--con-resumen` a propósito: con el resumen oculto el reporte recupera todo el
+     ancho y la alineación original vuelve a ser la correcta. */
+  .reportes-pantalla--con-resumen .reportes-panel .reporte-filtros-card__campos {
+    flex: 0 1 auto;
+  }
+
+  .reportes-pantalla--con-resumen .reportes-panel .reporte-filtros-card__acciones {
+    margin-left: 0;
+  }
+}
+
 .reportes-pantalla > .tab-content {
   order: 3;
   flex: 0 0 100%;
@@ -571,6 +674,8 @@
   background: var(--reportes-superficie);
   border: 1px solid var(--reportes-borde);
   border-radius: var(--reporte-radio-tarjeta);
+  container-type: inline-size;
+  min-width: 0;
 }
 
 .reporte-kpi--destacada {
@@ -590,11 +695,16 @@
 
 .reporte-kpi__valor {
   color: var(--color-header-bg);
-  font-size: 34px;
+  /* La fuente se ajusta al ancho de la tarjeta: con el panel del resumen visible el reporte se
+     angosta y un monto largo se cortaba contra el borde derecho a 34px fijos. El coeficiente
+     de 10cqi cubre montos en ARS de hasta 10 dígitos con el panel abierto (tarjeta de 210px,
+     fuente de 21px). */
+  font-size: clamp(20px, 10cqi, 34px);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
   line-height: 1.1;
+  white-space: nowrap;
 }
 
 .reporte-kpi__leyenda {
@@ -1212,4 +1322,172 @@
 
 .reportes-panel .reporte-exportar:disabled .reporte-exportar__icono {
   opacity: 0.5;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Tarjeta "Resumen para la reunión" (40.4, etapa 4): fondo oscuro con los  */
+/* colores de tokens.css (nada de hexadecimales nuevos), que neutraliza     */
+/* los componentes compartidos que trae por dentro (tarjeta blanca de los  */
+/* filtros, textos pensados para fondo claro). Va al final de la hoja y no */
+/* antes, para ganar los empates de especificidad contra esas reglas       */
+/* compartidas con selectores que combinan las mismas dos clases.          */
+/* ------------------------------------------------------------------------ */
+.reporte-resumen-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  color: var(--color-text-light);
+  background: var(--color-header-bg);
+  border-radius: var(--reporte-radio-tarjeta);
+}
+
+.reporte-resumen-card__titulo {
+  margin: 0;
+  color: var(--color-action-highlight);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+/* FiltrosReporte trae su propia tarjeta blanca (fondo, borde y padding propios, todos vía
+   --reportes-superficie/--reportes-borde, que no existen en esta tarjeta): se neutraliza para
+   que no tape el verde. */
+.reporte-resumen-card .reporte-filtros-card {
+  margin-bottom: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.reporte-resumen-card .reporte-filtros-card .form-label {
+  color: var(--color-text-light);
+}
+
+/* `.reporte-sin-consulta` está pensado para la tarjeta clara (fondo y borde que acá no
+   resuelven, texto gris suave que sobre el verde no se lee). */
+.reporte-resumen-card .reporte-sin-consulta {
+  color: var(--color-text-light);
+}
+
+/* `.reportes-cargando` reserva 30vh pensado para la pantalla completa; acá deja un hueco
+   enorme. Mismo recurso que ya usa el overlay del resultado
+   (`.reporte-resultado__aviso .reportes-cargando`). El color, explícito: su variable
+   (`--reportes-texto-suave`) no existe en esta tarjeta y el navegador ya hereda el blanco de
+   acá arriba, pero queda escrito para no depender de ese efecto colateral del fallback de
+   `var()`. El `currentColor` de Bootstrap pinta el spinner del mismo color. */
+.reporte-resumen-card .reportes-cargando {
+  min-height: 0;
+  color: var(--color-text-light);
+}
+
+/* Línea compacta de los filtros aplicados, con el formulario replegado. El texto secundario
+   sobre el verde usa `--reporte-destacada-suave`, que es el mismo gris verdoso que ya usa la
+   tarjeta de KPI destacada (el único fondo oscuro que había en la pantalla). */
+.reporte-resumen__aplicados {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.reporte-resumen__aplicados-texto {
+  margin: 0;
+  color: var(--reporte-destacada-suave);
+  font-size: 13px;
+}
+
+/* Secundario sobre el verde: contorno claro y sin fondo propio, para no competir con
+   "Generar resumen", que es la acción principal de la tarjeta. */
+.reporte-resumen__cambiar {
+  padding: 6px var(--space-3);
+  color: var(--color-text-light);
+  background: transparent;
+  border: 1px solid var(--reporte-destacada-suave);
+  border-radius: var(--reporte-radio-control);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.reporte-resumen__cambiar:hover {
+  border-color: var(--color-text-light);
+}
+
+.reporte-resumen__cambiar:focus-visible {
+  outline: 2px solid var(--color-action-highlight);
+  outline-offset: 2px;
+}
+
+/* Los cuatro bloques del resultado, con el mismo ritmo que el resto de la tarjeta */
+.reporte-resumen__resultado {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Rótulo de bloque. Las mayúsculas las pone el CSS y no el texto, igual que en
+   `.reporte-kpi__etiqueta`: un lector de pantalla lee la palabra y no las letras sueltas. */
+.reporte-resumen__rotulo {
+  margin: 0 0 var(--space-2);
+  color: var(--color-action-highlight);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.reporte-resumen__texto {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* La `<ol>` se queda en su `display` de lista: con `display: flex` los `<li>` dejan de ser
+   `list-item` y el navegador no dibuja los números. La separación va por margen entre ítems. */
+.reporte-resumen__puntos {
+  margin: 0;
+  padding-left: var(--space-6);
+}
+
+.reporte-resumen__punto + .reporte-resumen__punto {
+  margin-top: var(--space-3);
+}
+
+.reporte-resumen__detalle {
+  margin: 0 0 var(--space-1);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+/* El acento, igual que los rótulos: es la única acción de cada punto */
+.reporte-resumen__enlace {
+  color: var(--color-action-highlight);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.reporte-resumen__enlace:hover,
+.reporte-resumen__enlace:focus-visible {
+  color: var(--color-action-highlight);
+  text-decoration: underline;
+}
+
+.reporte-resumen__faltantes {
+  margin: 0;
+  padding-left: var(--space-6);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+/* Pie: con qué modelo se generó, a qué día, y el aviso de que esto lo escribió una IA */
+.reporte-resumen__pie {
+  color: var(--reporte-destacada-suave);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.reporte-resumen__pie p {
+  margin: 0;
 }

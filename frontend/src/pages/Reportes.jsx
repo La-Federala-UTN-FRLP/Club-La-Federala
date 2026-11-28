@@ -6,11 +6,13 @@
 // Cada reporte tiene su vista propia, que maneja sus filtros y su carga; esta pantalla solo
 // decide cuál se monta.
 
+import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Tabs, Tab } from "react-bootstrap";
 import VistaInventario from "../components/Reportes/VistaInventario";
 import VistaVentas from "../components/Reportes/VistaVentas";
 import VistaCuotasVencidas from "../components/Reportes/VistaCuotasVencidas";
+import PanelResumen from "../components/Reportes/PanelResumen";
 import "./Reportes.css";
 
 const REPORTE_DEFAULT = "inventario";
@@ -71,6 +73,9 @@ function ChipsReporte({ tab, reporte, onReporteChange }) {
 
 export default function Reportes() {
   const [searchParams, setSearchParams] = useSearchParams();
+  // Arranca visible: la tarjeta no se desmonta nunca (ver PanelResumen), así que esconderla y
+  // mostrarla de nuevo no cuesta un pedido nuevo al backend ni pierde el resumen ya generado.
+  const [resumenVisible, setResumenVisible] = useState(true);
 
   // Sin param o con uno inválido (hasOwn: "constructor" o "__proto__" no son reportes) → inventario.
   const param = searchParams.get("reporte");
@@ -87,7 +92,11 @@ export default function Reportes() {
   // Los chips van después de las pestañas en el DOM y el CSS los acomoda en la misma fila:
   // `Tabs` rinde la barra y el contenido como hermanos, así que no hay dónde insertarlos dentro.
   return (
-    <div className="container py-3 reportes-pantalla">
+    <div
+      className={`container py-3 reportes-pantalla${
+        resumenVisible ? " reportes-pantalla--con-resumen" : ""
+      }`}
+    >
       {/* La ruta sale de lo que ya se sabe: la pestaña activa es la familia y el reporte activo
           da su etiqueta. No hay navegación nueva: solo "Inicio" es un enlace. */}
       <div className="reportes-encabezado">
@@ -97,8 +106,20 @@ export default function Reportes() {
           </Link>
           {` / Reportes / ${tabActiva.label} / ${REPORTES[reporte].label}`}
         </p>
-        <h1 className="reportes-titulo-pagina">Reportes</h1>
+        <div className="reportes-titulo-fila">
+          <h1 className="reportes-titulo-pagina">Reportes</h1>
+          <button
+            type="button"
+            className="reporte-resumen-boton"
+            aria-pressed={resumenVisible}
+            onClick={() => setResumenVisible((v) => !v)}
+          >
+            {resumenVisible ? "Ocultar resumen" : "Resumen para la reunión"}
+          </button>
+        </div>
       </div>
+
+      <PanelResumen visible={resumenVisible} />
 
       <Tabs
         id="reportes-tabs"
