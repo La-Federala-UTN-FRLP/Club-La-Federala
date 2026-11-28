@@ -21,6 +21,8 @@ import { BOTON_GENERAR, TEXTO_DESACTUALIZADO } from "./etiquetas";
  *   alineación a la derecha y el gap del boceto.
  * @param {boolean} [props.desactualizado=false] - Los filtros cambiaron después de generar: se
  *   avisa debajo de los campos, sin deshabilitar ni bloquear nada
+ * @param {string} [props.textoBoton=BOTON_GENERAR] - Texto del botón de generar. Las tres
+ *   vistas no lo pasan y se quedan con el default; el panel de resumen manda el suyo propio.
  * @param {React.ReactNode} props.children - Los campos del filtro
  */
 export default function FiltrosReporte({
@@ -30,6 +32,7 @@ export default function FiltrosReporte({
   motivo = "",
   acciones = null,
   desactualizado = false,
+  textoBoton = BOTON_GENERAR,
   children,
 }) {
   // Los filtros se aplican con el botón, no en vivo: cada consulta es un GET y el backend
@@ -54,7 +57,7 @@ export default function FiltrosReporte({
           className="reporte-filtros-card__boton"
           disabled={cargando || deshabilitado}
         >
-          {BOTON_GENERAR}
+          {textoBoton}
         </Button>
       </div>
 

@@ -3322,6 +3322,65 @@ La autora revisó el diff antes de commitear y está de acuerdo con las decision
 - `Backend/tests/unit/openapi/openapi.contract.test.ts`, `Backend/tests/unit/security/mounted-routes.auth.test.ts`
 - `AI-DECISIONS.md`
 
+### AI-047 — Panel "Resumen para la reunión" en la pantalla de Reportes (40.4)
+
+**Fecha:** 2026-11-28
+**Área:** Frontend / Reportes + IA
+**Herramientas:** Claude Code (implementación por etapas) y Claude (planificación de etapas, redacción de prompts y revisión de cada reporte)
+
+#### Problema
+
+El endpoint `POST /api/reportes/resumen` (40.3, AI-046) ya estaba en `main`, pero la pantalla de Reportes no lo consumía. Faltaba el panel que pide los filtros, llama al endpoint y muestra el resumen con sus temas, los datos faltantes y el aviso de que lo generó una IA, sin romper los tres reportes que ya funcionan.
+
+#### Prompt / intención
+
+Tarea 40.4 dividida en etapas chicas, cada una con archivos permitidos, contrato (CCLF-37 V4) y criterio de terminado, y con `git add`, `commit` y `push` prohibidos para Claude Code. La etapa 1 fue solo lectura. Después: panel base (2), cliente `getResumen`, formulario y estados (3), ubicación y diseño de la pantalla (4, 4b, 5 y 5b) y ajuste de las tarjetas KPI (5c y 5d). Cada reporte se revisó contra el código y se verificó en el navegador antes de habilitar la etapa siguiente.
+
+#### Propuesta generada por IA
+
+- **Cliente** (`lib/api/reportes.js`): `getResumen` con el patrón B (lanza en `!res.ok`, mensajes del backend intactos para 429 y 502) y un timeout propio de 45 s.
+- **Panel** (`PanelResumen.jsx`): `useReporte` con `getResumen` de fetcher, formulario `FiltrosReporte` con el texto del botón configurable, estados de carga, error y reintento, y resultado con "En pocas palabras", "Temas sugeridos para tratar", "Datos que faltan" y pie con modelo y fecha de corte.
+- **Ubicación inicial:** un Offcanvas (panel lateral que se abre con un botón).
+- **Enlaces de los temas:** usar el campo `enlace` que devuelve el modelo.
+
+#### Corrección humana
+
+- **Ubicación:** la propuesta inicial del Offcanvas se descartó. La autora pidió que el resumen estuviera siempre a la vista al costado del reporte, como en el boceto, y no escondido tras un botón ni al final de la página (donde obligaba a scrollear todo el inventario). Se reemplazó por una columna lateral fija desde 992 px, apilada debajo de esa medida, con un botón "Ocultar resumen" y el panel sticky.
+- **Parámetros del resumen:** la autora pidió que al generar desaparezcan los filtros y quede solo el resumen. Se agregó el estado colapsado con una línea de filtros aplicados y "Cambiar filtros".
+- **Fallas detectadas en las pruebas manuales de la autora**, y corregidas: en Cobranzas el resumen saltaba a la izquierda y el botón de ocultar dejaba de funcionar (la regla `display` perdía contra otra de igual especificidad), y el valor de "Saldo vencido" se cortaba contra el borde.
+- **Errores de las propuestas de la IA, corregidos al revisar:** el breakpoint de 1280 px nunca se activaba en la pantalla de la autora (se usó 992 px), y un `flex` mal elegido dejaba al reporte en 204 px de ancho.
+
+#### Decisión adoptada
+
+- **Enlaces derivados del tema, no del modelo:** se midieron 3 ejecuciones reales y el modelo devolvió siempre `enlace: "/reportes"`, sin apuntar a un reporte concreto. El frontend ignora ese campo y arma el destino con una constante por `tema` (Inventario, Comercial y Cobranzas hacia `?reporte=inventario|ventas|cuotas-vencidas`). Un tema desconocido no genera enlace. Así la navegación no depende de lo que escriba el modelo.
+- **Filtros propios del panel:** el panel tiene su propio período, moneda y fracción (por defecto, últimos 30 días y USD), independientes de los de las pestañas. Los enlaces llevan a la vista sin trasladar filtros, porque las vistas todavía no leen filtros desde la URL.
+- **Timeout de 45 s:** el endpoint corre 3 reportes y luego Gemini, y la IA tiene su propio límite de 15 s en el backend. En la prueba local el total fue de 4,9 s (Gemini 4,0 s). El tope del cliente deja margen sin colgar la pantalla.
+- **Tarjetas KPI con fuente fluida:** `clamp(20px, 10cqi, 34px)` sobre un `container-type` en la tarjeta, porque con el panel abierto el reporte se angosta. Entran los montos medidos hasta `ARS 2.138.333.400,34`.
+- **Catálogo de fracciones duplicado:** el panel pide el catálogo de fracciones por su cuenta, aunque la vista del reporte activo ya lo pida; `useCatalogoFracciones` no tiene caché, así que con el panel abierto hay dos `GET /fracciones`. Se aceptó la llamada duplicada para no refactorizar el estado de la pantalla a ocho días de la entrega.
+- **Transparencia hacia el usuario:** el pie dice "Generado con {modelo} · Datos al {corte}" y "Resumen generado por IA. Verificá las cifras en los reportes."
+
+#### Resultado
+
+- `npm run lint`: 162 problemas (112 errores y 50 advertencias), igual que la línea base de `main`; sin problemas nuevos. El frontend no tiene tests automatizados, así que la verificación fue manual.
+- Manual en Chrome (`localhost:5173`) contra el backend local con Vertex AI real por ADC: el resumen se genera y se muestra; la columna lateral, el botón de ocultar y el reflujo funcionan en Inventario, Ventas y Cuotas vencidas a 1234 px; las tarjetas KPI no se cortan con los valores de prueba (hasta 10 dígitos enteros).
+- Medido en una prueba local: 683 tokens de entrada y 386 de salida.
+
+#### Limitaciones
+
+- Un saldo vencido de 11 o más dígitos enteros sigue cortándose en la tarjeta KPI, con o sin panel.
+- No hay tests automatizados del frontend.
+- Los errores 429 y 502 no se forzaron manualmente en la interfaz; sus mensajes llegan desde el backend.
+- El modelo que devuelve el backend es el alias (`versionModelo` coincide con el alias); fijar la versión exacta con `AI_SUMMARY_MODEL` queda para el ADR de 40.6.
+- Pendientes de 40.5: evaluación de 3 sets con 10 ejecuciones, y REP-A6 y REP-A7 en staging.
+
+#### Evidencia / archivos relacionados
+
+- `frontend/src/lib/api/reportes.js`
+- `frontend/src/components/Reportes/PanelResumen.jsx`
+- `frontend/src/components/Reportes/FiltrosReporte.jsx`
+- `frontend/src/pages/Reportes.jsx`, `frontend/src/pages/Reportes.css`
+- `AI-DECISIONS.md`
+
 
 
 ## Plantilla para entradas nuevas
