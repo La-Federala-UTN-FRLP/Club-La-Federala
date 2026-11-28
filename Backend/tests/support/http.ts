@@ -29,6 +29,8 @@ export const INVALID_PATH_IDS = ['abc', '5abc', '1.5', '-1', '0', '1e2', '10e-1'
 type TestWebEnvOptions = {
     /** 'db': authenticate resuelve la identidad con la consulta real (la suite mockea Prisma). */
     authIdentity?: 'registry' | 'db';
+    /** Explicit startup fixture; process.env changes do not update cached WebEnv. */
+    env?: Record<string, string | undefined>;
 };
 
 // "DB" de usuarios de test (por archivo de test: Jest aísla los módulos de cada suite).
@@ -45,6 +47,7 @@ export function useTestWebEnv(options: TestWebEnvOptions = {}): void {
             JWT_SECRET,
             SUPABASE_URL: 'https://example.supabase.co',
             SUPABASE_SERVICE_KEY: 'unit-test-service-key',
+            ...options.env,
         });
     });
 

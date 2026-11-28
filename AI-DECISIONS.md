@@ -3093,6 +3093,11 @@ bucket constante `unverified` separado. Clasificar XFF duplicados como ambiguos,
 globalmente `trust proxy` y retirar IP/subred/key del log del limiter. Las solicitudes legítimas
 clasificadas `unverified` impiden aprobar la activación; sin H1, el candidato puede ser manipulable.
 
+**Actualización P2 (2026-11-27):** observador shadow exclusivo del login, desactivado por defecto,
+igualdad completa en memoria contra egreso independiente precargado por operador y capacidad opaca
+de un solo uso por caso. No aceptar esperado/compromiso/match del cliente ni inventar protocolo
+criptográfico. Ocho campos categóricos, cupo y caducidad absoluta; no alterar limiter/extractor.
+
 #### Validación humana
 
 **Estado histórico de preparación T1, antes de integrar #375:** El coordinador autorizó auditoría, correcciones y commits locales. No aprobó todavía el código, C1, C3 ni exposición pública. C2 se aprobó por separado para reutilizar Firebase existente. La revisión cruzada de T1 queda propuesta para Nicolas, con contraste QA de Justina.
@@ -3102,6 +3107,11 @@ revisó el patch favorablemente con observaciones y autorizó ajustes documental
 Esto no acredita H1 ni aprueba C1, publicación, despliegue, instrumentación o activación. La PR #375
 fue integrada por el equipo en `16a278b60556bb027b90d76556656686224bb063`; el estado histórico
 anterior de T1 no se traslada al nuevo experimento, cuya revisión/publicación siguen pendientes.
+
+**Actualización P2 (2026-11-27):** PR #377 integrada en `4e1338ec6b5f425db8460a376327851c18d92211`.
+El coordinador autorizó solo desarrollo y pruebas locales de observación, no push, PR, merge,
+despliegue, configuración remota, fase O ni activación. H1 sigue siendo hipótesis; una coincidencia
+local no acredita ingreso real. Revisión humana de publicación/despliegue permanece pendiente.
 
 #### Decisión adoptada
 
@@ -3118,6 +3128,22 @@ no acredita identidad y el estado en memoria no es persistente ni agregado entre
 No se acepta por inferencia ese riesgo operativo. C1 BLOQUEADO, C3 pendiente y T5 no iniciado.
 Este seguimiento amplía AI-042 sin crear/reservar numeración nueva; PR #373/G5 no se modifica.
 
+**Actualización P2 (2026-11-27):** implementado localmente desde `4e1338ec6b5f425db8460a376327851c18d92211`
+en `feat/g4-login-ip-observer`, commit local `5c26092e8e51ec08ab6e285d7da4c839a7231eca`, sin nuevas dependencias ni recursos. Build/typecheck Node v24.22.3 PASS;
+regresión 108 suites/4026 PASS, 0 FAIL y 0 SKIPPED, incluyendo 271 focalizadas P1/P2 y 189 nuevas P2.
+La revisión detectó y corrigió un falso reconocimiento IPv4-mapped; 23 nuevas regresiones con
+oráculos independientes reprodujeron 16 fallos antes de corregir /96. Los 4003 PASS previos son
+históricos, no prueba de corrección. Seguridad ejecutó independientemente 189 P2 PASS.
+QA verificó ese commit y los resultados post-fix, cerró el defecto y confirmó el mapeo de los
+21 requisitos actuales sin repetir tests; no identificó otro bloqueante de implementación.
+La revisión de agentes no constituye aprobación humana de integración ni de H1/campaña.
+Se conserva legacy y la política de 10 fallos/15min. Capacidades/cupos solo por proceso, sink no
+durable, posible retención de configuración y operador/harness de confianza son límites explícitos.
+Sin eventos con IP/key/token/selector/hash; logging administrado de Run es frontera independiente.
+No hubo validaciones remotas. H1 NO acreditada, C1 BLOQUEADO, C3 pendiente y T5 no iniciado.
+Los riesgos de campaña, privacidad/retención, SHA/digest, IAM, costos y rollback no se aceptan por
+inferencia. Este seguimiento conserva numeración y registros G5; no se crea otra decisión duplicada.
+
 #### Evidencia / archivos relacionados
 
 - Rama fix/g4-security; commit de implementación/verificación 7ec446cc3fdbe762786f8f2bdea0dd2b6cb3a365.
@@ -3126,6 +3152,8 @@ Este seguimiento amplía AI-042 sin crear/reservar numeración nueva; PR #373/G5
 - Refs #290 y #302; no se cierran por esta preparación.
 - Seguimiento P1: Backend/src/utils/loginClientIp.ts, loginRateLimit.middleware.ts, config/env.ts y pruebas asociadas.
 - docs/cloud/g4/c1-login-ip-experiment.md y docs/cloud/g4/ai/C1-IP.md; revisión previa a publicación, no prueba de ingreso real.
+- P2: Backend/src/config/loginObservation.ts, middlewares/loginObservation.middleware.ts, routes/auth.routes.ts y pruebas de config/seguridad/HTTP.
+- docs/cloud/g4/p2-observation-local.md y p2-observation-design.md; protocolo O propuesto, no ejecutado.
 
 
 ### AI-043 — Preparación Hosting y transporte HTTP del frontend para G4
