@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import jwt from 'jsonwebtoken';
 import type { LoginClientIpMode } from '../utils/loginClientIp';
+import { parseLoginObservation, type ObservationConfig } from './loginObservation';
 
 // HS256 (algoritmo por defecto de jsonwebtoken) requiere una clave de al menos 256 bits
 // (RFC 7518 §3.2): 32 caracteres. Se exige solo en production para no romper entornos locales.
@@ -229,6 +230,7 @@ export type WebEnv = {
     port: number;
     jwtExpiresIn: string;
     loginClientIpMode: LoginClientIpMode;
+    loginObservation: ObservationConfig | null;
     storageProvider: StorageProvider;
     // Los lee solo el adaptador de Supabase. Con gcs y la variable ausente quedan en ''.
     // La validación no crea ningún cliente.
@@ -269,6 +271,7 @@ function mapWebEnv(parsed: z.infer<typeof webEnvSchema>): WebEnv {
         port: parsed.PORT,
         jwtExpiresIn: parsed.JWT_EXPIRES_IN,
         loginClientIpMode: parsed.LOGIN_CLIENT_IP_MODE,
+        loginObservation: null,
     };
 
     if (parsed.STORAGE_PROVIDER === 'gcs') {
@@ -360,7 +363,7 @@ export function parseWebEnv(
         throw new EnvValidationError(issues);
     }
 
-    return mapWebEnv(result.data);
+    return { ...mapWebEnv(result.data), loginObservation: parseLoginObservation(source) };
 }
 
 export function parseJobEnv(
