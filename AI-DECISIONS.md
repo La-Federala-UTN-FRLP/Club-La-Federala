@@ -3272,7 +3272,7 @@ La autora revisó el diff antes de commitear y está de acuerdo con las decision
 - `npx jest` en paralelo: 111 suites y 3966 tests PASS, sin fallos preexistentes ni timeouts. No hizo falta `--runInBand`.
 - Tests nuevos: 100 en 3 suites. La suite HTTP del resumen (33 tests) pasó en 4 corridas, incluida la suite completa y el caso de timeout con `setTimeout` simulado.
 - Paridad OpenAPI y contratos de reportes PASS con 85 operaciones.
-- No se hizo una llamada real a Vertex AI con el endpoint: queda para la validación humana en staging (REP-A6 y REP-A7 con datos sintéticos).
+- Prueba manual local de la autora desde Postman contra Vertex AI real (ADC): el endpoint respondió correctamente. REP-A6 y REP-A7 en staging con datos sintéticos siguen pendientes.
 
 #### Evidencia / archivos relacionados
 
