@@ -11,7 +11,7 @@ El [README](../README.md) presenta el producto y la navegación inicial. El segu
 - [`use-cases/`](use-cases/casos-uso-principales.md): casos de uso.
 - [`architecture/`](architecture/overview.md): arquitectura actual, riesgos y decisiones.
 - [`architecture/adr/`](architecture/adr/001-estructura-documentacion.md): decisiones arquitectónicas importantes.
-- [`development/`](development/setup-local.md): puesta en marcha, convenciones y [estrategia de ramas](development/git-flow.md).
+- [`development/`](development/setup-local.md): puesta en marcha, convenciones, [estrategia de ramas](development/git-flow.md) y [CI del backend](development/ci-backend.md).
 - [`AI-DECISIONS.md`](../AI-DECISIONS.md): registro obligatorio de usos relevantes de IA que afecten código, arquitectura, seguridad o decisiones técnicas.
 - [OpenAPI](../Backend/documents/documentacionApi.yaml): contrato HTTP de la API (78 operaciones `/api` + `GET /health`), verificado por test contra las rutas reales.
 - [`architecture/freeze-pre-cloud.md`](architecture/freeze-pre-cloud.md): deprecations, Cloud checkpoint y backlog post-Cloud.

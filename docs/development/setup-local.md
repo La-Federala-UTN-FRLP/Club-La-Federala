@@ -111,13 +111,15 @@ cd frontend && npm run build && npm run lint
 Las garantías que dependen de la base (índice único de prioridades, locks del borrado de personas y carreras entre requests) se prueban contra una base PostgreSQL **descartable**, fuera de `npm test`:
 
 ```bash
-docker run -d --name fed-pgtest -e POSTGRES_USER=test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=fed_test -p 55432:5432 postgres:16-alpine
+docker run -d --name fed-pgtest -e POSTGRES_USER=test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=fed_test -p 55432:5432 postgres:17-alpine
 export TEST_DATABASE_URL="postgresql://test:test@127.0.0.1:55432/fed_test?schema=public"
 DATABASE_URL="$TEST_DATABASE_URL" DIRECT_URL="$TEST_DATABASE_URL" npx prisma migrate deploy
 npm run test:integration
 ```
 
 Los tests vacían la base en cada caso: nunca apuntar `TEST_DATABASE_URL` a una base con datos reales.
+
+Los PRs que tocan `Backend/` corren esta misma secuencia en GitHub Actions: ver [CI del backend](ci-backend.md).
 
 ## Problemas comunes
 

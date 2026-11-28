@@ -2782,6 +2782,58 @@ Una sola reserva vigente por lote, garantizada dentro de la transacción con un 
 - `Backend/tests/support/mocks/prisma.ts`
 - `AI-DECISIONS.md`
 
+### AI-039 — Integración continua del backend con GitHub Actions
+
+**Fecha:** 2026-11-26
+**Área:** CI/CD / Backend / Testing / Seguridad
+**Herramientas:** Claude Code (VS Code) + Docker Desktop
+
+#### Problema
+
+El repositorio no tenía workflows: las validaciones del backend dependían de que cada integrante las corriera a mano antes del PR, y los tests de integración (constraints, locks y carreras sobre PostgreSQL real) casi nunca se ejecutaban. Con varias líneas de trabajo en paralelo (frontend, reportes, QA), hacía falta un control automático en cada PR sin tocar la infraestructura de GCP.
+
+#### Prompt / intención
+
+Implementar G5.2: un workflow que valide los PRs hacia `main` con `npm ci`, `typecheck`, `build`, `npm test` y `test:integration` sobre PostgreSQL 17 descartable, aplicando las migraciones existentes con `prisma migrate deploy`. Sin despliegues, sin GCP, sin secretos, sin `pull_request_target`, permisos mínimos, sin actions de terceros innecesarias y sin modificar `package.json`, el lockfile ni el código de negocio. Tomar como referencia el CI de MAPS sin replicar su complejidad. Sin commits ni PR.
+
+#### Propuesta generada por IA
+
+- Un solo job en `ubuntu-24.04` con Node 24 (`actions/setup-node@v7`, cache npm) y un service `postgres:17-alpine` con health check `pg_isready`. Del CI de MAPS se tomaron el health check entre comillas, `timeout-minutes` y el cache por `cache-dependency-path`. Se agregaron `permissions: contents: read`, `concurrency` por PR y `persist-credentials: false`.
+- Orden: `npm ci` → `typecheck` → `build` → `npm test` → `prisma migrate deploy` → `test:integration`. Los pasos sin base fallan primero. Las migraciones van justo antes de la integración y reciben `DATABASE_URL`/`DIRECT_URL` solo en su step. `tests/integration/setup.ts` ya deriva ambas de `TEST_DATABASE_URL`.
+- Filtro `paths` (`Backend/**` y el workflow) para no correr en PRs de frontend o documentación.
+- Un único usuario dueño de la base descartable, porque los tests de integración usan `TRUNCATE`. No se reproducen los roles de staging.
+- Actions oficiales por tag de major, sin fijarlas por SHA, para mantener la simplicidad.
+- Alinear `docs/development/setup-local.md` a `postgres:17-alpine` y documentar el CI en `docs/development/ci-backend.md`.
+
+#### Validación humana
+
+- El alcance y las restricciones los fijó la persona responsable antes de la implementación.
+- Pendiente: revisión del workflow y primera ejecución real en un PR hacia `main`.
+
+Validaciones que ejecutó la IA durante la sesión:
+
+- Host (Windows, Node 24.13.0) sobre `f44c287`: `npm ci`, `typecheck` y `build` OK; `npm test` con 99 suites y 3522 tests en verde.
+- Parseo del YAML con chequeos estructurales: trigger, permisos, concurrency, PostgreSQL 17, health check, Node 24, solo actions oficiales y sin secretos ni GCP.
+- `actionlint` no se pudo correr: la descarga de su imagen Docker fue bloqueada por la política de permisos de la sesión.
+- Emulación del job en contenedores limpios (`git archive` del commit, `node:24-bookworm-slim` y `postgres:17-alpine` con el mismo health check), ejecutando los `run` extraídos del YAML:
+  - Con los 8 CPUs de la VM (7 workers de Jest), varias suites vencieron el timeout por defecto de 5 s por saturación (885 % de CPU).
+  - Limitado a 4 CPUs, como el runner (`--cpuset-cpus`, 3 workers): `npm ci`, `typecheck` y `build` OK; `npm test` con 98 de 99 suites (3521 de 3522 tests). Falló por timeout `files.errors.routes.test.ts` › `LIMIT_FILE_SIZE`, que sube 20 MB en memoria; el mismo archivo aislado pasó (9 de 9).
+  - En otra corrida limpia: `prisma migrate deploy` aplicó las 69 migraciones desde cero y `test:integration` pasó 4 suites y 21 tests.
+- No se modificaron tests: el riesgo de timeout queda documentado para contrastarlo con la primera ejecución real en GitHub.
+
+#### Decisión adoptada
+
+Pendiente de validación humana en el PR. Se propone el workflow `Backend CI`, no obligatorio para merge hasta comprobar ejecuciones estables en GitHub.
+
+#### Evidencia / archivos relacionados
+
+- `.github/workflows/backend-ci.yml`
+- `docs/development/ci-backend.md`
+- `docs/development/git-flow.md`
+- `docs/development/setup-local.md`
+- `docs/00-introduccion.md`
+- `AI-DECISIONS.md`
+
 
 ### AI-038 — Ventas y pagos concurrentes, lote con venta en curso y reglas de venta con reserva y venta cancelada
 
