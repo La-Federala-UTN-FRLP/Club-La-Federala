@@ -4,12 +4,16 @@ import type { ReporteCuotasVencidas, ReporteInventario, ReporteVentas } from '..
 import * as reporteExcel from '../services/reporte.excel';
 import { XLSX_CONTENT_TYPE } from '../services/reporte.excel';
 import type { ArchivoXlsx } from '../services/reporte.excel';
+import * as reporteResumenService from '../services/reporteResumen.service';
+import type { ResumenReunion } from '../services/reporteResumen.service';
 import { validatedQuery } from '../middlewares/validation.middleware';
+import { liberarCupoResumen } from '../middlewares/resumenDailyLimit.middleware';
 import {
     queryReporteInventarioSchema,
     queryReporteVentasSchema,
     queryReporteCuotasVencidasSchema,
 } from '../validations/reporte.validation';
+import type { BodyResumen } from '../validations/reporte.validation';
 
 // GET /api/reportes/inventario
 export async function obtenerInventario(req: Request, res: Response, next: NextFunction) {
@@ -41,6 +45,22 @@ export async function obtenerCuotasVencidas(req: Request, res: Response, next: N
         const filtros = validatedQuery(req, queryReporteCuotasVencidasSchema);
         const data: ReporteCuotasVencidas = await reporteService.getReporteCuotasVencidas(filtros);
         const body: { success: true; data: ReporteCuotasVencidas } = { success: true, data };
+        res.status(200).json(body);
+    } catch (error) {
+        next(error);
+    }
+}
+
+// POST /api/reportes/resumen (CCLF-37, 40.3). El body ya pasó bodyResumenSchema (validate) y el
+// límite diario ya reservó el cupo; si los reportes fallan antes de llamar a la IA, se devuelve.
+export async function generarResumen(req: Request, res: Response, next: NextFunction) {
+    try {
+        const filtros = req.body as BodyResumen;
+        const data: ResumenReunion = await reporteResumenService.resumirParaReunion(filtros, {
+            rol: req.user!.role,
+            liberarCupo: () => liberarCupoResumen(res),
+        });
+        const body: { success: true; data: ResumenReunion } = { success: true, data };
         res.status(200).json(body);
     } catch (error) {
         next(error);
