@@ -17,8 +17,8 @@ const routes = apiRouters.flatMap(([prefix, router]) =>
 const protectedRoutes = routes.filter(({ path }) => path !== '/api/auth/login');
 
 describe('mounted API authentication boundaries', () => {
-    test('inventory covers all 84 API operations and only login is public', () => {
-        expect(routes).toHaveLength(84);
+    test('inventory covers all 85 API operations and only login is public', () => {
+        expect(routes).toHaveLength(85);
         expect(routes.filter(({ handlers }) => !handlers.includes(authenticate)).map(({ method, path }) => `${method} ${path}`))
             .toEqual(['post /api/auth/login']);
     });

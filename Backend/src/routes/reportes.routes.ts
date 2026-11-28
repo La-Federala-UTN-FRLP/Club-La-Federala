@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import * as reporteController from '../controllers/reporte.controller';
-import { validateQuery } from '../middlewares/validation.middleware';
+import { validate, validateQuery } from '../middlewares/validation.middleware';
 import { authenticate, authorize } from '../middlewares/auth.middleware';
+import { resumenDailyLimit } from '../middlewares/resumenDailyLimit.middleware';
 import {
     queryReporteInventarioSchema,
     queryReporteVentasSchema,
     queryReporteCuotasVencidasSchema,
+    bodyResumenSchema,
 } from '../validations/reporte.validation';
 
 const router = Router();
@@ -56,5 +58,14 @@ router.get(
     ...soloStaff,
     validateQuery(queryReporteCuotasVencidasSchema),
     reporteController.exportarCuotasVencidas);
+
+// POST /api/reportes/resumen (CCLF-37, 40.3). El límite diario va después de validar el body:
+// un 400 no consume cupo.
+router.post(
+    '/resumen',
+    ...soloStaff,
+    validate(bodyResumenSchema),
+    resumenDailyLimit,
+    reporteController.generarResumen);
 
 export const reporteRoutes = router;

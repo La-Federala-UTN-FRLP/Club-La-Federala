@@ -2468,6 +2468,75 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
+  /reportes/resumen:
+    post:
+      tags: [Reportes]
+      operationId: resumenReportes
+      summary: Resumen para la reunión con IA
+      description: >-
+        Calcula los 3 reportes con los filtros del body (inventario con `fraccion`; ventas con `desde`,
+        `hasta` y `fraccion`; cuotas vencidas con `moneda` y `fraccion`) y le pasa a Gemini en Vertex AI
+        solo los agregados: sin filas ni datos personales. El frontend nunca envía cifras: el body es
+        estricto y una clave desconocida responde 400.
+
+
+        Antes de devolverla, la salida se valida: esquema (`texto` no vacío, `puntos[]` con `tema` del
+        enum y `enlace` interno que empieza con `/reportes`, `datosFaltantes[]`) y que cada número y
+        fecha de `texto`, `puntos[].detalle` y `datosFaltantes[]` esté en la entrada (se aceptan los
+        formatos "255000.00" y "255.000,00", y día, mes y año sueltos de las fechas de la entrada). Un
+        porcentaje o un email en la salida la invalidan. Si la IA no responde, supera el timeout de
+        15 s o la salida no pasa la validación → 502 `AI_UNAVAILABLE`; los reportes y sus
+        exportaciones siguen funcionando.
+
+
+        Límite: 20 resúmenes por usuario por día calendario de America/Argentina/Buenos_Aires. Cuenta
+        cada pedido que llega a la IA, salga bien o mal; un body inválido (400) no consume cupo. Al
+        superarlo responde 429 con `Retry-After` hasta las 00:00 de Argentina. El contador vive en
+        memoria de cada instancia.
+      x-roles: [ADMINISTRADOR, GESTOR]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReporteResumenRequest' }
+            example: { desde: '2026-11-01', hasta: '2026-11-20', moneda: USD }
+      responses:
+        '200':
+          description: Resumen validado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReporteResumenResponse' }
+              example:
+                success: true
+                data:
+                  texto: >-
+                    Al 2026-11-20 hay 41 lotes ofrecibles: 38 disponibles y 3 en promoción. Entre el
+                    1 y el 20 de noviembre se iniciaron 3 ventas por USD 255.000,00, frente a 5 en el
+                    período anterior. Se escrituraron 2 ventas y se canceló 1. Hay 10 cuotas vencidas
+                    en USD con un saldo de 7200.00, de las cuales 4800.00 corresponden a la fracción 2.
+                  puntos:
+                    - { tema: Comercial, detalle: 'Se iniciaron 3 ventas por USD 255000.00 (5 en el período anterior).', enlace: /reportes }
+                    - { tema: Cobranzas, detalle: 'La fracción 2 concentra 4800.00 de los 7200.00 vencidos.', enlace: /reportes }
+                    - { tema: Inventario, detalle: Quedan 41 lotes ofrecibles y 7 reservados., enlace: /reportes }
+                  datosFaltantes: [No hay datos de ventas en ARS para comparar con las de USD.]
+                  modelo: gemini-3.5-flash-lite
+                  corte: '2026-11-20'
+        '400': { $ref: '#/components/responses/ReporteResumenBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '429': { $ref: '#/components/responses/ReporteResumenTooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '502':
+          description: >-
+            La IA no respondió, superó el timeout de 15 s o devolvió una salida que no pasó la
+            validación. El mensaje es público; el detalle queda solo en el log del servidor.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              examples:
+                aiUnavailable: { $ref: '#/components/examples/AiUnavailable' }
 
 components:
   securitySchemes:
@@ -2711,14 +2780,58 @@ components:
                 code: VALIDATION_ERROR
                 message: Datos inválidos
                 errors: [{ field: moneda, message: 'Invalid option: expected one of "ARS"|"USD"' }]
+    ReporteResumenBadRequest:
+      description: >-
+        Body inválido en el resumen con IA: mismas reglas del período que el reporte de ventas
+        (informadas en `hasta`), `moneda` obligatoria, `fraccion` como id entero positivo y ninguna
+        clave fuera de `desde`, `hasta`, `fraccion` y `moneda` (informada con `field` vacío). No
+        consume cupo del límite diario.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ValidationErrorResponse' }
+          examples:
+            claveDesconocida:
+              summary: El body trae una cifra (montoUSD)
+              value:
+                success: false
+                code: VALIDATION_ERROR
+                message: Datos inválidos
+                errors: [{ field: '', message: 'Unrecognized key: "montoUSD"' }]
+            monedaFaltante:
+              summary: Sin `moneda`
+              value:
+                success: false
+                code: VALIDATION_ERROR
+                message: Datos inválidos
+                errors: [{ field: moneda, message: 'Invalid option: expected one of "ARS"|"USD"' }]
+            desdePosterior:
+              summary: desde 2026-12-01 y hasta 2026-11-01
+              value:
+                success: false
+                code: VALIDATION_ERROR
+                message: Datos inválidos
+                errors: [{ field: hasta, message: '`desde` no puede ser posterior a `hasta`' }]
+    ReporteResumenTooManyRequests:
+      description: >-
+        Más de 20 resúmenes del usuario en el día calendario de America/Argentina/Buenos_Aires.
+        `Retry-After` indica los segundos que faltan para las 00:00 de Argentina, cuando se reinicia
+        el cupo.
+      headers:
+        Retry-After:
+          description: Segundos hasta las 00:00 del día siguiente en Buenos Aires.
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example: { success: false, code: TOO_MANY_REQUESTS, message: Alcanzaste el límite de 20 resúmenes por día. Podés volver a pedirlo mañana. }
 
   examples:
     AiUnavailable:
       summary: Servicio de IA no disponible (AI_UNAVAILABLE)
       description: >-
-        Body de error con el contrato común (`ErrorResponse`), para la operación de resumen con IA
-        de Reportes (CCLF-37) cuando se implemente. El mensaje es público: no incluye el detalle del
-        proveedor, que queda solo en el log del servidor.
+        Body de error con el contrato común (`ErrorResponse`), del 502 de `POST /reportes/resumen`
+        (CCLF-37). El mensaje es público: no incluye el detalle del proveedor, que queda solo en el
+        log del servidor.
       value: { success: false, code: AI_UNAVAILABLE, message: No se pudo generar el resumen. Los reportes siguen disponibles. }
 
   schemas:
@@ -2728,10 +2841,9 @@ components:
       description: >-
         Código estable del error, para que el cliente decida sin parsear `message`.
         `AI_UNAVAILABLE`: el servicio de IA (Gemini en Vertex AI) no respondió, superó el timeout o
-        devolvió una salida que no pasó la validación. Es el código del resumen con IA de Reportes
-        (CCLF-37), que todavía no está implementado: hoy ninguna operación lo devuelve, y el status
-        HTTP se documenta junto con esa operación. Los reportes y sus exportaciones no dependen de
-        la IA y nunca lo devuelven. Ejemplo de body en `#/components/examples/AiUnavailable`.
+        devolvió una salida que no pasó la validación. Solo lo devuelve `POST /reportes/resumen`
+        (CCLF-37), siempre con status 502. Los reportes y sus exportaciones no dependen de la IA y
+        nunca lo devuelven. Ejemplo de body en `#/components/examples/AiUnavailable`.
       enum: [BAD_REQUEST, VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, CONFLICT_UNIQUE, CONFLICT_FK, PAYLOAD_TOO_LARGE, TOO_MANY_REQUESTS, AI_UNAVAILABLE, INTERNAL_ERROR]
     ErrorResponse:
       type: object
@@ -3892,3 +4004,48 @@ components:
               type: array
               description: Cuotas vencidas, más atrasadas primero (a igual atraso, por cuotaId).
               items: { $ref: '#/components/schemas/CuotaVencidaFila' }
+    ReporteResumenRequest:
+      type: object
+      additionalProperties: false
+      required: [desde, hasta, moneda]
+      description: Filtros de los 3 reportes. Sin cifras ni claves extra (400).
+      properties:
+        desde:
+          type: string
+          format: date
+          description: Primer día del período de ventas (YYYY-MM-DD), incluido. `desde` <= `hasta`.
+        hasta:
+          type: string
+          format: date
+          description: Último día del período de ventas (YYYY-MM-DD), incluido. Máximo 366 días con ambos extremos.
+        fraccion:
+          allOf: [{ $ref: '#/components/schemas/IdEntrada' }]
+          description: Id de la fracción (`Fraccion.id`), no su número visible. Filtra los 3 reportes.
+        moneda:
+          allOf: [{ $ref: '#/components/schemas/Moneda' }]
+          description: Moneda de las cuotas vencidas. Las ventas se resumen en USD.
+    ReporteResumenResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, enum: [true] }
+        data:
+          type: object
+          required: [texto, puntos, datosFaltantes, modelo, corte]
+          properties:
+            texto: { type: string, description: Resumen de 4 a 6 oraciones. Cada número está en la entrada. }
+            puntos:
+              type: array
+              items:
+                type: object
+                required: [tema, detalle, enlace]
+                properties:
+                  tema: { type: string, enum: [Comercial, Cobranzas, Inventario] }
+                  detalle: { type: string }
+                  enlace: { type: string, pattern: '^/reportes', example: /reportes, description: Ruta interna del módulo Reportes. }
+            datosFaltantes:
+              type: array
+              description: Datos que el modelo indicó que faltan para describir algo.
+              items: { type: string }
+            modelo: { type: string, example: gemini-3.5-flash-lite, description: Modelo configurado (AI_SUMMARY_MODEL). }
+            corte: { $ref: '#/components/schemas/FechaCorte' }
